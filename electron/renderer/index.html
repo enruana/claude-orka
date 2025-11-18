@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Orka</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <h1>🐋 Claude Orka</h1>
+        <span id="project-path" class="project-path"></span>
+      </div>
+      <div class="header-right">
+        <button id="refresh-btn" class="btn btn-icon" title="Refresh">🔄</button>
+        <button id="new-session-btn" class="btn btn-primary">➕ New Session</button>
+      </div>
+    </header>
+
+    <div class="main-layout">
+      <!-- Left Sidebar: Sessions List -->
+      <aside class="sessions-sidebar">
+        <div class="sidebar-header">
+          <h2>SESSIONS</h2>
+          <div class="filter-tabs">
+            <button class="filter-tab active" data-filter="all">All</button>
+            <button class="filter-tab" data-filter="active">Active</button>
+            <button class="filter-tab" data-filter="saved">Saved</button>
+          </div>
+        </div>
+        <div class="sessions-list" id="sessions-list">
+          <div class="loading">Loading...</div>
+        </div>
+      </aside>
+
+      <!-- Center: Graph Visualization -->
+      <div class="graph-panel">
+        <div class="graph-header">
+          <div class="graph-title">
+            <span class="branch-icon">🌿</span>
+            <span id="current-session-title">Select a session</span>
+          </div>
+          <div class="graph-controls">
+            <button id="zoom-out-btn" class="btn btn-icon" title="Zoom Out">−</button>
+            <button id="zoom-reset-btn" class="btn btn-icon" title="Reset Zoom">⊙</button>
+            <button id="zoom-in-btn" class="btn btn-icon" title="Zoom In">+</button>
+          </div>
+        </div>
+        <div class="graph-container">
+          <canvas id="graph-canvas"></canvas>
+          <div id="graph-empty" class="graph-empty">
+            <div class="empty-icon">📊</div>
+            <p>Select a session to view its branch graph</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Sidebar: Details & Actions -->
+      <aside class="details-sidebar">
+        <div id="details-empty" class="details-empty active">
+          <div class="empty-icon">👆</div>
+          <p>Click on a node in the graph<br>to see details</p>
+        </div>
+
+        <div id="details-main" class="details-content">
+          <div class="details-header">
+            <h3>Main Branch</h3>
+            <div class="status-indicator status-active" id="main-status"></div>
+          </div>
+          <div class="details-body">
+            <div class="detail-row">
+              <label>Session:</label>
+              <span id="main-session-name"></span>
+            </div>
+            <div class="detail-row">
+              <label>Created:</label>
+              <span id="main-created"></span>
+            </div>
+            <div class="detail-row">
+              <label>Tmux:</label>
+              <span id="main-tmux" class="mono"></span>
+            </div>
+            <div class="detail-row" id="main-context-row" style="display:none;">
+              <label>Context:</label>
+              <span id="main-context" class="mono"></span>
+            </div>
+          </div>
+          <div class="details-actions">
+            <button id="main-resume-btn" class="btn btn-success btn-block">▶ Resume</button>
+            <button id="main-close-btn" class="btn btn-warning btn-block">⏸ Close & Save</button>
+            <button id="new-fork-btn" class="btn btn-primary btn-block">🌿 Create Fork</button>
+            <button id="send-command-main-btn" class="btn btn-secondary btn-block">💬 Send Command</button>
+          </div>
+        </div>
+
+        <div id="details-fork" class="details-content">
+          <div class="details-header">
+            <h3 id="fork-name"></h3>
+            <div class="status-indicator" id="fork-status"></div>
+          </div>
+          <div class="details-body">
+            <div class="detail-row">
+              <label>Fork ID:</label>
+              <span id="fork-id" class="mono"></span>
+            </div>
+            <div class="detail-row">
+              <label>Created:</label>
+              <span id="fork-created"></span>
+            </div>
+            <div class="detail-row">
+              <label>Tmux Pane:</label>
+              <span id="fork-pane" class="mono"></span>
+            </div>
+            <div class="detail-row" id="fork-context-row" style="display:none;">
+              <label>Context:</label>
+              <span id="fork-context" class="mono"></span>
+            </div>
+            <div class="detail-row" id="fork-merged-row" style="display:none;">
+              <label>Merged:</label>
+              <span id="fork-merged"></span>
+            </div>
+          </div>
+          <div class="details-actions">
+            <button id="fork-export-btn" class="btn btn-info btn-block">💾 Export Context</button>
+            <button id="fork-merge-btn" class="btn btn-success btn-block">🔀 Merge to Main</button>
+            <button id="fork-resume-btn" class="btn btn-primary btn-block">▶ Resume</button>
+            <button id="fork-close-btn" class="btn btn-warning btn-block">⏸ Close & Save</button>
+            <button id="send-command-fork-btn" class="btn btn-secondary btn-block">💬 Send Command</button>
+            <button id="fork-delete-btn" class="btn btn-danger btn-block">🗑 Delete</button>
+          </div>
+        </div>
+
+        <div id="details-session" class="details-content">
+          <div class="details-header">
+            <h3 id="session-detail-name"></h3>
+            <div class="status-indicator" id="session-detail-status"></div>
+          </div>
+          <div class="details-body">
+            <div class="detail-row">
+              <label>Session ID:</label>
+              <span id="session-detail-id" class="mono"></span>
+            </div>
+            <div class="detail-row">
+              <label>Forks:</label>
+              <span id="session-detail-forks"></span>
+            </div>
+            <div class="detail-row">
+              <label>Created:</label>
+              <span id="session-detail-created"></span>
+            </div>
+          </div>
+          <div class="details-actions">
+            <button id="session-detail-resume-btn" class="btn btn-success btn-block">▶ Resume Session</button>
+            <button id="session-detail-close-btn" class="btn btn-warning btn-block">⏸ Close Session</button>
+            <button id="session-detail-delete-btn" class="btn btn-danger btn-block">🗑 Delete Session</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Command Input Modal -->
+    <div id="command-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Send Command</h3>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label>Target: <strong id="command-target-label"></strong></label>
+          <textarea id="command-input" class="textarea" placeholder="Enter command to send..." rows="6"></textarea>
+          <div class="modal-hint">Tip: This will be sent directly to the tmux pane</div>
+        </div>
+        <div class="modal-footer">
+          <button id="command-cancel-btn" class="btn btn-secondary">Cancel</button>
+          <button id="command-send-btn" class="btn btn-primary">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container" class="toast-container"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
