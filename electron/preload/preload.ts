@@ -1,49 +1,25 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { Session } from '../../src/models/Session'
 
-/**
- * API expuesta al renderer process
- */
-const orkaAPI = {
-  // Inicialización
-  initialize: () => ipcRenderer.invoke('orka:initialize'),
+// Expose protected methods that allow the renderer process to use
+// the ipcRenderer without exposing the entire object
+contextBridge.exposeInMainWorld('electronAPI', {
+  getSession: () => ipcRenderer.invoke('get-session'),
 
-  // Sesiones
-  createSession: (name?: string, openTerminal?: boolean) => ipcRenderer.invoke('orka:createSession', name, openTerminal),
-  getSessions: (filters?: any) => ipcRenderer.invoke('orka:listSessions', filters), // Alias para app.js
-  listSessions: (filters?: any) => ipcRenderer.invoke('orka:listSessions', filters),
-  getSession: (sessionId: string) => ipcRenderer.invoke('orka:getSession', sessionId),
-  resumeSession: (sessionId: string, openTerminal?: boolean) => ipcRenderer.invoke('orka:resumeSession', sessionId, openTerminal),
-  closeSession: (sessionId: string, saveContext?: boolean) =>
-    ipcRenderer.invoke('orka:closeSession', sessionId, saveContext),
-  deleteSession: (sessionId: string) => ipcRenderer.invoke('orka:deleteSession', sessionId),
+  selectNode: (nodeId: string) => ipcRenderer.invoke('select-node', nodeId),
 
-  // Forks
-  createFork: (sessionId: string, name?: string, vertical?: boolean) =>
-    ipcRenderer.invoke('orka:createFork', sessionId, name, vertical),
-  closeFork: (sessionId: string, forkId: string, saveContext?: boolean) =>
-    ipcRenderer.invoke('orka:closeFork', sessionId, forkId, saveContext),
-  resumeFork: (sessionId: string, forkId: string) =>
-    ipcRenderer.invoke('orka:resumeFork', sessionId, forkId),
-  deleteFork: (sessionId: string, forkId: string) =>
-    ipcRenderer.invoke('orka:deleteFork', sessionId, forkId),
+  createFork: (sessionId: string, name: string) =>
+    ipcRenderer.invoke('create-fork', sessionId, name),
 
-  // Comandos
-  send: (sessionId: string, command: string, target?: string) =>
-    ipcRenderer.invoke('orka:send', sessionId, command, target),
-  sendCommand: (sessionId: string, forkId: string, command: string) =>
-    ipcRenderer.invoke('orka:send', sessionId, command, forkId), // Alias para app.js
+  exportFork: (sessionId: string, forkId: string) =>
+    ipcRenderer.invoke('export-fork', sessionId, forkId),
 
-  // Export & Merge
-  export: (sessionId: string, forkId: string, customName?: string) =>
-    ipcRenderer.invoke('orka:export', sessionId, forkId, customName),
-  merge: (sessionId: string, forkId: string) =>
-    ipcRenderer.invoke('orka:merge', sessionId, forkId),
-  mergeAndClose: (sessionId: string, forkId: string) =>
-    ipcRenderer.invoke('orka:mergeAndClose', sessionId, forkId),
-}
+  mergeFork: (sessionId: string, forkId: string) =>
+    ipcRenderer.invoke('merge-fork', sessionId, forkId),
 
-// Exponer API al renderer
-contextBridge.exposeInMainWorld('orka', orkaAPI)
+  onStateUpdate: (callback: (session: Session) => void) => {
+    ipcRenderer.on('state-updated', (_, session) => callback(session))
+  },
 
-// Tipos para TypeScript (opcional, para el renderer)
-export type OrkaAPI = typeof orkaAPI
+  closeWindow: () => ipcRenderer.send('close-window'),
+})

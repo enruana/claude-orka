@@ -1,68 +1,203 @@
-import { app, BrowserWindow, dialog } from 'electron'
-import * as path from 'path'
-import { setupIPC } from './ipc-handlers'
+import { app, BrowserWindow, ipcMain } from 'electron'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import { ClaudeOrka } from '../../src/core/ClaudeOrka'
+import chokidar from 'chokidar'
+import execa from 'execa'
 
-let mainWindow: BrowserWindow | null = null
-let projectPath: string | null = null
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1200,
+// Store windows by project path
+const windows = new Map<string, BrowserWindow>()
+
+// Store active sessions
+let currentSessionId: string | null = null
+let currentProjectPath: string | null = null
+
+function createWindow(sessionId: string, projectPath: string) {
+  // If window already exists for this project, focus it
+  if (windows.has(projectPath)) {
+    const existingWindow = windows.get(projectPath)!
+    existingWindow.focus()
+    return existingWindow
+  }
+
+  const mainWindow = new BrowserWindow({
+    width: 600,
     height: 800,
-    minWidth: 900,
+    minWidth: 500,
     minHeight: 600,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
-      nodeIntegration: false,
       contextIsolation: true,
+      nodeIntegration: false,
     },
-    title: 'Claude Orka',
-    backgroundColor: '#1a1a1a',
   })
 
-  // Cargar el HTML
-  mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+  // Store session info
+  currentSessionId = sessionId
+  currentProjectPath = projectPath
 
-  // DevTools en modo desarrollo
-  if (process.argv.includes('--dev')) {
+  // Load UI
+  if (process.env.NODE_ENV === 'development') {
+    // Dev mode - load from Vite dev server
+    mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
+  } else {
+    // Production - load from built files
+    const indexPath = path.join(__dirname, '../renderer/index.html')
+    mainWindow.loadFile(indexPath)
   }
+
+  // Watch state.json for changes
+  watchStateFile(projectPath, mainWindow)
+
+  // Store window
+  windows.set(projectPath, mainWindow)
 
   mainWindow.on('closed', () => {
-    mainWindow = null
+    windows.delete(projectPath)
+  })
+
+  return mainWindow
+}
+
+function watchStateFile(projectPath: string, window: BrowserWindow) {
+  const statePath = path.join(projectPath, '.claude-orka/state.json')
+
+  const watcher = chokidar.watch(statePath, {
+    persistent: true,
+    ignoreInitial: true,
+  })
+
+  watcher.on('change', async () => {
+    try {
+      const orka = new ClaudeOrka(projectPath)
+      await orka.initialize()
+
+      if (currentSessionId) {
+        const session = await orka.getSession(currentSessionId)
+        if (session) {
+          window.webContents.send('state-updated', session)
+        }
+      }
+    } catch (error) {
+      console.error('Error watching state file:', error)
+    }
+  })
+
+  window.on('closed', () => {
+    watcher.close()
   })
 }
 
-async function selectProjectPath() {
-  const result = await dialog.showOpenDialog({
-    properties: ['openDirectory'],
-    title: 'Selecciona el directorio del proyecto',
-    buttonLabel: 'Seleccionar',
+// IPC Handlers
+ipcMain.handle('get-session', async () => {
+  if (!currentSessionId || !currentProjectPath) {
+    throw new Error('No active session')
+  }
+
+  const orka = new ClaudeOrka(currentProjectPath)
+  await orka.initialize()
+
+  const session = await orka.getSession(currentSessionId)
+  return session
+})
+
+ipcMain.handle('select-node', async (_, nodeId: string) => {
+  if (!currentSessionId || !currentProjectPath) {
+    throw new Error('No active session')
+  }
+
+  const orka = new ClaudeOrka(currentProjectPath)
+  await orka.initialize()
+
+  const session = await orka.getSession(currentSessionId)
+  if (!session) return
+
+  // Get tmux pane ID for the selected node
+  let tmuxPaneId: string | undefined
+
+  if (nodeId === 'main') {
+    tmuxPaneId = session.main?.tmuxPaneId
+  } else {
+    const fork = session.forks.find((f) => f.id === nodeId)
+    tmuxPaneId = fork?.tmuxPaneId
+  }
+
+  if (tmuxPaneId) {
+    // Focus the tmux pane
+    await execa('tmux', ['select-pane', '-t', tmuxPaneId])
+  }
+})
+
+ipcMain.handle('create-fork', async (_, sessionId: string, name: string) => {
+  if (!currentProjectPath) {
+    throw new Error('No active project')
+  }
+
+  const orka = new ClaudeOrka(currentProjectPath)
+  await orka.initialize()
+
+  const fork = await orka.createFork(sessionId, name)
+  return fork
+})
+
+ipcMain.handle('export-fork', async (_, sessionId: string, forkId: string) => {
+  if (!currentProjectPath) {
+    throw new Error('No active project')
+  }
+
+  const orka = new ClaudeOrka(currentProjectPath)
+  await orka.initialize()
+
+  const summary = await orka.generateForkExport(sessionId, forkId)
+  return summary
+})
+
+ipcMain.handle('merge-fork', async (_, sessionId: string, forkId: string) => {
+  if (!currentProjectPath) {
+    throw new Error('No active project')
+  }
+
+  const orka = new ClaudeOrka(currentProjectPath)
+  await orka.initialize()
+
+  await orka.generateExportAndMerge(sessionId, forkId)
+})
+
+ipcMain.on('close-window', (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  window?.close()
+})
+
+// App lifecycle
+app.whenReady().then(() => {
+  // Get session ID and project path from command line args
+  const args = process.argv.slice(2)
+  const sessionIdIndex = args.indexOf('--session-id')
+  const projectPathIndex = args.indexOf('--project-path')
+
+  if (sessionIdIndex !== -1 && args[sessionIdIndex + 1]) {
+    const sessionId = args[sessionIdIndex + 1]
+    const projectPath =
+      projectPathIndex !== -1 && args[projectPathIndex + 1]
+        ? args[projectPathIndex + 1]
+        : process.cwd()
+
+    createWindow(sessionId, projectPath)
+  }
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      // Don't create window on activate if no session
+    }
   })
-
-  if (!result.canceled && result.filePaths.length > 0) {
-    projectPath = result.filePaths[0]
-    return projectPath
-  }
-
-  return null
-}
-
-app.on('ready', async () => {
-  // Pedir al usuario que seleccione el proyecto
-  const selectedPath = await selectProjectPath()
-
-  if (!selectedPath) {
-    console.log('No se seleccionó ningún proyecto, cerrando...')
-    app.quit()
-    return
-  }
-
-  // Configurar IPC handlers con el path del proyecto
-  setupIPC(selectedPath)
-
-  // Crear ventana
-  createWindow()
 })
 
 app.on('window-all-closed', () => {
@@ -70,11 +205,3 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
-
-app.on('activate', () => {
-  if (mainWindow === null) {
-    createWindow()
-  }
-})
-
-export { mainWindow, projectPath }

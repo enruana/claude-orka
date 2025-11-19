@@ -4,6 +4,7 @@ import { TmuxCommands, logger, getExistingSessionIds, detectNewSessionId } from 
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
 import fs from 'fs-extra'
+import { spawn } from 'child_process'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -99,6 +100,11 @@ export class SessionManager {
     await this.stateManager.addSession(session)
     logger.info(`Session created: ${sessionName} (${sessionId})`)
 
+    // Launch UI
+    if (openTerminal) {
+      await this.launchUI(sessionId)
+    }
+
     return session
   }
 
@@ -121,6 +127,7 @@ export class SessionManager {
 
       if (openTerminal) {
         await TmuxCommands.openTerminalWindow(tmuxSessionId)
+        await this.launchUI(sessionId)
       }
 
       return session
@@ -164,6 +171,12 @@ export class SessionManager {
     }
 
     logger.info(`Session resumed: ${session.name}`)
+
+    // Launch UI
+    if (openTerminal) {
+      await this.launchUI(sessionId)
+    }
+
     return session
   }
 
@@ -647,5 +660,47 @@ Analyze the content and help me integrate the changes and learnings from the for
 
     // 3. Esperar a que Claude inicie y procese el prompt
     await sleep(8000) // 8 segundos para que Claude inicie y registre la sesión
+  }
+
+  /**
+   * Launch Electron UI for a session
+   */
+  private async launchUI(sessionId: string): Promise<void> {
+    try {
+      // Try to require electron
+      let electronPath: string
+      try {
+        electronPath = require('electron') as unknown as string
+      } catch (error) {
+        logger.warn('Electron not available, skipping UI launch')
+        return
+      }
+
+      // Get the path to the compiled main.js
+      const mainPath = path.join(__dirname, '../electron/main/main.js')
+
+      // Check if the main.js exists (in production build)
+      if (!fs.existsSync(mainPath)) {
+        logger.warn('Electron main.js not found, skipping UI launch')
+        return
+      }
+
+      // Launch Electron detached
+      const electronProcess = spawn(
+        electronPath,
+        [mainPath, '--session-id', sessionId, '--project-path', this.projectPath],
+        {
+          detached: true,
+          stdio: 'ignore',
+        }
+      )
+
+      electronProcess.unref()
+
+      logger.info(`Launched UI for session ${sessionId}`)
+    } catch (error) {
+      logger.warn(`Failed to launch UI: ${error}`)
+      // Don't throw - UI is optional
+    }
   }
 }

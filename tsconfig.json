@@ -19,6 +19,6 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*", "electron/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "electron/renderer/*.js"]
+  "include": ["src/**/*", "electron/main/**/*", "electron/preload/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "electron/renderer"]
 }

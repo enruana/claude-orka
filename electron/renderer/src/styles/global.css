@@ -1,0 +1,338 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #1e1e2e;
+}
+
+/* Titlebar */
+.titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  -webkit-app-region: drag;
+}
+
+.titlebar-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.titlebar-button {
+  background: none;
+  border: none;
+  color: #cdd6f4;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 14px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-button:hover {
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.1);
+  border-radius: 4px;
+}
+
+/* Session Info */
+.session-info {
+  padding: 16px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+}
+
+.session-info-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.session-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.session-status-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.session-status-badge.active {
+  background: rgba(166, 227, 161, 0.2);
+  color: #a6e3a1;
+}
+
+.session-status-badge.saved {
+  background: rgba(249, 226, 175, 0.2);
+  color: #f9e2af;
+}
+
+.session-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.session-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #9399b2;
+}
+
+/* Content Area */
+.content {
+  flex: 1;
+  position: relative;
+  background: #1e1e2e;
+}
+
+/* Node Card */
+.node-card {
+  background: rgba(30, 30, 46, 0.95);
+  border: 2px solid #585b70;
+  border-radius: 12px;
+  padding: 12px;
+  min-width: 160px;
+  backdrop-filter: blur(10px);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.node-card:hover {
+  border-color: #89b4fa;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(137, 180, 250, 0.2);
+}
+
+.node-card.selected {
+  border-color: #89b4fa;
+  background: rgba(137, 180, 250, 0.1);
+  box-shadow: 0 0 20px rgba(137, 180, 250, 0.3);
+  transform: scale(1.05);
+}
+
+.node-card.active {
+  border-color: #a6e3a1;
+}
+
+.node-card.saved {
+  border-color: #f9e2af;
+}
+
+.node-card.merged {
+  border-color: #94e2d5;
+  opacity: 0.7;
+}
+
+.node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.node-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.status-icon {
+  flex-shrink: 0;
+}
+
+.status-icon.active {
+  color: #a6e3a1;
+  animation: pulse 2s infinite;
+}
+
+.status-icon.saved {
+  color: #f9e2af;
+}
+
+.node-id {
+  font-size: 11px;
+  color: #6c7086;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  margin-bottom: 8px;
+}
+
+.node-status-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: rgba(88, 91, 112, 0.3);
+  color: #9399b2;
+}
+
+.node-handle {
+  background: #585b70;
+  border: 2px solid #1e1e2e;
+  width: 10px;
+  height: 10px;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Action Panel */
+.action-panel {
+  background: #181825;
+  border-top: 1px solid #313244;
+  padding: 12px 16px;
+}
+
+.action-panel-header {
+  margin-bottom: 12px;
+}
+
+.action-panel-title {
+  font-size: 12px;
+  color: #9399b2;
+}
+
+.action-panel-title strong {
+  color: #cdd6f4;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.action-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  color: #cdd6f4;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-button:hover:not(:disabled) {
+  background: #45475a;
+  border-color: #585b70;
+  transform: translateY(-1px);
+}
+
+.action-button.primary {
+  background: #89b4fa;
+  border-color: #89b4fa;
+  color: #1e1e2e;
+}
+
+.action-button.primary:hover:not(:disabled) {
+  background: #7aa2f7;
+  border-color: #7aa2f7;
+}
+
+.action-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Loading */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 16px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #313244;
+  border-top-color: #89b4fa;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error */
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: #f38ba8;
+}
+
+/* ReactFlow overrides */
+.react-flow {
+  background: #1e1e2e;
+}
+
+.react-flow__background {
+  background: #1e1e2e;
+}
+
+.react-flow__controls {
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 8px;
+}
+
+.react-flow__controls-button {
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  color: #cdd6f4;
+}
+
+.react-flow__controls-button:hover {
+  background: #313244;
+}
