@@ -104,22 +104,90 @@ async function testInteractiveFlow() {
       console.log(`\n   ℹ️  No hay sesiones guardadas aún`)
     }
 
-    await waitForEnter('\n▶️  Presiona ENTER para continuar con el test...')
+    await waitForEnter('\n▶️  Presiona ENTER para continuar...')
     console.log()
 
-    // ===== CREAR SESIÓN =====
-    console.log('🎬 PASO 2: Crear sesión principal')
+    // ===== DECIDIR ENTRE CREAR O RESTAURAR =====
+    console.log('🎬 PASO 2: Crear o Restaurar sesión')
     console.log('-'.repeat(70))
-    console.log('   Esto va a:')
-    console.log('   1. Crear una sesión tmux')
-    console.log('   2. Ejecutar "claude --continue"')
-    console.log('   3. Abrir Terminal.app automáticamente')
-    await waitForEnter('▶️  Presiona ENTER para crear la sesión...')
 
-    const session = await orka.createSession('test-interactive-merge')
-    console.log(`   ✅ Sesión creada: ${session.id}`)
-    console.log(`   📛 Nombre: ${session.name}`)
-    console.log(`   🪟  Terminal debería haberse abierto`)
+    let session: any
+
+    if (summary.sessions.length > 0) {
+      console.log('   Opciones:')
+      console.log('   1. Crear nueva sesión')
+      console.log('   2. Restaurar sesión existente')
+
+      const choice = await new Promise<string>((resolve) => {
+        rl.question('\n▶️  Elige opción (1 o 2): ', (answer) => {
+          resolve(answer.trim())
+        })
+      })
+
+      if (choice === '2') {
+        // Mostrar sesiones disponibles
+        console.log('\n   📋 Sesiones disponibles para restaurar:')
+        summary.sessions.forEach((s, index) => {
+          console.log(`      ${index + 1}. ${s.name} (${s.id}) - ${s.status}`)
+          console.log(`         Forks: ${s.totalForks} | Main context: ${s.hasMainContext ? '✅' : '❌'}`)
+        })
+
+        const sessionIndex = await new Promise<number>((resolve) => {
+          rl.question('\n▶️  Elige sesión (número): ', (answer) => {
+            resolve(parseInt(answer.trim()) - 1)
+          })
+        })
+
+        const selectedSession = summary.sessions[sessionIndex]
+        if (!selectedSession) {
+          throw new Error('Sesión inválida')
+        }
+
+        console.log(`\n   🔄 Restaurando sesión: ${selectedSession.name}`)
+        console.log('   Esto va a:')
+        console.log('   1. Abrir sesión tmux')
+        console.log('   2. Ejecutar "claude --continue"')
+        console.log('   3. Cargar contexto del main (si existe)')
+        console.log('   4. Restaurar forks guardados automáticamente')
+        console.log('   5. Cargar contexto de cada fork (si existe)')
+        await waitForEnter('▶️  Presiona ENTER para restaurar...')
+
+        session = await orka.resumeSession(selectedSession.id)
+        console.log(`   ✅ Sesión restaurada: ${session.id}`)
+        console.log(`   📛 Nombre: ${session.name}`)
+        console.log(`   🪟  Terminal debería haberse abierto`)
+        if (selectedSession.totalForks > 0) {
+          console.log(`   🍴 ${selectedSession.totalForks} fork(s) restaurado(s)`)
+        }
+      } else {
+        // Crear nueva sesión
+        console.log('\n   📝 Creando nueva sesión')
+        console.log('   Esto va a:')
+        console.log('   1. Crear una sesión tmux')
+        console.log('   2. Ejecutar "claude --continue"')
+        console.log('   3. Abrir Terminal.app automáticamente')
+        await waitForEnter('▶️  Presiona ENTER para crear la sesión...')
+
+        session = await orka.createSession('test-interactive-merge')
+        console.log(`   ✅ Sesión creada: ${session.id}`)
+        console.log(`   📛 Nombre: ${session.name}`)
+        console.log(`   🪟  Terminal debería haberse abierto`)
+      }
+    } else {
+      // No hay sesiones, crear una nueva
+      console.log('   📝 Creando nueva sesión (no hay sesiones existentes)')
+      console.log('   Esto va a:')
+      console.log('   1. Crear una sesión tmux')
+      console.log('   2. Ejecutar "claude --continue"')
+      console.log('   3. Abrir Terminal.app automáticamente')
+      await waitForEnter('▶️  Presiona ENTER para crear la sesión...')
+
+      session = await orka.createSession('test-interactive-merge')
+      console.log(`   ✅ Sesión creada: ${session.id}`)
+      console.log(`   📛 Nombre: ${session.name}`)
+      console.log(`   🪟  Terminal debería haberse abierto`)
+    }
+
     await waitForEnter('▶️  Presiona ENTER cuando veas la terminal abierta con Claude...')
 
     // ===== ESPERAR CLAUDE LISTO =====

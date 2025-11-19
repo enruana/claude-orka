@@ -13,6 +13,7 @@ interface InitOptions {
   forkName?: string
   loadContext?: boolean
   contextPath?: string
+  useContinue?: boolean // Si debe usar 'claude --continue' (default: true para nuevas sesiones)
 }
 
 /**
@@ -147,10 +148,12 @@ export class SessionManager {
     const windowId = await TmuxCommands.getMainWindowId(session.tmuxSessionName)
 
     // Inicializar Claude con contexto previo si existe
+    // useContinue: false porque vamos a cargar el contexto del archivo exportado
     await this.initializeClaude(paneId, {
       isFork: false,
       loadContext: !!session.main.contextPath,
       contextPath: session.main.contextPath,
+      useContinue: false,
     })
 
     // Abrir ventana de terminal si se solicita
@@ -174,6 +177,25 @@ export class SessionManager {
         lastActivity: new Date().toISOString(),
       },
     })
+
+    // Restaurar forks que NO están merged (tanto saved como active)
+    const forksToRestore = session.forks.filter(f => f.status !== 'merged')
+    if (forksToRestore.length > 0) {
+      logger.info(`Restoring ${forksToRestore.length} fork(s)...`)
+      for (const fork of forksToRestore) {
+        try {
+          // Solo restaurar si no está ya activo
+          if (fork.status !== 'active' || !fork.tmuxPaneId) {
+            await this.resumeFork(sessionId, fork.id)
+            logger.info(`Fork restored: ${fork.name}`)
+          } else {
+            logger.info(`Fork already active: ${fork.name}`)
+          }
+        } catch (error: any) {
+          logger.warn(`Failed to restore fork ${fork.name}: ${error.message}`)
+        }
+      }
+    }
 
     const updatedSession = await this.stateManager.getSession(sessionId)
     logger.info(`Session resumed: ${sessionId}`)
@@ -352,11 +374,13 @@ export class SessionManager {
     const paneId = await TmuxCommands.splitPane(session.tmuxSessionName)
 
     // Inicializar Claude con contexto
+    // useContinue: false porque vamos a cargar el contexto del archivo exportado
     await this.initializeClaude(paneId, {
       isFork: true,
       forkName: fork.name,
       loadContext: !!fork.contextPath,
       contextPath: fork.contextPath,
+      useContinue: false,
     })
 
     // Actualizar fork
@@ -689,29 +713,40 @@ Por favor lee el contenido del archivo \`${fork.contextPath}\` que tiene el resu
 
   /**
    * Cargar contexto en un pane
+   * En lugar de enviar todo el contenido, le pedimos a Claude que lea el archivo
    */
   private async loadContext(paneId: string, contextPath: string): Promise<void> {
-    logger.debug(`Loading context from ${contextPath} into pane ${paneId}`)
+    logger.info(`[CONTEXT LOAD] Loading context from ${contextPath} into pane ${paneId}`)
 
-    // Leer el contenido del contexto
-    const content = await this.stateManager.readContext(contextPath)
+    // Verificar que el archivo existe
+    const fullPath = path.join(this.projectPath, contextPath)
+    const exists = await fs.pathExists(fullPath)
 
-    // Enviar el contexto a Claude
-    const prompt = `Restaurando contexto de sesión anterior:\n\n${content}`
+    if (!exists) {
+      logger.warn(`[CONTEXT LOAD] Context file not found: ${fullPath}`)
+      return
+    }
 
+    logger.info(`[CONTEXT LOAD] Context file found: ${fullPath}`)
+
+    // Pedirle a Claude que lea el archivo para restaurar el contexto
+    const prompt = `Lee el archivo \`${contextPath}\` que contiene el contexto de esta sesión y tómalo como contexto para continuar donde nos quedamos.`
+
+    logger.info(`[CONTEXT LOAD] Sending prompt to pane ${paneId}: "${prompt}"`)
     await TmuxCommands.sendKeys(paneId, prompt)
     await TmuxCommands.sendEnter(paneId)
 
+    logger.info('[CONTEXT LOAD] Prompt sent! Waiting 2s...')
     await sleep(2000)
 
-    logger.info('Context loaded')
+    logger.info('[CONTEXT LOAD] Context load requested - DONE')
   }
 
   /**
    * Inicializar Claude en un pane
    */
   private async initializeClaude(paneId: string, options: InitOptions): Promise<void> {
-    const { isFork, forkName, loadContext, contextPath } = options
+    const { isFork, forkName, loadContext, contextPath, useContinue = true } = options
 
     logger.debug(`Initializing Claude in pane ${paneId}`)
 
@@ -720,22 +755,36 @@ Por favor lee el contenido del archivo \`${fork.contextPath}\` que tiene el resu
     await TmuxCommands.sendEnter(paneId)
     await sleep(500)
 
-    // 2. Iniciar Claude (siempre con --continue para mantener contexto del proyecto)
-    await TmuxCommands.sendKeys(paneId, 'claude --continue')
+    // 2. Iniciar Claude
+    // Si es restore (useContinue=false), usar 'claude' simple
+    // Si es nueva sesión (useContinue=true), usar 'claude --continue' para mantener contexto del proyecto
+    const claudeCommand = useContinue ? 'claude --continue' : 'claude'
+    logger.debug(`Starting Claude with: ${claudeCommand}`)
+    await TmuxCommands.sendKeys(paneId, claudeCommand)
     await TmuxCommands.sendEnter(paneId)
     await sleep(8000) // Esperar 8 segundos para que Claude se inicialice completamente
 
-    // 3. Cargar contexto si existe
-    if (loadContext && contextPath) {
-      await this.loadContext(paneId, contextPath)
-    }
-
-    // 4. Si es fork, notificar (esperar un poco más antes de enviar el mensaje)
-    if (isFork && forkName) {
+    // 3. Si es fork NUEVO (no restaurado), notificar
+    // Solo enviamos el mensaje si NO estamos cargando contexto (fork nuevo)
+    if (isFork && forkName && !loadContext) {
       await sleep(5000) // Espera adicional de 5s para forks (total: 13s desde inicio)
       await TmuxCommands.sendKeys(paneId, `Este es un fork llamado "${forkName}". Ten esto en cuenta.`)
       await TmuxCommands.sendEnter(paneId)
       await sleep(1000)
+    }
+
+    // 4. Cargar contexto si existe (para restore)
+    if (loadContext && contextPath) {
+      logger.info(`Loading context from: ${contextPath}`)
+      // Esperar más tiempo para asegurar que Claude esté completamente listo
+      if (isFork) {
+        logger.debug('Waiting additional 10s for fork to be ready...')
+        await sleep(10000) // Espera adicional para forks (total: 18s)
+      } else {
+        logger.debug('Waiting additional 5s for main to be ready...')
+        await sleep(5000) // Espera adicional para main (total: 13s)
+      }
+      await this.loadContext(paneId, contextPath)
     }
 
     logger.info('Claude initialized')
