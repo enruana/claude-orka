@@ -2,14 +2,21 @@
   "name": "claude-orka",
   "version": "1.0.0",
   "description": "SDK para orquestar sesiones de Claude Code con tmux - Branch management para conversaciones",
-  "main": "dist/electron/main/main.js",
+  "type": "module",
+  "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "orka": "./bin/orka.js"
+  },
   "scripts": {
     "build": "tsc",
     "build:electron": "tsc && npm run copy:renderer",
     "copy:renderer": "mkdir -p dist/electron/renderer && cp -r electron/renderer/*.html electron/renderer/*.css electron/renderer/*.js dist/electron/renderer/",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
+    "orka": "tsx src/cli/index.ts",
+    "cli:link": "npm link",
+    "cli:unlink": "npm unlink -g claude-orka",
     "electron": "npm run build:electron && electron .",
     "electron:dev": "npm run build:electron && electron . --dev",
     "type-check": "tsc --noEmit",
@@ -29,9 +36,13 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.46",
     "@types/uuid": "^10.0.0",
+    "chalk": "^5.6.2",
+    "cli-table3": "^0.6.5",
+    "commander": "^14.0.2",
     "execa": "^5.1.1",
     "fs-extra": "^11.2.0",
     "nanoid": "^3.3.7",
+    "ora": "^9.0.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

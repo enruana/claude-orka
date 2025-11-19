@@ -2,8 +2,8 @@ import { StateManager } from './StateManager'
 import { Session, Fork, SessionFilters } from '../models'
 import { TmuxCommands, logger, getExistingSessionIds, detectNewSessionId } from '../utils'
 import { v4 as uuidv4 } from 'uuid'
-import * as path from 'path'
-import * as fs from 'fs-extra'
+import path from 'path'
+import fs from 'fs-extra'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 

@@ -1,5 +1,5 @@
-import * as path from 'path'
-import * as fs from 'fs-extra'
+import path from 'path'
+import fs from 'fs-extra'
 import { ProjectState, Session, Fork, SessionFilters } from '../models'
 import { logger } from '../utils'
 
@@ -45,9 +45,7 @@ export class StateManager {
    */
   private async ensureDirectories(): Promise<void> {
     await fs.ensureDir(this.orkaDir)
-    await fs.ensureDir(path.join(this.orkaDir, 'sessions'))
-    await fs.ensureDir(path.join(this.orkaDir, 'forks'))
-    await fs.ensureDir(path.join(this.orkaDir, 'exports'))
+    // exports/ se crea on-demand cuando se necesita durante el merge
     logger.debug('Directories ensured')
   }
 
