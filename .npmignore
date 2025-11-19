@@ -1,0 +1,44 @@
+# Source files (compiled to dist/)
+src/
+tsconfig.json
+
+# Tests
+test*.ts
+*.test.ts
+*.spec.ts
+
+# Development files
+.vscode/
+.idea/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+*.tsbuildinfo
+
+# Examples and PRD
+examples/
+prd/
+
+# Electron specific
+electron/
+release/
+
+# Git
+.git/
+.gitignore
+
+# Claude-Orka instance data
+.claude-orka/
+
+# Documentation (keep only README.md)
+CLI-README-ES.md
+1.html
+
+# Temporary files
+.DS_Store
+*.swp
+*.swo
+*~

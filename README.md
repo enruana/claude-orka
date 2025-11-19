@@ -1,369 +1,221 @@
-# Claude-Orka 🐋
+# Claude-Orka 🎭
 
-**SDK para orquestar sesiones de Claude Code con tmux**
+> SDK and CLI for orchestrating Claude Code sessions with tmux - Branch management for AI conversations
 
-Claude-Orka te permite gestionar múltiples sesiones de Claude Code como si fueran ramas de Git, facilitando la exploración de diferentes enfoques sin perder contexto.
+[![npm version](https://img.shields.io/npm/v/claude-orka.svg)](https://www.npmjs.com/package/claude-orka)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Características
+## What is Claude-Orka?
 
-✅ **Múltiples sesiones persistentes** - Crea y guarda sesiones con contexto completo
-✅ **Forks de conversación** - Ramifica conversaciones para explorar alternativas
-✅ **Auto-export de contextos** - Guarda automáticamente usando `/fork:export` de Claude
-✅ **Merge a main** - Combina el trabajo de forks en la sesión principal
-✅ **Restauración de sesiones** - Retoma sesiones guardadas con todo su contexto
-✅ **Todo en `.claude-orka/`** - Estado centralizado por proyecto
+Claude-Orka is a powerful SDK and CLI tool that enables you to:
 
-## Requisitos
+- 🎯 **Orchestrate multiple Claude Code sessions** using tmux
+- 🌿 **Create conversation forks** to explore different approaches
+- 🔀 **Merge forks back to main** with context preservation
+- 💾 **Save and resume sessions** with full context
+- 📊 **Manage session state** across your projects
 
-- **Node.js** >= 18
-- **tmux** instalado (`brew install tmux` en macOS)
-- **Claude Code CLI** instalado
+Perfect for complex development workflows where you need to explore multiple solutions in parallel!
 
-## Instalación
+## Installation
 
 ```bash
-npm install claude-orka
+npm install -g claude-orka
 ```
 
-## Uso Básico
+## Prerequisites
+
+- Node.js >= 18.0.0
+- [tmux](https://github.com/tmux/tmux) - Terminal multiplexer
+- [Claude CLI](https://claude.ai/download) - Claude Code CLI
+
+**Verify installation:**
+
+```bash
+orka doctor
+```
+
+## Quick Start
+
+```bash
+# Initialize in your project
+orka init
+
+# Create a new session
+orka session create "Implement Feature X"
+
+# Create a fork to explore an alternative
+orka fork create <session-id> "Try Alternative Approach"
+
+# When done, merge the fork back to main
+orka merge auto <session-id> <fork-id>
+
+# Check project status
+orka status
+```
+
+## Features
+
+### 🎯 Session Management
+
+- Create and manage multiple Claude Code sessions
+- Save sessions for later (preserves Claude context)
+- Resume sessions with full conversation history
+- List and filter sessions by status
+
+### 🌿 Fork & Merge Workflow
+
+- Create conversation forks to explore alternatives
+- Each fork maintains its own Claude session
+- Generate summaries of fork explorations
+- Merge learnings back to main conversation
+
+### 💾 State Persistence
+
+- All state stored in `.claude-orka/state.json`
+- Automatic context preservation via Claude's native sessions
+- Export summaries for fork integrations
+
+### 🎨 Beautiful CLI
+
+- Colored output with chalk
+- Interactive tables with cli-table3
+- Progress spinners with ora
+- JSON output for scripting
+
+## Commands
+
+### Project
+
+```bash
+orka init              # Initialize Claude-Orka in current project
+orka doctor            # Check system dependencies
+orka status            # Show project status
+```
+
+### Sessions
+
+```bash
+orka session create [name]         # Create new session
+orka session list                  # List all sessions
+orka session get <id>              # Get session details
+orka session resume <id>           # Resume saved session
+orka session close <id>            # Close session (save for later)
+orka session delete <id>           # Permanently delete session
+```
+
+### Forks
+
+```bash
+orka fork create <session-id> [name]       # Create fork
+orka fork list <session-id>                # List forks
+orka fork resume <session-id> <fork-id>    # Resume fork
+orka fork close <session-id> <fork-id>     # Close fork
+orka fork delete <session-id> <fork-id>    # Delete fork
+```
+
+### Merge
+
+```bash
+orka merge export <session-id> <fork-id>   # Generate export
+orka merge do <session-id> <fork-id>       # Merge to main
+orka merge auto <session-id> <fork-id>     # Export + merge (recommended)
+```
+
+## Example Workflow
+
+```bash
+# 1. Start a new session for your feature
+orka session create "OAuth Implementation"
+# → Session ID: abc123...
+
+# 2. Work on the main approach...
+# (Claude Code opens in tmux)
+
+# 3. Create a fork to try JWT tokens
+orka fork create abc123 "Try JWT Tokens"
+# → Fork ID: def456...
+
+# 4. Work on the fork...
+# (Fork opens in new tmux pane)
+
+# 5. Merge the successful approach back
+orka merge auto abc123 def456
+
+# 6. Check final state
+orka status
+```
+
+## SDK Usage
+
+You can also use Claude-Orka programmatically:
 
 ```typescript
 import { ClaudeOrka } from 'claude-orka'
 
-// Crear instancia para tu proyecto
-const orka = new ClaudeOrka('/path/to/your/project')
+const orka = new ClaudeOrka('/path/to/project')
 await orka.initialize()
 
-// Crear una nueva sesión
-const session = await orka.createSession('my-feature')
-console.log('Sesión creada:', session.id)
+// Create session
+const session = await orka.createSession('My Feature')
 
-// Crear un fork para explorar una alternativa
-const fork = await orka.createFork(session.id, 'testing-redis')
-console.log('Fork creado:', fork.id)
+// Create fork
+const fork = await orka.createFork(session.id, 'Alternative')
 
-// Enviar comandos
-await orka.send(session.id, 'Implementa autenticación JWT')
-await orka.send(session.id, 'Prueba con Redis en lugar de cache en memoria', fork.id)
+// Generate export and merge
+await orka.generateExportAndMerge(session.id, fork.id)
 
-// Exportar y hacer merge del fork
-await orka.export(session.id, fork.id)
-await orka.merge(session.id, fork.id)
-
-// Cerrar fork (auto-guarda contexto)
-await orka.closeFork(session.id, fork.id)
-
-// Cerrar sesión (auto-guarda contexto)
-await orka.closeSession(session.id)
-
-// Más tarde... restaurar la sesión
-const restoredSession = await orka.resumeSession(session.id)
-console.log('Sesión restaurada con contexto completo')
+// Get project summary
+const summary = await orka.getProjectSummary()
 ```
 
-## Estructura del Proyecto
-
-Cuando inicializas ClaudeOrka en un proyecto, crea la siguiente estructura:
-
-```
-your-project/
-├── .claude-orka/              # Carpeta de Orka (agregar a .gitignore)
-│   ├── state.json            # Estado de todas las sesiones
-│   ├── sessions/             # Contextos de sesiones
-│   │   └── session-abc123.md
-│   ├── forks/                # Contextos de forks
-│   │   └── fork-feature-xyz.md
-│   └── exports/              # Exports manuales
-│
-└── .gitignore                # Debe incluir .claude-orka/
-```
-
-## API Completa
-
-### ClaudeOrka
-
-#### Constructor
-
-```typescript
-new ClaudeOrka(projectPath: string)
-```
-
-#### Inicialización
-
-```typescript
-await orka.initialize()
-```
-
-#### Sesiones
-
-```typescript
-// Crear sesión
-await orka.createSession(name?: string): Promise<Session>
-
-// Listar sesiones
-await orka.listSessions(filters?: SessionFilters): Promise<Session[]>
-
-// Obtener sesión
-await orka.getSession(sessionId: string): Promise<Session | null>
-
-// Restaurar sesión guardada
-await orka.resumeSession(sessionId: string): Promise<Session>
-
-// Cerrar sesión (guarda contexto por defecto)
-await orka.closeSession(sessionId: string, saveContext?: boolean): Promise<void>
-
-// Eliminar sesión permanentemente
-await orka.deleteSession(sessionId: string): Promise<void>
-```
-
-#### Forks
-
-```typescript
-// Crear fork
-await orka.createFork(
-  sessionId: string,
-  name?: string,
-  vertical?: boolean
-): Promise<Fork>
-
-// Cerrar fork (guarda contexto por defecto)
-await orka.closeFork(
-  sessionId: string,
-  forkId: string,
-  saveContext?: boolean
-): Promise<void>
-
-// Restaurar fork guardado
-await orka.resumeFork(sessionId: string, forkId: string): Promise<Fork>
-```
-
-#### Comandos
-
-```typescript
-// Enviar comando a main o fork
-await orka.send(
-  sessionId: string,
-  command: string,
-  target?: string  // ID del fork (opcional)
-): Promise<void>
-```
-
-#### Export & Merge
-
-```typescript
-// Exportar contexto de fork
-await orka.export(
-  sessionId: string,
-  forkId: string,
-  customName?: string
-): Promise<string>
-
-// Hacer merge a main
-await orka.merge(sessionId: string, forkId: string): Promise<void>
-
-// Exportar, merge y cerrar (todo en uno)
-await orka.mergeAndClose(sessionId: string, forkId: string): Promise<void>
-```
-
-## Ejemplos de Uso
-
-### Ejemplo 1: Explorar alternativas
-
-```typescript
-import { ClaudeOrka } from 'claude-orka'
-
-const orka = new ClaudeOrka(process.cwd())
-await orka.initialize()
-
-// Crear sesión principal
-const session = await orka.createSession('auth-implementation')
-
-// Trabajo en main
-await orka.send(session.id, 'Necesito implementar autenticación')
-
-// Fork para probar JWT
-const jwtFork = await orka.createFork(session.id, 'jwt-approach')
-await orka.send(session.id, 'Implementa con JWT', jwtFork.id)
-
-// Fork para probar OAuth
-const oauthFork = await orka.createFork(session.id, 'oauth-approach')
-await orka.send(session.id, 'Implementa con OAuth 2.0', oauthFork.id)
-
-// Decidir cuál usar y hacer merge
-await orka.mergeAndClose(session.id, jwtFork.id)
-
-// Descartar el otro fork
-await orka.closeFork(session.id, oauthFork.id, false) // No guardar
-```
-
-### Ejemplo 2: Sesión larga con pausas
-
-```typescript
-import { ClaudeOrka } from 'claude-orka'
-
-const orka = new ClaudeOrka('/Users/me/my-app')
-await orka.initialize()
-
-// Día 1: Crear sesión y trabajar
-const session = await orka.createSession('refactor-db')
-await orka.send(session.id, 'Vamos a refactorizar la capa de datos')
-// ... trabajo ...
-
-// Cerrar al final del día (guarda contexto automáticamente)
-await orka.closeSession(session.id)
-
-// Día 2: Restaurar sesión con todo el contexto
-const restored = await orka.resumeSession(session.id)
-console.log('Sesión restaurada! Claude tiene todo el contexto.')
-```
-
-### Ejemplo 3: Listar y gestionar sesiones
-
-```typescript
-import { ClaudeOrka } from 'claude-orka'
-
-const orka = new ClaudeOrka(process.cwd())
-await orka.initialize()
-
-// Listar todas las sesiones activas
-const activeSessions = await orka.listSessions({ status: 'active' })
-console.log('Sesiones activas:', activeSessions.length)
-
-// Listar todas las sesiones guardadas
-const savedSessions = await orka.listSessions({ status: 'saved' })
-console.log('Sesiones guardadas:', savedSessions.length)
-
-// Buscar por nombre
-const authSessions = await orka.listSessions({ name: 'auth' })
-console.log('Sesiones de autenticación:', authSessions)
-
-// Cerrar todas las sesiones activas
-for (const session of activeSessions) {
-  await orka.closeSession(session.id)
-}
-```
-
-## Modelos de Datos
-
-### Session
-
-```typescript
-interface Session {
-  id: string                    // session-{nanoid}
-  name: string                  // Nombre descriptivo
-  tmuxSessionName: string       // orchestrator-{id}
-  projectPath: string           // Path absoluto
-  createdAt: string             // ISO timestamp
-  status: 'active' | 'saved'    // Estado
-  main: MainBranch              // Rama principal
-  forks: Fork[]                 // Forks de la sesión
-  lastActivity: string          // ISO timestamp
-}
-```
-
-### Fork
-
-```typescript
-interface Fork {
-  id: string                    // fork-{name?}-{nanoid}
-  name: string                  // Nombre descriptivo
-  tmuxPaneId?: string           // ID del pane (si está activo)
-  parentId: string              // 'main' o ID de otro fork
-  createdAt: string             // ISO timestamp
-  contextPath?: string          // Path al contexto guardado
-  status: 'active' | 'saved' | 'merged'
-  lastActivity: string          // ISO timestamp
-  mergedToMain?: boolean        // Si se hizo merge
-  mergedAt?: string             // Timestamp del merge
-}
-```
-
-## Consideraciones
-
-### Auto-Export
-
-Cuando cierras una sesión o fork con `saveContext=true` (default):
-1. Se envía `/fork:export` a Claude
-2. Se espera 3 segundos
-3. Se captura el output
-4. Se guarda en `.claude-orka/sessions/` o `.claude-orka/forks/`
-
-### Gitignore
-
-Agrega esto a tu `.gitignore`:
+## Architecture
 
 ```
 .claude-orka/
+├── state.json          # Project state
+└── exports/            # Fork summaries (created on-demand)
+    └── fork-*.md       # Generated summaries
 ```
 
-### Logs
+**Key Concepts:**
 
-Controla el nivel de logs:
+- **Session**: A Claude Code conversation with main + forks
+- **Main**: The primary conversation branch
+- **Fork**: A branched conversation to explore alternatives
+- **Export**: A summary of a fork's exploration
+- **Merge**: Integrate fork learnings into main
 
-```typescript
-import { logger, LogLevel } from 'claude-orka'
+## Configuration
 
-logger.setLevel(LogLevel.DEBUG) // DEBUG, INFO, WARN, ERROR
-```
+Claude-Orka uses native Claude CLI sessions, so no additional configuration is needed. Session IDs are automatically detected from `~/.claude/history.jsonl`.
 
-## Roadmap
-
-- [x] Sprint 1: Setup + Modelos
-- [x] Sprint 2: TmuxCommands
-- [x] Sprint 3: StateManager
-- [x] Sprint 4-5: SessionManager
-- [x] Sprint 6: ClaudeOrka SDK
-- [x] Sprint 7: Electron App ✅
-
-## Electron App
-
-Claude-Orka incluye una aplicación de escritorio con interfaz visual:
-
-### Ejecutar la app
+## Troubleshooting
 
 ```bash
-# Modo desarrollo (con DevTools)
-npm run electron:dev
+# Check if everything is set up correctly
+orka doctor
 
-# Modo producción
-npm run electron
+# Common issues:
+# - tmux not installed → brew install tmux
+# - Claude CLI not found → Install from claude.ai
+# - Project not initialized → orka init
 ```
 
-### Empaquetar la app
+## Contributing
 
-```bash
-# Generar .dmg y .zip para macOS
-npm run package
-```
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-La app te permitirá:
-- 🎯 Seleccionar el directorio del proyecto
-- 📋 Ver todas las sesiones (activas y guardadas)
-- ➕ Crear nuevas sesiones
-- ▶️ Restaurar sesiones guardadas
-- 🌿 Crear y gestionar forks
-- 📤 Exportar y hacer merge de forks
-- 💬 Enviar comandos a sesiones/forks
-- 🪟 Abrir terminales directamente desde la UI
+## License
 
-## Contribuir
+MIT © [Your Name]
 
-Las contribuciones son bienvenidas! Por favor:
+## Links
 
-1. Fork el proyecto
-2. Crea una rama (`git checkout -b feature/amazing`)
-3. Commit tus cambios (`git commit -m 'Add amazing feature'`)
-4. Push (`git push origin feature/amazing`)
-5. Abre un Pull Request
-
-## Licencia
-
-MIT
-
-## Autor
-
-Claude-Orka - Orquestador de sesiones de Claude Code
+- [GitHub Repository](https://github.com/yourusername/claude-orka)
+- [Issue Tracker](https://github.com/yourusername/claude-orka/issues)
+- [Claude Code](https://claude.ai/code)
 
 ---
 
-**¿Necesitas ayuda?** Abre un issue en GitHub
+Made with ❤️ for the Claude Code community

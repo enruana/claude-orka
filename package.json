@@ -20,19 +20,38 @@
     "electron": "npm run build:electron && electron .",
     "electron:dev": "npm run build:electron && electron . --dev",
     "type-check": "tsc --noEmit",
-    "package": "npm run build:electron && electron-builder"
+    "package": "npm run build:electron && electron-builder",
+    "prepublishOnly": "npm run build",
+    "prepack": "npm run build"
   },
   "keywords": [
     "claude",
+    "claude-code",
     "tmux",
     "orchestrator",
     "sdk",
     "branching",
     "context-management",
-    "electron"
+    "session-management",
+    "ai",
+    "cli"
   ],
-  "author": "",
+  "author": "Your Name <your.email@example.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/claude-orka.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/claude-orka/issues"
+  },
+  "homepage": "https://github.com/yourusername/claude-orka#readme",
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.46",
     "@types/uuid": "^10.0.0",
