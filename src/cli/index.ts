@@ -6,6 +6,7 @@ import { statusCommand } from './commands/status'
 import { sessionCommand } from './commands/session'
 import { forkCommand } from './commands/fork'
 import { mergeCommand } from './commands/merge'
+import { doctorCommand } from './commands/doctor'
 
 const program = new Command()
 
@@ -16,6 +17,7 @@ program
 
 // Register commands
 initCommand(program)
+doctorCommand(program)
 statusCommand(program)
 sessionCommand(program)
 forkCommand(program)

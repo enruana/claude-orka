@@ -37,6 +37,29 @@ Esto crea la estructura `.claude-orka/` con:
 
 ---
 
+### `orka doctor`
+
+Verifica las dependencias del sistema y la configuración.
+
+```bash
+orka doctor
+```
+
+Verifica:
+- ✅ Node.js (>= 18.0.0)
+- ✅ tmux (instalado y accesible)
+- ✅ Claude CLI (instalado y accesible)
+- ✅ Inicialización del proyecto (.claude-orka/)
+- ✅ Permisos de escritura
+- ✅ Directorio de Claude (~/.claude/)
+
+**Útil para:**
+- Debugging de problemas de instalación
+- Verificar que todas las dependencias están instaladas
+- Confirmar que el sistema está listo para usar Claude-Orka
+
+---
+
 ### `orka status`
 
 Muestra el estado completo del proyecto.
