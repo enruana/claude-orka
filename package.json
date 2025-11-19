@@ -9,7 +9,9 @@
     "orka": "./bin/orka.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:sdk && npm run build:cli",
+    "build:sdk": "tsc",
+    "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --outfile=dist/cli.js --external:@anthropic-ai/claude-agent-sdk --external:chalk --external:cli-table3 --external:commander --external:execa --external:fs-extra --external:nanoid --external:ora --external:uuid",
     "build:electron": "tsc && npm run copy:renderer",
     "copy:renderer": "mkdir -p dist/electron/renderer && cp -r electron/renderer/*.html electron/renderer/*.css electron/renderer/*.js dist/electron/renderer/",
     "dev": "tsx watch src/index.ts",
@@ -69,6 +71,7 @@
     "@types/node": "^20.10.0",
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1",
+    "esbuild": "^0.27.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.0"
   },
