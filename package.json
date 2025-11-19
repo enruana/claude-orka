@@ -1,6 +1,6 @@
 {
   "name": "@enruana/claude-orka",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "SDK for orchestrating Claude Code sessions with tmux - Branch management for conversations",
   "type": "module",
   "main": "dist/index.js",
