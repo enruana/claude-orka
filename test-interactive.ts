@@ -50,50 +50,129 @@ async function testInteractiveFlow() {
     // ===== INICIALIZACIÓN =====
     console.log('📦 PASO 1: Inicialización')
     console.log('-'.repeat(70))
+    console.log('   Vamos a inicializar Orka en el proyecto')
     await waitForEnter()
 
     const orka = new ClaudeOrka(projectPath)
     await orka.initialize()
-    console.log('✅ Orka inicializado\n')
+    console.log('   ✅ Orka inicializado')
+    console.log('   📁 Estructura .claude-orka/ creada\n')
+
+    // ===== MOSTRAR RESUMEN DEL PROYECTO =====
+    console.log('📊 PASO 1.5: Resumen del estado actual del proyecto')
+    console.log('-'.repeat(70))
+    await waitForEnter('▶️  Presiona ENTER para ver el estado actual...')
+
+    const summary = await orka.getProjectSummary()
+
+    console.log(`\n   📁 Proyecto: ${summary.projectPath}`)
+    console.log(`   📅 Última actualización: ${new Date(summary.lastUpdated).toLocaleString()}`)
+    console.log(`\n   📊 Estadísticas:`)
+    console.log(`      Total sesiones: ${summary.totalSessions}`)
+    console.log(`      Sesiones activas: ${summary.activeSessions}`)
+    console.log(`      Sesiones guardadas: ${summary.savedSessions}`)
+
+    if (summary.sessions.length > 0) {
+      console.log(`\n   📋 Sesiones existentes:`)
+      summary.sessions.forEach((session, index) => {
+        console.log(`\n   ${index + 1}. ${session.name} (${session.id})`)
+        console.log(`      Estado: ${session.status}`)
+        console.log(`      Creada: ${new Date(session.createdAt).toLocaleString()}`)
+        console.log(`      Contexto main: ${session.hasMainContext ? '✅ Disponible' : '❌ No disponible'}`)
+        if (session.mainContextPath) {
+          console.log(`         Path: ${session.mainContextPath}`)
+        }
+        console.log(`      Forks: ${session.totalForks} total`)
+        console.log(`         - Activos: ${session.activeForks}`)
+        console.log(`         - Guardados: ${session.savedForks}`)
+        console.log(`         - Mergeados: ${session.mergedForks}`)
+
+        if (session.forks.length > 0) {
+          console.log(`      Detalle de forks:`)
+          session.forks.forEach((fork) => {
+            const statusEmoji = fork.status === 'active' ? '🟢' : fork.status === 'merged' ? '🔀' : '💾'
+            console.log(`         ${statusEmoji} ${fork.name} (${fork.id})`)
+            console.log(`            Estado: ${fork.status}`)
+            console.log(`            Contexto: ${fork.hasContext ? '✅ Disponible' : '❌ No disponible'}`)
+            if (fork.mergedToMain) {
+              console.log(`            Merged: ✅ Sí (${new Date(fork.mergedAt!).toLocaleString()})`)
+            }
+          })
+        }
+      })
+    } else {
+      console.log(`\n   ℹ️  No hay sesiones guardadas aún`)
+    }
+
+    await waitForEnter('\n▶️  Presiona ENTER para continuar con el test...')
+    console.log()
 
     // ===== CREAR SESIÓN =====
     console.log('🎬 PASO 2: Crear sesión principal')
     console.log('-'.repeat(70))
-    console.log('   Se abrirá ventana de Terminal...')
-    await waitForEnter()
+    console.log('   Esto va a:')
+    console.log('   1. Crear una sesión tmux')
+    console.log('   2. Ejecutar "claude --continue"')
+    console.log('   3. Abrir Terminal.app automáticamente')
+    await waitForEnter('▶️  Presiona ENTER para crear la sesión...')
 
     const session = await orka.createSession('test-interactive-merge')
     console.log(`   ✅ Sesión creada: ${session.id}`)
     console.log(`   📛 Nombre: ${session.name}`)
-    console.log(`   🪟  Revisa que la terminal se haya abierto\n`)
+    console.log(`   🪟  Terminal debería haberse abierto`)
+    await waitForEnter('▶️  Presiona ENTER cuando veas la terminal abierta con Claude...')
+
+    // ===== ESPERAR CLAUDE LISTO =====
+    console.log('⏳ PASO 3: Esperar a que Claude esté listo')
+    console.log('-'.repeat(70))
+    console.log('   Verifica en la terminal que:')
+    console.log('   1. Claude haya terminado de cargar')
+    console.log('   2. Veas el prompt >')
+    console.log('   3. No haya errores')
+    await waitForEnter('▶️  Presiona ENTER cuando Claude esté listo (prompt visible)...')
+    console.log('   ✅ Claude listo\n')
 
     // ===== ENVIAR MENSAJE A MAIN =====
-    console.log('💬 PASO 3: Enviar mensaje a main')
+    console.log('💬 PASO 4: Enviar mensaje a main')
     console.log('-'.repeat(70))
-    console.log('   Mensaje: "Hola! Estamos probando forks."')
-    await waitForEnter('▶️  Presiona ENTER cuando Claude esté listo (prompt visible)...')
+    console.log('   Mensaje: "Hola! Estamos probando forks. Di hola brevemente."')
+    await waitForEnter('▶️  Presiona ENTER para enviar el mensaje...')
 
     await orka.send(session.id, 'Hola! Estamos probando forks. Di hola brevemente.')
-    console.log('   ✅ Mensaje enviado')
-    console.log('   👀 Verifica que Claude responda en el main\n')
+    console.log('   ✅ Mensaje enviado a Claude')
+    await waitForEnter('▶️  Presiona ENTER cuando veas la respuesta de Claude en main...')
+    console.log('   ✅ Claude respondió\n')
 
     // ===== CREAR FORK =====
-    console.log('🍴 PASO 4: Crear fork')
+    console.log('🍴 PASO 5: Crear fork')
     console.log('-'.repeat(70))
-    console.log('   Se hará split de la ventana...')
-    await waitForEnter('▶️  Presiona ENTER cuando Claude haya respondido en main...')
+    console.log('   Esto va a:')
+    console.log('   1. Hacer split horizontal de la ventana tmux')
+    console.log('   2. Ejecutar "claude --continue" en el nuevo pane')
+    console.log('   3. Enviar mensaje notificando que es un fork')
+    await waitForEnter('▶️  Presiona ENTER para crear el fork...')
 
     const fork = await orka.createFork(session.id, 'test-planetas')
     console.log(`   ✅ Fork creado: ${fork.id}`)
     console.log(`   📛 Nombre: ${fork.name}`)
     console.log('   🪟  Deberías ver el split en la terminal')
-    console.log('   ⏳ El fork se está inicializando...\n')
+    await waitForEnter('▶️  Presiona ENTER cuando veas el split y Claude cargando en el fork...')
+
+    // ===== ESPERAR FORK LISTO =====
+    console.log('⏳ PASO 6: Esperar a que el fork esté listo')
+    console.log('-'.repeat(70))
+    console.log('   Verifica en el fork (pane inferior) que:')
+    console.log('   1. Claude haya terminado de cargar')
+    console.log('   2. Veas el mensaje "Este es un fork llamado test-planetas"')
+    console.log('   3. Veas el prompt >')
+    await waitForEnter('▶️  Presiona ENTER cuando el fork esté listo...')
+    console.log('   ✅ Fork listo\n')
 
     // ===== ENVIAR MENSAJE AL FORK =====
-    console.log('🌌 PASO 5: Enviar pregunta al fork')
+    console.log('🌌 PASO 7: Enviar pregunta al fork')
     console.log('-'.repeat(70))
     console.log('   Pregunta: "¿Cuántos planetas hay en el sistema solar?"')
-    await waitForEnter('▶️  Presiona ENTER cuando el fork esté listo (deberías ver el mensaje de fork)...')
+    await waitForEnter('▶️  Presiona ENTER para enviar la pregunta al fork...')
 
     await orka.send(
       session.id,
@@ -101,89 +180,106 @@ async function testInteractiveFlow() {
       fork.id
     )
     console.log('   ✅ Pregunta enviada al fork')
-    console.log('   👀 Verifica que Claude responda en el fork\n')
+    await waitForEnter('▶️  Presiona ENTER cuando Claude haya respondido en el fork...')
+    console.log('   ✅ Claude respondió en el fork\n')
 
     // ===== GENERAR EXPORT DEL FORK =====
-    console.log('📝 PASO 6: Generar export del fork para merge')
+    console.log('📝 PASO 8: Generar export del fork para merge')
     console.log('-'.repeat(70))
-    console.log('   Esto enviará un prompt a Claude pidiendo:')
+    console.log('   Esto va a enviar un prompt a Claude pidiendo:')
     console.log('   - Crear un archivo de contexto con resumen ejecutivo')
     console.log('   - Incluir: objetivo, desarrollo, hallazgos, resultados, recomendaciones')
     console.log('   - Usar la herramienta Write para crear el archivo')
-    await waitForEnter('▶️  Presiona ENTER cuando Claude haya respondido la pregunta...')
+    await waitForEnter('▶️  Presiona ENTER para enviar el prompt de export...')
 
     const exportPath = await orka.generateForkExport(session.id, fork.id)
-    console.log(`   ✅ Prompt enviado a Claude`)
+    console.log(`   ✅ Prompt enviado a Claude en el fork`)
     console.log(`   📁 Claude creará el archivo en: ${exportPath}`)
-    console.log('   👀 En el fork verás a Claude generando el resumen y usando Write\n')
+    console.log('   👀 Observa en el fork cómo Claude procesa el prompt\n')
 
     // ===== ESPERAR EXPORT =====
-    console.log('⏳ PASO 7: Esperar a que Claude complete el export')
+    console.log('⏳ PASO 9: Esperar a que Claude complete el export')
     console.log('-'.repeat(70))
-    console.log('   Claude está:')
-    console.log('   1. Leyendo la conversación del fork')
-    console.log('   2. Generando el resumen ejecutivo')
-    console.log('   3. Usando Write para crear el archivo')
-    console.log('   4. Confirmando que lo guardó')
+    console.log('   Observa en el fork que Claude:')
+    console.log('   1. Lee y entiende el prompt')
+    console.log('   2. Analiza la conversación del fork')
+    console.log('   3. Genera el resumen ejecutivo')
+    console.log('   4. Usa la herramienta Write para crear el archivo')
+    console.log('   5. Confirma que lo guardó')
     await waitForEnter('▶️  Presiona ENTER cuando veas que Claude confirmó crear el archivo...')
+    console.log('   ✅ Claude completó el export\n')
 
-    // Verificar export
+    // ===== VERIFICAR ARCHIVO =====
+    console.log('🔍 PASO 10: Verificar que el archivo fue creado')
+    console.log('-'.repeat(70))
+    await waitForEnter('▶️  Presiona ENTER para verificar el archivo...')
+
     const fullExportPath = path.join(projectPath, exportPath)
     const exportExists = await fs.pathExists(fullExportPath)
-    console.log(`\n   🔍 Verificando export...`)
-    console.log(`      Existe: ${exportExists ? '✅ SÍ' : '❌ NO'}`)
+    console.log(`   Archivo: ${exportPath}`)
+    console.log(`   Existe: ${exportExists ? '✅ SÍ' : '❌ NO'}`)
 
     if (exportExists) {
       const exportContent = await fs.readFile(fullExportPath, 'utf-8')
-      console.log(`      Tamaño: ${exportContent.length} caracteres`)
-      console.log(`      Preview (primeras líneas):`)
-      const preview = exportContent.split('\n').slice(0, 5).join('\n')
-      console.log(`      ${preview.substring(0, 200)}...\n`)
+      console.log(`   Tamaño: ${exportContent.length} caracteres`)
+      console.log(`   Preview (primeras 3 líneas):`)
+      const lines = exportContent.split('\n').slice(0, 3)
+      lines.forEach(line => console.log(`      ${line}`))
+      await waitForEnter('▶️  Presiona ENTER para continuar al merge...')
     } else {
-      console.log(`      ⚠️  El export aún no existe. Espera más tiempo.\n`)
+      console.log(`   ⚠️  El export NO existe!`)
+      console.log(`   Claude probablemente necesita más tiempo o hubo un error`)
+      await waitForEnter('▶️  Presiona ENTER para intentar el merge de todos modos...')
     }
 
     // ===== HACER MERGE =====
-    console.log('🔀 PASO 8: Hacer merge del fork al main')
+    console.log('🔀 PASO 11: Hacer merge del fork al main')
     console.log('-'.repeat(70))
-    console.log('   Esto hará:')
+    console.log('   Esto va a:')
     console.log('   1. Verificar que el export existe')
     console.log('   2. Cerrar el pane del fork')
     console.log('   3. Enviar prompt al main pidiendo que LEA el archivo y resuma')
-    console.log('   4. Marcar fork como merged')
-    await waitForEnter()
+    console.log('   4. Marcar fork como merged en el estado')
+    await waitForEnter('▶️  Presiona ENTER para ejecutar el merge...')
 
     try {
       await orka.merge(session.id, fork.id)
-      console.log('   ✅ Merge completado!')
-      console.log('   👀 Verifica en el MAIN que Claude leyó el archivo')
-      console.log('   🔒 El fork se cerró automáticamente\n')
+      console.log('   ✅ Merge ejecutado!')
+      console.log('   📨 Prompt enviado al main')
+      console.log('   🔒 El pane del fork se cerró')
+      console.log('   👀 Ahora observa el main\n')
     } catch (error: any) {
-      console.log(`   ⚠️  Error en merge: ${error.message}\n`)
+      console.log(`   ❌ Error en merge: ${error.message}\n`)
     }
 
     // ===== VERIFICAR MERGE EN MAIN =====
-    console.log('👁️  PASO 9: Verificar el merge en main')
+    console.log('👁️  PASO 12: Verificar el merge en main')
     console.log('-'.repeat(70))
-    console.log('   En el main deberías ver:')
-    console.log('   1. El prompt de merge que pide leer el archivo')
-    console.log('   2. Claude leyendo el archivo del fork')
-    console.log('   3. Claude dando un brevísimo summary')
+    console.log('   En la terminal del main deberías ver:')
+    console.log('   1. El prompt de merge que menciona el archivo del fork')
+    console.log('   2. Claude usando Read para leer el archivo')
+    console.log('   3. Claude generando un brevísimo summary')
     await waitForEnter('▶️  Presiona ENTER cuando hayas visto el summary de Claude en main...')
-    console.log('   ✅ Merge verificado\n')
+    console.log('   ✅ Merge verificado - Fork integrado en main\n')
 
     // ===== CERRAR SESIÓN =====
-    console.log('🔒 PASO 10: Cerrar sesión y exportar')
+    console.log('🔒 PASO 13: Cerrar sesión y exportar')
     console.log('-'.repeat(70))
-    await waitForEnter()
+    console.log('   Esto va a:')
+    console.log('   1. Enviar comando /export en el main')
+    console.log('   2. Copiar el contexto completo al clipboard')
+    console.log('   3. Guardar en .claude-orka/sessions/')
+    console.log('   4. Cerrar el pane de tmux')
+    await waitForEnter('▶️  Presiona ENTER para cerrar la sesión...')
 
     await orka.closeSession(session.id, true)
-    console.log('   ✅ Sesión cerrada y exportada\n')
+    console.log('   ✅ Sesión cerrada')
+    console.log('   💾 Contexto exportado\n')
 
     // ===== VERIFICAR ESTADO FINAL =====
-    console.log('📊 PASO 11: Verificar estado final')
+    console.log('📊 PASO 14: Verificar estado final')
     console.log('-'.repeat(70))
-    await waitForEnter()
+    await waitForEnter('▶️  Presiona ENTER para ver el estado final...')
 
     const updatedSession = await orka.getSession(session.id)
 
@@ -222,14 +318,21 @@ async function testInteractiveFlow() {
     console.log('='.repeat(70))
     console.log('✅ TEST INTERACTIVO COMPLETO!')
     console.log('='.repeat(70))
-    console.log('\n📊 Flujo probado:')
-    console.log('   ✅ Sesión creada e inicializada')
-    console.log('   ✅ Mensaje enviado a main')
-    console.log('   ✅ Fork creado e inicializado')
-    console.log('   ✅ Pregunta enviada al fork')
-    console.log('   ✅ Export generado (Claude usa Write para crear resumen)')
-    console.log('   ✅ Merge realizado (Claude en main lee archivo y resume)')
-    console.log('   ✅ Sesión cerrada con export completo (/export)\n')
+    console.log('\n📊 Flujo probado en 14 pasos:')
+    console.log('   ✅ 1. Orka inicializado')
+    console.log('   ✅ 2. Sesión creada')
+    console.log('   ✅ 3. Claude listo en main')
+    console.log('   ✅ 4. Mensaje enviado y respondido en main')
+    console.log('   ✅ 5. Fork creado (split)')
+    console.log('   ✅ 6. Claude listo en fork')
+    console.log('   ✅ 7. Pregunta enviada y respondida en fork')
+    console.log('   ✅ 8. Export generado (Claude usa Write)')
+    console.log('   ✅ 9. Claude completó el export')
+    console.log('   ✅ 10. Archivo verificado')
+    console.log('   ✅ 11. Merge ejecutado')
+    console.log('   ✅ 12. Merge verificado en main')
+    console.log('   ✅ 13. Sesión cerrada con export (/export)')
+    console.log('   ✅ 14. Estado final verificado\n')
 
     console.log('💡 Archivos generados:')
     console.log(`   - ${projectPath}/.claude-orka/state.json`)

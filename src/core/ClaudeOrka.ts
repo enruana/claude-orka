@@ -1,5 +1,5 @@
 import { SessionManager } from './SessionManager'
-import { Session, Fork, SessionFilters } from '../models'
+import { Session, Fork, SessionFilters, ProjectSummary, SessionSummary, ForkSummary } from '../models'
 import { logger } from '../utils'
 
 /**
@@ -81,6 +81,64 @@ export class ClaudeOrka {
    */
   async getSession(sessionId: string): Promise<Session | null> {
     return await this.sessionManager.getSession(sessionId)
+  }
+
+  /**
+   * Obtener resumen completo del proyecto
+   * Incluye estadísticas de todas las sesiones y sus forks
+   * @returns Resumen del proyecto con todas las sesiones y estadísticas
+   */
+  async getProjectSummary(): Promise<ProjectSummary> {
+    const sessions = await this.sessionManager.listSessions()
+    const state = await this.sessionManager.getState()
+
+    // Procesar cada sesión
+    const sessionSummaries: SessionSummary[] = sessions.map((session) => {
+      // Procesar forks
+      const forkSummaries: ForkSummary[] = session.forks.map((fork) => ({
+        id: fork.id,
+        name: fork.name,
+        status: fork.status,
+        createdAt: fork.createdAt,
+        hasContext: !!fork.contextPath,
+        contextPath: fork.contextPath,
+        mergedToMain: fork.mergedToMain || false,
+        mergedAt: fork.mergedAt,
+      }))
+
+      // Contar forks por estado
+      const activeForks = session.forks.filter((f) => f.status === 'active').length
+      const savedForks = session.forks.filter((f) => f.status === 'saved').length
+      const mergedForks = session.forks.filter((f) => f.status === 'merged').length
+
+      return {
+        id: session.id,
+        name: session.name,
+        status: session.status,
+        createdAt: session.createdAt,
+        lastActivity: session.lastActivity,
+        hasMainContext: !!session.main.contextPath,
+        mainContextPath: session.main.contextPath,
+        totalForks: session.forks.length,
+        activeForks,
+        savedForks,
+        mergedForks,
+        forks: forkSummaries,
+      }
+    })
+
+    // Contar sesiones por estado
+    const activeSessions = sessions.filter((s) => s.status === 'active').length
+    const savedSessions = sessions.filter((s) => s.status === 'saved').length
+
+    return {
+      projectPath: state.projectPath,
+      totalSessions: sessions.length,
+      activeSessions,
+      savedSessions,
+      sessions: sessionSummaries,
+      lastUpdated: state.lastUpdated,
+    }
   }
 
   // --- FORKS ---

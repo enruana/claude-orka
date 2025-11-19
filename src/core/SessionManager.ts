@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid'
 import * as path from 'path'
 import * as fs from 'fs-extra'
-import { Session, Fork, SessionFilters } from '../models'
+import { Session, Fork, SessionFilters, ProjectState } from '../models'
 import { StateManager } from './StateManager'
 import { TmuxCommands, logger } from '../utils'
 
@@ -192,6 +192,13 @@ export class SessionManager {
    */
   async listSessions(filters?: SessionFilters): Promise<Session[]> {
     return await this.stateManager.getAllSessions(filters)
+  }
+
+  /**
+   * Obtener el estado completo del proyecto
+   */
+  async getState(): Promise<ProjectState> {
+    return await this.stateManager.read()
   }
 
   /**
@@ -716,7 +723,7 @@ Por favor lee el contenido del archivo \`${fork.contextPath}\` que tiene el resu
     // 2. Iniciar Claude (siempre con --continue para mantener contexto del proyecto)
     await TmuxCommands.sendKeys(paneId, 'claude --continue')
     await TmuxCommands.sendEnter(paneId)
-    await sleep(5000) // Esperar 5 segundos para que Claude se inicialice completamente
+    await sleep(8000) // Esperar 8 segundos para que Claude se inicialice completamente
 
     // 3. Cargar contexto si existe
     if (loadContext && contextPath) {
@@ -725,7 +732,7 @@ Por favor lee el contenido del archivo \`${fork.contextPath}\` que tiene el resu
 
     // 4. Si es fork, notificar (esperar un poco más antes de enviar el mensaje)
     if (isFork && forkName) {
-      await sleep(2000) // Espera adicional para forks
+      await sleep(5000) // Espera adicional de 5s para forks (total: 13s desde inicio)
       await TmuxCommands.sendKeys(paneId, `Este es un fork llamado "${forkName}". Ten esto en cuenta.`)
       await TmuxCommands.sendEnter(paneId)
       await sleep(1000)
