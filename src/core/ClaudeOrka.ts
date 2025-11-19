@@ -4,96 +4,96 @@ import { logger } from '../utils'
 
 /**
  * Claude-Orka SDK
- * API pública para orquestar sesiones de Claude Code con tmux
+ * Public API for orchestrating Claude Code sessions with tmux
  */
 export class ClaudeOrka {
   private sessionManager: SessionManager
 
   /**
-   * Crear una instancia de ClaudeOrka
-   * @param projectPath Path absoluto del proyecto
+   * Create a ClaudeOrka instance
+   * @param projectPath Absolute path to the project
    */
   constructor(projectPath: string) {
     this.sessionManager = new SessionManager(projectPath)
   }
 
   /**
-   * Inicializar ClaudeOrka
-   * Crea la estructura .claude-orka/ si no existe
+   * Initialize ClaudeOrka
+   * Creates the .claude-orka/ structure if it doesn't exist
    */
   async initialize(): Promise<void> {
     logger.info('Initializing ClaudeOrka')
     await this.sessionManager.initialize()
   }
 
-  // --- SESIONES ---
+  // --- SESSIONS ---
 
   /**
-   * Crear una nueva sesión de Claude Code
-   * @param name Nombre opcional para la sesión
-   * @param openTerminal Si debe abrir una ventana de terminal (default: true)
-   * @returns Sesión creada
+   * Create a new Claude Code session
+   * @param name Optional name for the session
+   * @param openTerminal Whether to open a terminal window (default: true)
+   * @returns Created session
    */
   async createSession(name?: string, openTerminal?: boolean): Promise<Session> {
     return await this.sessionManager.createSession(name, openTerminal)
   }
 
   /**
-   * Restaurar una sesión guardada
-   * @param sessionId ID de la sesión a restaurar
-   * @param openTerminal Si debe abrir una ventana de terminal (default: true)
-   * @returns Sesión restaurada
+   * Resume a saved session
+   * @param sessionId Session ID to resume
+   * @param openTerminal Whether to open a terminal window (default: true)
+   * @returns Resumed session
    */
   async resumeSession(sessionId: string, openTerminal?: boolean): Promise<Session> {
     return await this.sessionManager.resumeSession(sessionId, openTerminal)
   }
 
   /**
-   * Cerrar una sesión
-   * @param sessionId ID de la sesión
+   * Close a session
+   * @param sessionId Session ID
    */
   async closeSession(sessionId: string): Promise<void> {
     await this.sessionManager.closeSession(sessionId)
   }
 
   /**
-   * Eliminar una sesión permanentemente
-   * @param sessionId ID de la sesión
+   * Permanently delete a session
+   * @param sessionId Session ID
    */
   async deleteSession(sessionId: string): Promise<void> {
     await this.sessionManager.deleteSession(sessionId)
   }
 
   /**
-   * Listar sesiones con filtros opcionales
-   * @param filters Filtros opcionales (status, name)
-   * @returns Array de sesiones
+   * List sessions with optional filters
+   * @param filters Optional filters (status, name)
+   * @returns Array of sessions
    */
   async listSessions(filters?: SessionFilters): Promise<Session[]> {
     return await this.sessionManager.listSessions(filters)
   }
 
   /**
-   * Obtener una sesión por ID
-   * @param sessionId ID de la sesión
-   * @returns Sesión o null si no existe
+   * Get a session by ID
+   * @param sessionId Session ID
+   * @returns Session or null if not found
    */
   async getSession(sessionId: string): Promise<Session | null> {
     return await this.sessionManager.getSession(sessionId)
   }
 
   /**
-   * Obtener resumen completo del proyecto
-   * Incluye estadísticas de todas las sesiones y sus forks
-   * @returns Resumen del proyecto con todas las sesiones y estadísticas
+   * Get complete project summary
+   * Includes statistics of all sessions and their forks
+   * @returns Project summary with all sessions and statistics
    */
   async getProjectSummary(): Promise<ProjectSummary> {
     const sessions = await this.sessionManager.listSessions()
     const state = await this.sessionManager.getState()
 
-    // Procesar cada sesión
+    // Process each session
     const sessionSummaries: SessionSummary[] = sessions.map((session) => {
-      // Procesar forks
+      // Process forks
       const forkSummaries: ForkSummary[] = session.forks.map((fork) => ({
         id: fork.id,
         name: fork.name,
@@ -106,7 +106,7 @@ export class ClaudeOrka {
         mergedAt: fork.mergedAt,
       }))
 
-      // Contar forks por estado
+      // Count forks by state
       const activeForks = session.forks.filter((f) => f.status === 'active').length
       const savedForks = session.forks.filter((f) => f.status === 'saved').length
       const mergedForks = session.forks.filter((f) => f.status === 'merged').length
@@ -126,7 +126,7 @@ export class ClaudeOrka {
       }
     })
 
-    // Contar sesiones por estado
+    // Count sessions by state
     const activeSessions = sessions.filter((s) => s.status === 'active').length
     const savedSessions = sessions.filter((s) => s.status === 'saved').length
 
@@ -143,39 +143,39 @@ export class ClaudeOrka {
   // --- FORKS ---
 
   /**
-   * Crear un fork (rama de conversación)
-   * @param sessionId ID de la sesión
-   * @param name Nombre opcional del fork
-   * @param vertical Si debe dividir verticalmente (default: false = horizontal)
-   * @returns Fork creado
+   * Create a fork (conversation branch)
+   * @param sessionId Session ID
+   * @param name Optional fork name
+   * @param vertical Whether to split vertically (default: false = horizontal)
+   * @returns Created fork
    */
   async createFork(sessionId: string, name?: string, vertical?: boolean): Promise<Fork> {
     return await this.sessionManager.createFork(sessionId, name, vertical)
   }
 
   /**
-   * Cerrar un fork
-   * @param sessionId ID de la sesión
-   * @param forkId ID del fork
+   * Close a fork
+   * @param sessionId Session ID
+   * @param forkId Fork ID
    */
   async closeFork(sessionId: string, forkId: string): Promise<void> {
     await this.sessionManager.closeFork(sessionId, forkId)
   }
 
   /**
-   * Restaurar un fork guardado
-   * @param sessionId ID de la sesión
-   * @param forkId ID del fork
-   * @returns Fork restaurado
+   * Resume a saved fork
+   * @param sessionId Session ID
+   * @param forkId Fork ID
+   * @returns Resumed fork
    */
   async resumeFork(sessionId: string, forkId: string): Promise<Fork> {
     return await this.sessionManager.resumeFork(sessionId, forkId)
   }
 
   /**
-   * Eliminar un fork permanentemente
-   * @param sessionId ID de la sesión
-   * @param forkId ID del fork
+   * Permanently delete a fork
+   * @param sessionId Session ID
+   * @param forkId Fork ID
    */
   async deleteFork(sessionId: string, forkId: string): Promise<void> {
     await this.sessionManager.deleteFork(sessionId, forkId)
@@ -184,10 +184,10 @@ export class ClaudeOrka {
   // --- COMANDOS ---
 
   /**
-   * Enviar comando a una sesión o fork
-   * @param sessionId ID de la sesión
-   * @param command Comando a enviar
-   * @param target ID del fork (opcional, si no se especifica va a main)
+   * Send command to a session or fork
+   * @param sessionId Session ID
+   * @param command Command to send
+   * @param target Fork ID (optional, if not specified goes to main)
    */
   async send(sessionId: string, command: string, target?: string): Promise<void> {
     if (target) {
@@ -200,57 +200,57 @@ export class ClaudeOrka {
   // --- EXPORT & MERGE ---
 
   /**
-   * Exportar el contexto de un fork (método viejo - usa captura manual)
-   * @deprecated Usa generateForkExport() en su lugar para que Claude genere el resumen
-   * @param sessionId ID de la sesión
-   * @param forkId ID del fork
-   * @returns Path del archivo exportado
+   * Export fork context (old method - uses manual capture)
+   * @deprecated Use generateForkExport() instead for Claude to generate the summary
+   * @param sessionId Session ID
+   * @param forkId Fork ID
+   * @returns Path to the exported file
    */
   async export(sessionId: string, forkId: string): Promise<string> {
     return await this.sessionManager.exportFork(sessionId, forkId)
   }
 
   /**
-   * Generar export de un fork con resumen
+   * Generate fork export with summary
    *
-   * Envía un prompt a Claude pidiendo:
-   * 1. Generar resumen ejecutivo de la conversación
-   * 2. Exportar usando /export a la ruta especificada
+   * Sends a prompt to Claude requesting:
+   * 1. Generate executive summary of the conversation
+   * 2. Export using /export to the specified path
    *
-   * IMPORTANTE: Este método es asíncrono pero retorna inmediatamente.
-   * Claude ejecutará las tareas en segundo plano. Espera unos segundos antes de llamar a merge().
+   * IMPORTANT: This method is async but returns immediately.
+   * Claude will execute tasks in the background. Wait a few seconds before calling merge().
    *
-   * @param sessionId ID de la sesión
-   * @param forkId ID del fork
-   * @returns Path donde Claude guardará el export
+   * @param sessionId Session ID
+   * @param forkId Fork ID
+   * @returns Path where Claude will save the export
    */
   async generateForkExport(sessionId: string, forkId: string): Promise<string> {
     return await this.sessionManager.generateForkExport(sessionId, forkId)
   }
 
   /**
-   * Hacer merge de un fork a main
+   * Merge a fork to main
    *
-   * PREREQUISITO: Debes llamar a generateForkExport() primero y esperar a que Claude complete
+   * PREREQUISITE: You must call generateForkExport() first and wait for Claude to complete
    *
-   * @param sessionId ID de la sesión
-   * @param forkId ID del fork
+   * @param sessionId Session ID
+   * @param forkId Fork ID
    */
   async merge(sessionId: string, forkId: string): Promise<void> {
     await this.sessionManager.mergeFork(sessionId, forkId)
   }
 
   /**
-   * Generar export y hacer merge de un fork a main (método recomendado)
+   * Generate export and merge a fork to main (recommended method)
    *
    * Workflow:
-   * 1. Genera export con resumen (Claude hace el trabajo)
-   * 2. Espera a que el archivo se cree
-   * 3. Hace merge a main
+   * 1. Generates export with summary (Claude does the work)
+   * 2. Wait for the file to be created
+   * 3. Merge to main
    *
-   * @param sessionId ID de la sesión
-   * @param forkId ID del fork
-   * @param waitTime Tiempo de espera en ms para que Claude complete (default: 15000)
+   * @param sessionId Session ID
+   * @param forkId Fork ID
+   * @param waitTime Wait time in ms for Claude to complete (default: 15000)
    */
   async generateExportAndMerge(
     sessionId: string,
@@ -269,11 +269,11 @@ export class ClaudeOrka {
   }
 
   /**
-   * Generar export, hacer merge y cerrar un fork (flujo completo)
+   * Generate export, merge and close a fork (complete flow)
    *
-   * @param sessionId ID de la sesión
-   * @param forkId ID del fork
-   * @param waitTime Tiempo de espera en ms para que Claude complete (default: 15000)
+   * @param sessionId Session ID
+   * @param forkId Fork ID
+   * @param waitTime Wait time in ms for Claude to complete (default: 15000)
    */
   async generateExportMergeAndClose(
     sessionId: string,
@@ -281,11 +281,11 @@ export class ClaudeOrka {
     waitTime: number = 15000
   ): Promise<void> {
     await this.generateExportAndMerge(sessionId, forkId, waitTime)
-    // El fork ya se cierra en mergeFork()
+    // The fork is already closed in mergeFork()
   }
 
   /**
-   * Exportar y hacer merge de un fork a main (método viejo)
+   * Export and merge a fork to main (old method)
    * @deprecated Usa generateExportAndMerge() en su lugar
    */
   async exportAndMerge(sessionId: string, forkId: string): Promise<void> {
@@ -294,7 +294,7 @@ export class ClaudeOrka {
   }
 
   /**
-   * Exportar, hacer merge y cerrar un fork (método viejo)
+   * Export, merge and close a fork (old method)
    * @deprecated Usa generateExportMergeAndClose() en su lugar
    */
   async mergeAndClose(sessionId: string, forkId: string): Promise<void> {

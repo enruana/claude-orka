@@ -1,92 +1,92 @@
 /**
- * Resumen de un fork
+ * Fork summary
  */
 export interface ForkSummary {
-  /** ID del fork */
+  /** Fork ID */
   id: string
 
-  /** Nombre del fork */
+  /** Fork name */
   name: string
 
-  /** ID de la sesión de Claude del fork (para restaurar) */
+  /** Claude fork session ID (para restaurar) */
   claudeSessionId: string
 
-  /** Estado del fork */
+  /** Fork status */
   status: 'active' | 'saved' | 'merged'
 
-  /** Fecha de creación */
+  /** Creation date */
   createdAt: string
 
-  /** Si tiene contexto exportado (para merge) */
+  /** Whether it has exported context (para merge) */
   hasContext: boolean
 
-  /** Path del contexto exportado (solo si hasContext = true) */
+  /** Path to exported context (solo si hasContext = true) */
   contextPath?: string
 
-  /** Si fue mergeado a main */
+  /** Whether it was merged to main */
   mergedToMain: boolean
 
-  /** Fecha de merge (si fue mergeado) */
+  /** Merge date (si fue mergeado) */
   mergedAt?: string
 }
 
 /**
- * Resumen de una sesión
+ * Session summary
  */
 export interface SessionSummary {
-  /** ID de la sesión */
+  /** Session ID */
   id: string
 
-  /** Nombre de la sesión */
+  /** Session name */
   name: string
 
-  /** ID de la sesión de Claude (para restaurar) */
+  /** Claude session ID (para restaurar) */
   claudeSessionId: string
 
-  /** Estado de la sesión */
+  /** Session status */
   status: 'active' | 'saved'
 
-  /** Fecha de creación */
+  /** Creation date */
   createdAt: string
 
-  /** Última actividad */
+  /** Last activity */
   lastActivity: string
 
-  /** Total de forks */
+  /** Total forks */
   totalForks: number
 
-  /** Forks activos */
+  /** Active forks */
   activeForks: number
 
-  /** Forks guardados */
+  /** Saved forks */
   savedForks: number
 
-  /** Forks mergeados */
+  /** Merged forks */
   mergedForks: number
 
-  /** Lista de forks con su resumen */
+  /** List of forks with their summary */
   forks: ForkSummary[]
 }
 
 /**
- * Resumen completo del proyecto
+ * Complete project summary
  */
 export interface ProjectSummary {
-  /** Path del proyecto */
+  /** Project path */
   projectPath: string
 
-  /** Total de sesiones */
+  /** Total sessions */
   totalSessions: number
 
-  /** Sesiones activas */
+  /** Active sessions */
   activeSessions: number
 
-  /** Sesiones guardadas */
+  /** Saved sessions */
   savedSessions: number
 
-  /** Lista de sesiones con su resumen */
+  /** List of sessions with their summary */
   sessions: SessionSummary[]
 
-  /** Última actualización del estado */
+  /** Last state update */
   lastUpdated: string
 }

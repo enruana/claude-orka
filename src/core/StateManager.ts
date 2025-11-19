@@ -4,7 +4,7 @@ import { ProjectState, Session, Fork, SessionFilters } from '../models'
 import { logger } from '../utils'
 
 /**
- * Gestiona la persistencia del estado en .claude-orka/state.json
+ * Manages state persistence in .claude-orka/state.json
  */
 export class StateManager {
   private projectPath: string
@@ -18,14 +18,14 @@ export class StateManager {
   }
 
   /**
-   * Inicializar el StateManager
-   * Crea las carpetas necesarias si no existen
+   * Initialize StateManager
+   * Creates necessary folders if they don't exist
    */
   async initialize(): Promise<void> {
     logger.debug('Initializing StateManager')
     await this.ensureDirectories()
 
-    // Si no existe state.json, crear uno inicial
+    // If state.json doesn't exist, create an initial one
     if (!(await fs.pathExists(this.statePath))) {
       logger.info('Creating initial state.json')
       const initialState: ProjectState = {
@@ -41,16 +41,16 @@ export class StateManager {
   }
 
   /**
-   * Crear estructura de directorios
+   * Create directory structure
    */
   private async ensureDirectories(): Promise<void> {
     await fs.ensureDir(this.orkaDir)
-    // exports/ se crea on-demand cuando se necesita durante el merge
+    // exports/ created on-demand when needed during merge
     logger.debug('Directories ensured')
   }
 
   /**
-   * Leer el estado actual
+   * Read current state
    */
   async read(): Promise<ProjectState> {
     try {
@@ -63,7 +63,7 @@ export class StateManager {
   }
 
   /**
-   * Guardar el estado
+   * Save state
    */
   async save(state: ProjectState): Promise<void> {
     try {

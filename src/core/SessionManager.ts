@@ -32,7 +32,7 @@ export class SessionManager {
   }
 
   /**
-   * Inicializar el manager
+   * Initialize el manager
    */
   async initialize(): Promise<void> {
     await this.stateManager.initialize()
@@ -59,7 +59,7 @@ export class SessionManager {
 
     logger.info(`Creating session: ${sessionName}`)
 
-    // 1. Crear sesión tmux
+    // 1. Create tmux session
     await TmuxCommands.createSession(tmuxSessionId, this.projectPath)
 
     if (openTerminal) {
@@ -127,14 +127,14 @@ export class SessionManager {
     // 2. Obtener pane ID
     const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
 
-    // 3. Restaurar Claude session (Claude maneja el contexto automáticamente)
+    // 3. Resume Claude session (Claude handles context automatically)
     await this.initializeClaude(paneId, {
       type: 'resume',
       resumeSessionId: session.main.claudeSessionId,
       sessionName: session.name,
     })
 
-    // 4. Actualizar session
+    // 4. Update session
     session.tmuxSessionId = tmuxSessionId
     session.main.tmuxPaneId = paneId
     session.main.status = 'active'
@@ -143,7 +143,7 @@ export class SessionManager {
 
     await this.stateManager.replaceSession(session)
 
-    // 5. Restaurar forks no mergeados
+    // 5. Resume non-merged forks
     const forksToRestore = session.forks.filter((f) => f.status !== 'merged')
     if (forksToRestore.length > 0) {
       logger.info(`Restoring ${forksToRestore.length} fork(s)...`)
@@ -157,7 +157,7 @@ export class SessionManager {
   }
 
   /**
-   * Cerrar una sesión (guardar y matar tmux)
+   * Close a session (save and kill tmux)
    */
   async closeSession(sessionId: string): Promise<void> {
     const session = await this.getSession(sessionId)
@@ -167,18 +167,18 @@ export class SessionManager {
 
     logger.info(`Closing session: ${session.name}`)
 
-    // 1. Cerrar todos los forks activos
+    // 1. Close all active forks
     const activeForks = session.forks.filter((f) => f.status === 'active')
     for (const fork of activeForks) {
       await this.closeFork(sessionId, fork.id)
     }
 
-    // 2. Matar tmux session (Claude session persiste automáticamente)
+    // 2. Kill tmux session (Claude session persists automatically)
     if (session.tmuxSessionId) {
       await TmuxCommands.killSession(session.tmuxSessionId)
     }
 
-    // 3. Actualizar state
+    // 3. Update state
     session.main.status = 'saved'
     session.main.tmuxPaneId = undefined
     session.status = 'saved'
@@ -254,7 +254,7 @@ export class SessionManager {
     const existingIds = await getExistingSessionIds()
     logger.debug(`Existing sessions before fork: ${existingIds.size}`)
 
-    // 4. Iniciar Claude fork con prompt inicial
+    // 4. Start Claude fork con prompt inicial
     await this.initializeClaude(forkPaneId, {
       type: 'fork',
       parentSessionId: session.main.claudeSessionId,
@@ -474,35 +474,35 @@ export class SessionManager {
     const exportName = `fork-${fork.name}-${timestamp}.md`
     const relativeExportPath = `.claude-orka/exports/${exportName}`
 
-    // Prompt para Claude
+    // Prompt for Claude
     const prompt = `
-Por favor, genera un resumen completo de esta conversación del fork "${fork.name}" y guárdalo en el archivo:
+Please generate a complete summary of this fork conversation "${fork.name}" and save it to the file:
 \`${relativeExportPath}\`
 
-El resumen debe incluir:
+The summary should include:
 
-## Resumen Ejecutivo
-- Qué se intentó lograr en este fork
-- Por qué se creó esta rama de exploración
+## Executive Summary
+- What was attempted to achieve in this fork
+- Why this exploration branch was created
 
-## Cambios Realizados
-- Lista detallada de cambios, archivos modificados, código escrito
-- Decisiones técnicas tomadas
+## Changes Made
+- Detailed list of changes, modified files, written code
+- Technical decisions made
 
-## Resultados
-- Qué funciona correctamente
-- Qué problemas se encontraron
-- Qué quedó pendiente
+## Results
+- What works correctly
+- What problems were encountered
+- What remains pending
 
-## Recomendaciones
-- Próximos pasos sugeridos
-- Cómo integrar esto al main
-- Consideraciones importantes
+## Recommendations
+- Suggested next steps
+- How to integrate this to main
+- Important considerations
 
-Escribe el resumen en formato Markdown y guárdalo en el archivo especificado.
+Write the summary in Markdown format and save it to the specified file.
 `.trim()
 
-    // Enviar a Claude
+    // Send to Claude
     if (!fork.tmuxPaneId) {
       throw new Error('Fork pane is not active. Cannot send export command.')
     }
@@ -510,7 +510,7 @@ Escribe el resumen en formato Markdown y guárdalo en el archivo especificado.
     await TmuxCommands.sendKeys(fork.tmuxPaneId, prompt)
     await TmuxCommands.sendEnter(fork.tmuxPaneId)
 
-    // Guardar path en fork
+    // Save path in fork
     fork.contextPath = relativeExportPath
     await this.stateManager.replaceSession(session)
 
@@ -553,14 +553,14 @@ Escribe el resumen en formato Markdown y guárdalo en el archivo especificado.
       )
     }
 
-    // Enviar prompt de merge a main
+    // Send merge prompt to main
     const mergePrompt = `
-He completado trabajo en el fork "${fork.name}".
-Por favor, lee el archivo \`${fork.contextPath}\` que contiene:
-1. Un resumen ejecutivo del trabajo realizado
-2. El contexto completo de la conversación del fork
+I have completed work on the fork "${fork.name}".
+Please read the file \`${fork.contextPath}\` which contains:
+1. An executive summary of the work completed
+2. The complete context of the fork conversation
 
-Analiza el contenido y ayúdame a integrar los cambios y aprendizajes del fork a esta conversación principal.
+Analyze the content and help me integrate the changes and learnings from the fork into this main conversation.
 `.trim()
 
     if (!session.main.tmuxPaneId) {
@@ -570,12 +570,12 @@ Analiza el contenido y ayúdame a integrar los cambios y aprendizajes del fork a
     await TmuxCommands.sendKeys(session.main.tmuxPaneId, mergePrompt)
     await TmuxCommands.sendEnter(session.main.tmuxPaneId)
 
-    // Actualizar fork como merged
+    // Update fork as merged
     fork.status = 'merged'
     fork.mergedToMain = true
     fork.mergedAt = new Date().toISOString()
 
-    // Cerrar el pane del fork si está activo
+    // Close fork pane if active
     if (fork.tmuxPaneId) {
       await TmuxCommands.killPane(fork.tmuxPaneId)
       fork.tmuxPaneId = undefined
@@ -600,7 +600,7 @@ Analiza el contenido y ayúdame a integrar los cambios y aprendizajes del fork a
   // ==========================================
 
   /**
-   * Inicializar Claude en un pane con prompt inicial
+   * Initialize Claude en un pane con prompt inicial
    */
   private async initializeClaude(paneId: string, options: InitOptions): Promise<void> {
     const { type, sessionId, resumeSessionId, parentSessionId, sessionName, forkName } = options
@@ -610,22 +610,22 @@ Analiza el contenido y ayúdame a integrar los cambios y aprendizajes del fork a
     await TmuxCommands.sendEnter(paneId)
     await sleep(500)
 
-    // 2. Construir comando según tipo
+    // 2. Build command based on type
     let command = ''
 
     switch (type) {
       case 'new':
-        const newPrompt = `Hola, esta es una nueva sesión main llamada "${sessionName}". Estamos trabajando en el proyecto.`
+        const newPrompt = `Hello, this is a new main session called "${sessionName}". We are working on the project.`
         command = `claude --session-id ${sessionId} "${newPrompt}"`
         break
 
       case 'resume':
-        const resumePrompt = `Continuando sesión "${sessionName}".`
+        const resumePrompt = `Resuming session "${sessionName}".`
         command = `claude --resume ${resumeSessionId} "${resumePrompt}"`
         break
 
       case 'fork':
-        const forkPrompt = `Este es un fork llamado "${forkName}". Ten en cuenta que estamos explorando una alternativa a la conversación principal.`
+        const forkPrompt = `This is a fork called "${forkName}". Keep in mind we are exploring an alternative to the main conversation.`
         command = `claude --resume ${parentSessionId} --fork-session "${forkPrompt}"`
         break
     }

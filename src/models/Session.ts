@@ -7,19 +7,19 @@ export interface Session {
   /** ID único de la sesión (session-{nanoid}) */
   id: string
 
-  /** Nombre descriptivo de la sesión */
+  /** Descriptive session name */
   name: string
 
-  /** ID de la sesión tmux (orka-{id}) */
+  /** Session ID tmux (orka-{id}) */
   tmuxSessionId: string
 
   /** Estado: active = tmux corriendo, saved = guardado en disco */
   status: 'active' | 'saved'
 
-  /** Fecha de creación (ISO timestamp) */
+  /** Creation date (ISO timestamp) */
   createdAt: string
 
-  /** Última actividad en cualquier parte de la sesión (ISO timestamp) */
+  /** Last activity en cualquier parte de la sesión (ISO timestamp) */
   lastActivity: string
 
   /** Rama principal de la sesión */
@@ -33,13 +33,13 @@ export interface Session {
  * Representa la rama principal de una sesión
  */
 export interface MainBranch {
-  /** ID de la sesión de Claude (UUID) */
+  /** Claude session ID (UUID) */
   claudeSessionId: string
 
   /** ID del pane tmux (solo si status = 'active') */
   tmuxPaneId?: string
 
-  /** Estado de la rama principal */
+  /** Main branch status */
   status: 'active' | 'saved'
 
   /** Path al contexto exportado (solo para merge, relativo a projectPath) */

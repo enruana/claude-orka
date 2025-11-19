@@ -13,7 +13,7 @@ export interface ProjectState {
   /** Todas las sesiones del proyecto (activas y guardadas) */
   sessions: Session[]
 
-  /** Última actualización del estado (ISO timestamp) */
+  /** Last state update (ISO timestamp) */
   lastUpdated: string
 }
 

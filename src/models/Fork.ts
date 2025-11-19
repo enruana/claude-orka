@@ -5,19 +5,19 @@ export interface Fork {
   /** ID único del fork (internal) */
   id: string
 
-  /** Nombre descriptivo del fork */
+  /** Descriptive fork name */
   name: string
 
-  /** ID de la sesión de Claude del fork (UUID) */
+  /** Claude fork session ID (UUID) */
   claudeSessionId: string
 
   /** ID del pane tmux (solo si status = 'active') */
   tmuxPaneId?: string
 
-  /** Fecha de creación (ISO timestamp) */
+  /** Creation date (ISO timestamp) */
   createdAt: string
 
-  /** Estado del fork */
+  /** Fork status */
   status: 'active' | 'saved' | 'merged'
 
   /** Path al contexto exportado (solo para merge, relativo a projectPath) */
