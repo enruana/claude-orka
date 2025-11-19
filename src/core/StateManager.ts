@@ -81,6 +81,33 @@ export class StateManager {
   // --- OPERACIONES DE SESIONES ---
 
   /**
+   * Obtener el estado completo
+   */
+  async getState(): Promise<ProjectState> {
+    return await this.read()
+  }
+
+  /**
+   * Listar todas las sesiones con filtros opcionales
+   */
+  async listSessions(filters?: SessionFilters): Promise<Session[]> {
+    const state = await this.read()
+    let sessions = state.sessions
+
+    if (filters?.status) {
+      sessions = sessions.filter((s) => s.status === filters.status)
+    }
+
+    if (filters?.name) {
+      sessions = sessions.filter((s) =>
+        s.name.toLowerCase().includes(filters.name!.toLowerCase())
+      )
+    }
+
+    return sessions
+  }
+
+  /**
    * Agregar una nueva sesión
    */
   async addSession(session: Session): Promise<void> {
@@ -155,6 +182,22 @@ export class StateManager {
   }
 
   /**
+   * Reemplazar una sesión completa
+   */
+  async replaceSession(session: Session): Promise<void> {
+    const state = await this.read()
+    const sessionIndex = state.sessions.findIndex(s => s.id === session.id)
+
+    if (sessionIndex === -1) {
+      throw new Error(`Session not found: ${session.id}`)
+    }
+
+    state.sessions[sessionIndex] = session
+    await this.save(state)
+    logger.debug(`Session ${session.id} replaced`)
+  }
+
+  /**
    * Eliminar una sesión permanentemente
    */
   async deleteSession(sessionId: string): Promise<void> {
@@ -213,7 +256,6 @@ export class StateManager {
     }
 
     fork.status = status
-    fork.lastActivity = new Date().toISOString()
     session.lastActivity = new Date().toISOString()
 
     await this.save(state)
@@ -237,7 +279,6 @@ export class StateManager {
     }
 
     fork.contextPath = contextPath
-    fork.lastActivity = new Date().toISOString()
 
     await this.save(state)
     logger.debug(`Fork ${forkId} context updated: ${contextPath}`)
@@ -262,7 +303,6 @@ export class StateManager {
     session.forks[forkIndex] = {
       ...session.forks[forkIndex],
       ...updates,
-      lastActivity: new Date().toISOString(),
     }
     session.lastActivity = new Date().toISOString()
 

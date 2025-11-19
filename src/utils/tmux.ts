@@ -206,6 +206,30 @@ export class TmuxCommands {
   }
 
   /**
+   * Listar todos los panes de una sesión
+   * @param sessionName Nombre de la sesión
+   * @returns Array de IDs de panes
+   */
+  static async listPanes(sessionName: string): Promise<string[]> {
+    try {
+      const { stdout } = await execa('tmux', [
+        'list-panes',
+        '-t',
+        sessionName,
+        '-F',
+        '#{pane_id}',
+      ])
+      return stdout.trim().split('\n').filter(Boolean)
+    } catch (error: any) {
+      throw new TmuxError(
+        `Failed to list panes for session: ${sessionName}`,
+        `tmux list-panes -t ${sessionName}`,
+        error
+      )
+    }
+  }
+
+  /**
    * Cerrar un pane específico
    */
   static async killPane(paneId: string): Promise<void> {

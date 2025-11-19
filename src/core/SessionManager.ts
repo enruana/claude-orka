@@ -1,347 +1,293 @@
-import { nanoid } from 'nanoid'
+import { StateManager } from './StateManager'
+import { Session, Fork, SessionFilters } from '../models'
+import { TmuxCommands, logger, getExistingSessionIds, detectNewSessionId } from '../utils'
+import { v4 as uuidv4 } from 'uuid'
 import * as path from 'path'
 import * as fs from 'fs-extra'
-import { Session, Fork, SessionFilters, ProjectState } from '../models'
-import { StateManager } from './StateManager'
-import { TmuxCommands, logger } from '../utils'
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * Opciones para inicializar Claude
  */
 interface InitOptions {
-  isFork?: boolean
-  forkName?: string
-  loadContext?: boolean
-  contextPath?: string
-  useContinue?: boolean // Si debe usar 'claude --continue' (default: true para nuevas sesiones)
+  type: 'new' | 'resume' | 'fork'
+  sessionId?: string // Para new
+  resumeSessionId?: string // Para resume
+  parentSessionId?: string // Para fork
+  sessionName?: string // Para contexto en el prompt
+  forkName?: string // Para forks
 }
 
 /**
- * Helper para esperar (sleep)
- */
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
-
-/**
- * Gestiona sesiones, forks, comandos y contextos
+ * Gestiona sesiones de Claude Code usando tmux
  */
 export class SessionManager {
   private stateManager: StateManager
   private projectPath: string
 
   constructor(projectPath: string) {
-    this.projectPath = path.resolve(projectPath)
-    this.stateManager = new StateManager(this.projectPath)
+    this.projectPath = projectPath
+    this.stateManager = new StateManager(projectPath)
   }
 
   /**
-   * Inicializar el SessionManager
+   * Inicializar el manager
    */
   async initialize(): Promise<void> {
-    logger.info('Initializing SessionManager')
     await this.stateManager.initialize()
   }
 
-  // --- SESIONES ---
+  /**
+   * Obtener el state
+   */
+  async getState() {
+    return await this.stateManager.getState()
+  }
+
+  // ==========================================
+  // SESIONES
+  // ==========================================
 
   /**
-   * Crear una nueva sesión
-   * @param name Nombre opcional de la sesión
-   * @param openTerminal Si debe abrir una ventana de terminal (default: true)
+   * Crear una nueva sesión de Claude Code
    */
-  async createSession(name?: string, openTerminal: boolean = true): Promise<Session> {
-    logger.info('Creating new session')
+  async createSession(name?: string, openTerminal = true): Promise<Session> {
+    const sessionId = uuidv4()
+    const sessionName = name || `Session-${Date.now()}`
+    const tmuxSessionId = `orka-${sessionId}`
 
-    // Verificar tmux disponible
-    if (!(await TmuxCommands.isAvailable())) {
-      throw new Error('tmux is not available. Please install tmux first.')
-    }
+    logger.info(`Creating session: ${sessionName}`)
 
-    // Generar IDs
-    const sessionId = `session-${nanoid(8)}`
-    const tmuxName = `orchestrator-${sessionId}`
-    const sessionName = name || `session-${Date.now()}`
+    // 1. Crear sesión tmux
+    await TmuxCommands.createSession(tmuxSessionId, this.projectPath)
 
-    logger.debug(`Session ID: ${sessionId}, tmux name: ${tmuxName}`)
-
-    // Crear sesión tmux en modo detached
-    await TmuxCommands.createSession(tmuxName, this.projectPath)
-
-    // Obtener pane IDs
-    const paneId = await TmuxCommands.getMainPaneId(tmuxName)
-    const windowId = await TmuxCommands.getMainWindowId(tmuxName)
-
-    // Inicializar Claude en el pane
-    await this.initializeClaude(paneId, { isFork: false })
-
-    // Abrir ventana de terminal si se solicita
     if (openTerminal) {
-      logger.info('Opening terminal window for session...')
-      try {
-        await TmuxCommands.openTerminalWindow(tmuxName)
-      } catch (error: any) {
-        logger.warn(`Failed to open terminal window: ${error.message}`)
-        logger.info(`You can manually attach with: tmux attach -t ${tmuxName}`)
-      }
+      await TmuxCommands.openTerminalWindow(tmuxSessionId)
     }
 
-    // Crear objeto Session
+    await sleep(2000)
+
+    // 2. Obtener pane ID
+    const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
+    logger.debug(`Main pane ID: ${paneId}`)
+
+    // 3. Generar Claude session ID y crear sesión con prompt inicial
+    const claudeSessionId = uuidv4()
+    await this.initializeClaude(paneId, {
+      type: 'new',
+      sessionId: claudeSessionId,
+      sessionName: sessionName,
+    })
+
+    // 4. Crear y guardar session
     const session: Session = {
       id: sessionId,
       name: sessionName,
-      tmuxSessionName: tmuxName,
-      projectPath: this.projectPath,
-      createdAt: new Date().toISOString(),
+      tmuxSessionId,
       status: 'active',
+      createdAt: new Date().toISOString(),
+      lastActivity: new Date().toISOString(),
       main: {
+        claudeSessionId,
         tmuxPaneId: paneId,
-        tmuxWindowId: windowId,
-        lastActivity: new Date().toISOString(),
+        status: 'active',
       },
       forks: [],
-      lastActivity: new Date().toISOString(),
     }
 
-    // Guardar en estado
     await this.stateManager.addSession(session)
+    logger.info(`Session created: ${sessionName} (${sessionId})`)
 
-    logger.info(`Session created: ${sessionId}`)
     return session
   }
 
   /**
    * Restaurar una sesión guardada
-   * @param sessionId ID de la sesión
-   * @param openTerminal Si debe abrir una ventana de terminal (default: true)
    */
-  async resumeSession(sessionId: string, openTerminal: boolean = true): Promise<Session> {
-    logger.info(`Resuming session: ${sessionId}`)
-
-    const session = await this.stateManager.getSession(sessionId)
+  async resumeSession(sessionId: string, openTerminal = true): Promise<Session> {
+    const session = await this.getSession(sessionId)
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`)
+      throw new Error(`Session ${sessionId} not found`)
     }
 
-    if (session.status === 'active') {
-      // Verificar si realmente existe en tmux
-      const exists = await TmuxCommands.sessionExists(session.tmuxSessionName)
-      if (exists) {
-        logger.info('Session already active')
-        // Abrir terminal si se solicita
-        if (openTerminal) {
-          try {
-            await TmuxCommands.openTerminalWindow(session.tmuxSessionName)
-          } catch (error: any) {
-            logger.warn(`Failed to open terminal window: ${error.message}`)
-          }
-        }
-        return session
-      } else {
-        logger.warn('Session marked as active but tmux session not found, recreating...')
-      }
-    }
+    logger.info(`Resuming session: ${session.name}`)
 
-    // Crear nueva sesión tmux
-    await TmuxCommands.createSession(session.tmuxSessionName, this.projectPath)
+    const tmuxSessionId = `orka-${sessionId}`
 
-    // Obtener pane IDs
-    const paneId = await TmuxCommands.getMainPaneId(session.tmuxSessionName)
-    const windowId = await TmuxCommands.getMainWindowId(session.tmuxSessionName)
+    // 1. Crear nueva tmux session
+    await TmuxCommands.createSession(tmuxSessionId, this.projectPath)
 
-    // Inicializar Claude con contexto previo si existe
-    // useContinue: false porque vamos a cargar el contexto del archivo exportado
-    await this.initializeClaude(paneId, {
-      isFork: false,
-      loadContext: !!session.main.contextPath,
-      contextPath: session.main.contextPath,
-      useContinue: false,
-    })
-
-    // Abrir ventana de terminal si se solicita
     if (openTerminal) {
-      logger.info('Opening terminal window for resumed session...')
-      try {
-        await TmuxCommands.openTerminalWindow(session.tmuxSessionName)
-      } catch (error: any) {
-        logger.warn(`Failed to open terminal window: ${error.message}`)
-        logger.info(`You can manually attach with: tmux attach -t ${session.tmuxSessionName}`)
-      }
+      await TmuxCommands.openTerminalWindow(tmuxSessionId)
     }
 
-    // Actualizar sesión
-    await this.stateManager.updateSession(sessionId, {
-      status: 'active',
-      main: {
-        ...session.main,
-        tmuxPaneId: paneId,
-        tmuxWindowId: windowId,
-        lastActivity: new Date().toISOString(),
-      },
+    await sleep(2000)
+
+    // 2. Obtener pane ID
+    const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
+
+    // 3. Restaurar Claude session (Claude maneja el contexto automáticamente)
+    await this.initializeClaude(paneId, {
+      type: 'resume',
+      resumeSessionId: session.main.claudeSessionId,
+      sessionName: session.name,
     })
 
-    // Restaurar forks que NO están merged (tanto saved como active)
-    const forksToRestore = session.forks.filter(f => f.status !== 'merged')
+    // 4. Actualizar session
+    session.tmuxSessionId = tmuxSessionId
+    session.main.tmuxPaneId = paneId
+    session.main.status = 'active'
+    session.status = 'active'
+    session.lastActivity = new Date().toISOString()
+
+    await this.stateManager.replaceSession(session)
+
+    // 5. Restaurar forks no mergeados
+    const forksToRestore = session.forks.filter((f) => f.status !== 'merged')
     if (forksToRestore.length > 0) {
       logger.info(`Restoring ${forksToRestore.length} fork(s)...`)
       for (const fork of forksToRestore) {
-        try {
-          // Solo restaurar si no está ya activo
-          if (fork.status !== 'active' || !fork.tmuxPaneId) {
-            await this.resumeFork(sessionId, fork.id)
-            logger.info(`Fork restored: ${fork.name}`)
-          } else {
-            logger.info(`Fork already active: ${fork.name}`)
-          }
-        } catch (error: any) {
-          logger.warn(`Failed to restore fork ${fork.name}: ${error.message}`)
-        }
+        await this.resumeFork(sessionId, fork.id)
       }
     }
 
-    const updatedSession = await this.stateManager.getSession(sessionId)
-    logger.info(`Session resumed: ${sessionId}`)
-    return updatedSession!
+    logger.info(`Session resumed: ${session.name}`)
+    return session
   }
 
   /**
-   * Obtener una sesión
+   * Cerrar una sesión (guardar y matar tmux)
    */
-  async getSession(sessionId: string): Promise<Session | null> {
-    return await this.stateManager.getSession(sessionId)
-  }
-
-  /**
-   * Listar sesiones
-   */
-  async listSessions(filters?: SessionFilters): Promise<Session[]> {
-    return await this.stateManager.getAllSessions(filters)
-  }
-
-  /**
-   * Obtener el estado completo del proyecto
-   */
-  async getState(): Promise<ProjectState> {
-    return await this.stateManager.read()
-  }
-
-  /**
-   * Cerrar una sesión (con auto-export opcional)
-   */
-  async closeSession(sessionId: string, saveContext: boolean = true): Promise<void> {
-    logger.info(`Closing session: ${sessionId}`)
-
-    const session = await this.stateManager.getSession(sessionId)
+  async closeSession(sessionId: string): Promise<void> {
+    const session = await this.getSession(sessionId)
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`)
+      throw new Error(`Session ${sessionId} not found`)
     }
 
-    if (session.status === 'active') {
-      // Exportar contexto si se solicita
-      if (saveContext && session.main.tmuxPaneId) {
-        logger.info('Exporting main context before closing...')
-        const contextPath = this.stateManager.getSessionContextPath(sessionId)
-        try {
-          await this.exportContext(session.main.tmuxPaneId, contextPath)
-        } catch (error: any) {
-          logger.warn(`Failed to export context: ${error.message}`)
-        }
-      }
+    logger.info(`Closing session: ${session.name}`)
 
-      // Cerrar todos los forks activos
-      for (const fork of session.forks.filter(f => f.status === 'active')) {
-        await this.closeFork(sessionId, fork.id, saveContext)
-      }
-
-      // Cerrar sesión tmux
-      try {
-        await TmuxCommands.killSession(session.tmuxSessionName)
-      } catch (error: any) {
-        logger.warn(`Failed to kill tmux session: ${error.message}`)
-      }
-
-      // Actualizar estado
-      await this.stateManager.updateSession(sessionId, {
-        status: 'saved',
-        main: {
-          ...session.main,
-          tmuxPaneId: undefined,
-          tmuxWindowId: undefined,
-          contextPath: saveContext ? this.stateManager.getSessionContextPath(sessionId) : session.main.contextPath,
-        },
-      })
+    // 1. Cerrar todos los forks activos
+    const activeForks = session.forks.filter((f) => f.status === 'active')
+    for (const fork of activeForks) {
+      await this.closeFork(sessionId, fork.id)
     }
 
-    logger.info(`Session closed: ${sessionId}`)
+    // 2. Matar tmux session (Claude session persiste automáticamente)
+    if (session.tmuxSessionId) {
+      await TmuxCommands.killSession(session.tmuxSessionId)
+    }
+
+    // 3. Actualizar state
+    session.main.status = 'saved'
+    session.main.tmuxPaneId = undefined
+    session.status = 'saved'
+    session.lastActivity = new Date().toISOString()
+
+    await this.stateManager.replaceSession(session)
+    logger.info(`Session closed: ${session.name}`)
   }
 
   /**
    * Eliminar una sesión permanentemente
    */
   async deleteSession(sessionId: string): Promise<void> {
-    logger.info(`Deleting session: ${sessionId}`)
-
-    const session = await this.stateManager.getSession(sessionId)
+    const session = await this.getSession(sessionId)
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`)
+      throw new Error(`Session ${sessionId} not found`)
     }
 
-    // Si está activa, cerrarla primero (sin guardar contexto)
+    logger.info(`Deleting session: ${session.name}`)
+
+    // Cerrar si está activa
     if (session.status === 'active') {
-      await this.closeSession(sessionId, false)
+      await this.closeSession(sessionId)
     }
 
-    // Eliminar del estado
+    // Eliminar del state
     await this.stateManager.deleteSession(sessionId)
-
-    logger.info(`Session deleted: ${sessionId}`)
+    logger.info(`Session deleted: ${session.name}`)
   }
 
-  // --- FORKS ---
+  /**
+   * Listar sesiones con filtros opcionales
+   */
+  async listSessions(filters?: SessionFilters): Promise<Session[]> {
+    return await this.stateManager.listSessions(filters)
+  }
 
   /**
-   * Crear un fork
+   * Obtener una sesión por ID
    */
-  async createFork(sessionId: string, name?: string, vertical: boolean = false): Promise<Fork> {
-    logger.info(`Creating fork in session: ${sessionId}`)
+  async getSession(sessionId: string): Promise<Session | null> {
+    return await this.stateManager.getSession(sessionId)
+  }
 
-    const session = await this.stateManager.getSession(sessionId)
+  // ==========================================
+  // FORKS
+  // ==========================================
+
+  /**
+   * Crear un fork (rama de conversación)
+   */
+  async createFork(sessionId: string, name?: string, vertical = false): Promise<Fork> {
+    const session = await this.getSession(sessionId)
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`)
+      throw new Error(`Session ${sessionId} not found`)
     }
 
-    if (session.status !== 'active') {
-      throw new Error('Cannot create fork in inactive session')
-    }
+    const forkId = uuidv4()
+    const forkName = name || `Fork-${session.forks.length + 1}`
 
-    // Generar IDs
-    const forkId = name ? `fork-${name}-${nanoid(8)}` : `fork-${nanoid(8)}`
-    const forkName = name || `fork-${Date.now()}`
+    logger.info(`Creating fork: ${forkName} in session ${session.name}`)
 
-    logger.debug(`Fork ID: ${forkId}, name: ${forkName}`)
+    // 1. Crear split en tmux
+    await TmuxCommands.splitPane(session.tmuxSessionId, vertical)
+    await sleep(1000)
 
-    // Split pane
-    const paneId = await TmuxCommands.splitPane(session.tmuxSessionName, vertical)
+    // 2. Obtener nuevo pane ID (último pane creado)
+    const allPanes = await TmuxCommands.listPanes(session.tmuxSessionId)
+    const forkPaneId = allPanes[allPanes.length - 1]
+    logger.debug(`Fork pane ID: ${forkPaneId}`)
 
-    // Inicializar Claude en el fork
-    await this.initializeClaude(paneId, {
-      isFork: true,
+    // 3. 🔑 CLAVE: Capturar session IDs ANTES de crear el fork
+    const existingIds = await getExistingSessionIds()
+    logger.debug(`Existing sessions before fork: ${existingIds.size}`)
+
+    // 4. Iniciar Claude fork con prompt inicial
+    await this.initializeClaude(forkPaneId, {
+      type: 'fork',
+      parentSessionId: session.main.claudeSessionId,
       forkName: forkName,
     })
 
-    // Crear objeto Fork
+    // 5. 🔍 Detectar el fork session ID del history
+    logger.info('Detecting fork session ID from history...')
+    const detectedForkId = await detectNewSessionId(existingIds, 30000, 500)
+
+    if (!detectedForkId) {
+      throw new Error(
+        'Failed to detect fork session ID. Fork may not have been created. Check if the parent session is valid.'
+      )
+    }
+
+    logger.info(`Fork session ID detected: ${detectedForkId}`)
+
+    // 6. Crear fork con el ID detectado
     const fork: Fork = {
       id: forkId,
       name: forkName,
-      tmuxPaneId: paneId,
-      parentId: 'main',
-      createdAt: new Date().toISOString(),
+      claudeSessionId: detectedForkId, // ✅ ID real detectado
+      tmuxPaneId: forkPaneId,
       status: 'active',
-      lastActivity: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     }
 
-    // Guardar en estado
-    await this.stateManager.addFork(sessionId, fork)
+    session.forks.push(fork)
+    session.lastActivity = new Date().toISOString()
+    await this.stateManager.replaceSession(session)
 
-    logger.info(`Fork created: ${forkId}`)
+    logger.info(`Fork created: ${forkName} (${forkId})`)
     return fork
   }
 
@@ -349,444 +295,346 @@ export class SessionManager {
    * Restaurar un fork guardado
    */
   async resumeFork(sessionId: string, forkId: string): Promise<Fork> {
-    logger.info(`Resuming fork: ${forkId}`)
-
-    const session = await this.stateManager.getSession(sessionId)
+    const session = await this.getSession(sessionId)
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`)
+      throw new Error(`Session ${sessionId} not found`)
     }
 
-    if (session.status !== 'active') {
-      throw new Error('Cannot resume fork in inactive session')
-    }
-
-    const fork = session.forks.find(f => f.id === forkId)
+    const fork = session.forks.find((f) => f.id === forkId)
     if (!fork) {
-      throw new Error(`Fork not found: ${forkId}`)
+      throw new Error(`Fork ${forkId} not found`)
     }
 
-    if (fork.status === 'active') {
-      logger.info('Fork already active')
-      return fork
-    }
+    logger.info(`Resuming fork: ${fork.name}`)
 
-    // Split pane
-    const paneId = await TmuxCommands.splitPane(session.tmuxSessionName)
+    // 1. Crear split en tmux
+    await TmuxCommands.splitPane(session.tmuxSessionId, false)
+    await sleep(1000)
 
-    // Inicializar Claude con contexto
-    // useContinue: false porque vamos a cargar el contexto del archivo exportado
-    await this.initializeClaude(paneId, {
-      isFork: true,
-      forkName: fork.name,
-      loadContext: !!fork.contextPath,
-      contextPath: fork.contextPath,
-      useContinue: false,
+    // 2. Obtener nuevo pane ID
+    const allPanes = await TmuxCommands.listPanes(session.tmuxSessionId)
+    const forkPaneId = allPanes[allPanes.length - 1]
+
+    // 3. Restaurar Claude fork session (Claude maneja el contexto)
+    await this.initializeClaude(forkPaneId, {
+      type: 'resume',
+      resumeSessionId: fork.claudeSessionId,
+      sessionName: fork.name,
     })
 
-    // Actualizar fork
-    await this.stateManager.updateFork(sessionId, forkId, {
-      tmuxPaneId: paneId,
-      status: 'active',
-    })
+    // 4. Actualizar fork
+    fork.tmuxPaneId = forkPaneId
+    fork.status = 'active'
 
-    const updatedFork = await this.stateManager.getFork(sessionId, forkId)
-    logger.info(`Fork resumed: ${forkId}`)
-    return updatedFork!
+    session.lastActivity = new Date().toISOString()
+    await this.stateManager.replaceSession(session)
+
+    logger.info(`Fork resumed: ${fork.name}`)
+    return fork
   }
 
   /**
-   * Cerrar un fork (con auto-export opcional)
+   * Cerrar un fork
    */
-  async closeFork(sessionId: string, forkId: string, saveContext: boolean = true): Promise<void> {
-    logger.info(`Closing fork: ${forkId}`)
+  async closeFork(sessionId: string, forkId: string): Promise<void> {
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
+    }
 
-    const fork = await this.stateManager.getFork(sessionId, forkId)
+    const fork = session.forks.find((f) => f.id === forkId)
     if (!fork) {
-      throw new Error(`Fork not found: ${forkId}`)
+      throw new Error(`Fork ${forkId} not found`)
     }
 
-    if (fork.status === 'active' && fork.tmuxPaneId) {
-      // Exportar contexto si se solicita
-      if (saveContext) {
-        logger.info('Exporting fork context before closing...')
-        const contextPath = this.stateManager.getForkContextPath(forkId)
-        try {
-          await this.exportContext(fork.tmuxPaneId, contextPath)
-        } catch (error: any) {
-          logger.warn(`Failed to export fork context: ${error.message}`)
-        }
-      }
+    logger.info(`Closing fork: ${fork.name}`)
 
-      // Cerrar pane
-      try {
-        await TmuxCommands.killPane(fork.tmuxPaneId)
-      } catch (error: any) {
-        logger.warn(`Failed to kill pane: ${error.message}`)
-      }
-
-      // Actualizar fork
-      await this.stateManager.updateFork(sessionId, forkId, {
-        tmuxPaneId: undefined,
-        status: 'saved',
-        contextPath: saveContext ? this.stateManager.getForkContextPath(forkId) : fork.contextPath,
-      })
+    // Matar el pane de tmux si existe (Claude session persiste)
+    if (fork.tmuxPaneId) {
+      await TmuxCommands.killPane(fork.tmuxPaneId)
     }
 
-    logger.info(`Fork closed: ${forkId}`)
+    // Actualizar estado
+    fork.status = 'saved'
+    fork.tmuxPaneId = undefined
+
+    session.lastActivity = new Date().toISOString()
+    await this.stateManager.replaceSession(session)
+
+    logger.info(`Fork closed: ${fork.name}`)
   }
 
   /**
    * Eliminar un fork permanentemente
    */
   async deleteFork(sessionId: string, forkId: string): Promise<void> {
-    logger.info(`Deleting fork: ${forkId}`)
-
-    const fork = await this.stateManager.getFork(sessionId, forkId)
-    if (!fork) {
-      throw new Error(`Fork not found: ${forkId}`)
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
     }
 
-    // Si el fork está activo, cerrarlo primero
-    if (fork.status === 'active' && fork.tmuxPaneId) {
-      try {
-        await TmuxCommands.killPane(fork.tmuxPaneId)
-      } catch (error: any) {
-        logger.warn(`Failed to kill pane: ${error.message}`)
-      }
+    const forkIndex = session.forks.findIndex((f) => f.id === forkId)
+    if (forkIndex === -1) {
+      throw new Error(`Fork ${forkId} not found`)
     }
 
-    // Eliminar del state
-    await this.stateManager.deleteFork(sessionId, forkId)
+    const fork = session.forks[forkIndex]
+    logger.info(`Deleting fork: ${fork.name}`)
 
-    logger.info(`Fork deleted: ${forkId}`)
+    // Cerrar si está activo
+    if (fork.status === 'active') {
+      await this.closeFork(sessionId, forkId)
+    }
+
+    // Eliminar del array
+    session.forks.splice(forkIndex, 1)
+    session.lastActivity = new Date().toISOString()
+    await this.stateManager.replaceSession(session)
+
+    logger.info(`Fork deleted: ${fork.name}`)
   }
 
-  // --- COMANDOS ---
+  // ==========================================
+  // COMANDOS
+  // ==========================================
 
   /**
    * Enviar comando a main
    */
   async sendToMain(sessionId: string, command: string): Promise<void> {
-    logger.info(`Sending command to main in session: ${sessionId}`)
-
-    const session = await this.stateManager.getSession(sessionId)
-    if (!session || session.status !== 'active' || !session.main.tmuxPaneId) {
-      throw new Error('Session is not active')
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
     }
 
+    if (!session.main.tmuxPaneId) {
+      throw new Error('Main pane is not active')
+    }
+
+    logger.info(`Sending command to main: ${command}`)
     await TmuxCommands.sendKeys(session.main.tmuxPaneId, command)
     await TmuxCommands.sendEnter(session.main.tmuxPaneId)
 
-    logger.debug('Command sent to main')
+    session.lastActivity = new Date().toISOString()
+    await this.stateManager.replaceSession(session)
   }
 
   /**
-   * Enviar comando a fork
+   * Enviar comando a un fork
    */
   async sendToFork(sessionId: string, forkId: string, command: string): Promise<void> {
-    logger.info(`Sending command to fork: ${forkId}`)
-
-    const fork = await this.stateManager.getFork(sessionId, forkId)
-    if (!fork || fork.status !== 'active' || !fork.tmuxPaneId) {
-      throw new Error('Fork is not active')
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
     }
 
+    const fork = session.forks.find((f) => f.id === forkId)
+    if (!fork) {
+      throw new Error(`Fork ${forkId} not found`)
+    }
+
+    if (!fork.tmuxPaneId) {
+      throw new Error('Fork pane is not active')
+    }
+
+    logger.info(`Sending command to fork ${fork.name}: ${command}`)
     await TmuxCommands.sendKeys(fork.tmuxPaneId, command)
     await TmuxCommands.sendEnter(fork.tmuxPaneId)
 
-    logger.debug('Command sent to fork')
+    session.lastActivity = new Date().toISOString()
+    await this.stateManager.replaceSession(session)
   }
 
-  // --- EXPORT & MERGE ---
+  // ==========================================
+  // EXPORT & MERGE
+  // ==========================================
 
   /**
-   * Exportar un fork manualmente
-   */
-  async exportFork(sessionId: string, forkId: string, customName?: string): Promise<string> {
-    logger.info(`Exporting fork: ${forkId}`)
-
-    const fork = await this.stateManager.getFork(sessionId, forkId)
-    if (!fork) {
-      throw new Error(`Fork not found: ${forkId}`)
-    }
-
-    if (fork.status !== 'active' || !fork.tmuxPaneId) {
-      throw new Error('Fork is not active')
-    }
-
-    const exportPath = customName
-      ? this.stateManager.getExportPath(forkId, customName)
-      : this.stateManager.getForkContextPath(forkId)
-
-    await this.exportContext(fork.tmuxPaneId, exportPath)
-
-    // Actualizar fork con el path del export
-    await this.stateManager.updateForkContext(sessionId, forkId, exportPath)
-
-    logger.info(`Fork exported: ${exportPath}`)
-    return exportPath
-  }
-
-  /**
-   * Generar export de un fork para merge
-   *
-   * Envía un prompt a Claude pidiendo que cree un archivo de contexto
-   * con un RESUMEN ejecutivo del fork usando sus herramientas (Write)
-   * Este resumen será usado para hacer merge a la rama principal
+   * Generar export de un fork con resumen
+   * Envía un prompt a Claude pidiendo que genere resumen y exporte
    */
   async generateForkExport(sessionId: string, forkId: string): Promise<string> {
-    logger.info(`Generating fork export for merge: ${forkId}`)
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
+    }
 
-    const fork = await this.stateManager.getFork(sessionId, forkId)
+    const fork = session.forks.find((f) => f.id === forkId)
     if (!fork) {
-      throw new Error(`Fork not found: ${forkId}`)
+      throw new Error(`Fork ${forkId} not found`)
     }
 
-    if (fork.status !== 'active' || !fork.tmuxPaneId) {
-      throw new Error('Fork must be active to generate export')
+    logger.info(`Generating export for fork: ${fork.name}`)
+
+    // Path del export
+    const exportsDir = path.join(this.projectPath, '.claude-orka', 'exports')
+    await fs.ensureDir(exportsDir)
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const exportName = `fork-${fork.name}-${timestamp}.md`
+    const relativeExportPath = `.claude-orka/exports/${exportName}`
+
+    // Prompt para Claude
+    const prompt = `
+Por favor, genera un resumen completo de esta conversación del fork "${fork.name}" y guárdalo en el archivo:
+\`${relativeExportPath}\`
+
+El resumen debe incluir:
+
+## Resumen Ejecutivo
+- Qué se intentó lograr en este fork
+- Por qué se creó esta rama de exploración
+
+## Cambios Realizados
+- Lista detallada de cambios, archivos modificados, código escrito
+- Decisiones técnicas tomadas
+
+## Resultados
+- Qué funciona correctamente
+- Qué problemas se encontraron
+- Qué quedó pendiente
+
+## Recomendaciones
+- Próximos pasos sugeridos
+- Cómo integrar esto al main
+- Consideraciones importantes
+
+Escribe el resumen en formato Markdown y guárdalo en el archivo especificado.
+`.trim()
+
+    // Enviar a Claude
+    if (!fork.tmuxPaneId) {
+      throw new Error('Fork pane is not active. Cannot send export command.')
     }
 
-    const contextPath = this.stateManager.getForkContextPath(forkId)
-
-    // Enviar prompt a Claude para que genere el resumen y cree el archivo
-    const exportPrompt = `Por favor ejecuta la siguiente tarea:
-
-Crea un archivo de contexto en la ruta \`${contextPath}\` que incluya todo lo relevante de esta conversación de fork con la intención de ser usado como contexto para hacer un merge de la conversación en la rama principal.
-
-El archivo debe incluir:
-1. **Objetivo del fork**: ¿Qué se estaba explorando o evaluando?
-2. **Desarrollo**: ¿Qué pasos se siguieron?
-3. **Hallazgos clave**: ¿Qué descubriste o lograste?
-4. **Resultados**: ¿Cuál fue el resultado final?
-5. **Recomendaciones para main**: ¿Qué debería hacerse en la rama principal con esta información?
-
-El contexto debe ser auto-contenido para que la rama principal entienda todo sin necesidad de ver esta conversación. Sé conciso pero completo.`
-
-    logger.debug('Sending fork summary prompt to Claude...')
-    await TmuxCommands.sendKeys(fork.tmuxPaneId, exportPrompt)
+    await TmuxCommands.sendKeys(fork.tmuxPaneId, prompt)
     await TmuxCommands.sendEnter(fork.tmuxPaneId)
 
-    logger.info(`Fork export generation requested. Claude will create summary at: ${contextPath}`)
+    // Guardar path en fork
+    fork.contextPath = relativeExportPath
+    await this.stateManager.replaceSession(session)
 
-    // Actualizar el fork con la ruta del contexto
-    await this.stateManager.updateFork(sessionId, forkId, {
-      contextPath: contextPath,
-    })
+    logger.info(`Export generation requested. Path: ${relativeExportPath}`)
+    logger.warn('IMPORTANT: Wait for Claude to complete before calling merge()')
 
-    return contextPath
+    return relativeExportPath
   }
 
   /**
    * Hacer merge de un fork a main
-   *
-   * PREREQUISITO: Debes llamar a generateForkExport() primero y esperar a que Claude complete
-   *
-   * Proceso:
-   * 1. Verificar que el export del fork existe
-   * 2. Cerrar el pane del fork
-   * 3. Enviar prompt al main pidiendo que LEA el archivo y dé un brevísimo summary
-   * 4. Marcar como merged
+   * PREREQUISITO: Debes llamar a generateForkExport() primero y esperar
    */
   async mergeFork(sessionId: string, forkId: string): Promise<void> {
-    logger.info(`Merging fork ${forkId} to main`)
-
-    const session = await this.stateManager.getSession(sessionId)
-    if (!session || session.status !== 'active' || !session.main.tmuxPaneId) {
-      throw new Error('Session is not active')
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
     }
 
-    const fork = await this.stateManager.getFork(sessionId, forkId)
+    const fork = session.forks.find((f) => f.id === forkId)
     if (!fork) {
-      throw new Error(`Fork not found: ${forkId}`)
+      throw new Error(`Fork ${forkId} not found`)
     }
 
     if (!fork.contextPath) {
-      throw new Error('Fork has no export. Call generateForkExport() first and wait for Claude to complete.')
+      throw new Error(
+        'Fork does not have an exported context. Call generateForkExport() first.'
+      )
     }
 
-    // 1. Verificar que el archivo exportado existe
+    logger.info(`Merging fork ${fork.name} to main`)
+
+    // Verificar que el archivo existe
     const fullPath = path.join(this.projectPath, fork.contextPath)
     const exists = await fs.pathExists(fullPath)
+
     if (!exists) {
-      throw new Error(`Fork export not found at: ${fork.contextPath}. Make sure Claude completed the export.`)
+      throw new Error(
+        `Export file not found: ${fork.contextPath}. Make sure generateForkExport() completed.`
+      )
     }
 
-    logger.debug(`Fork export verified at: ${fork.contextPath}`)
+    // Enviar prompt de merge a main
+    const mergePrompt = `
+He completado trabajo en el fork "${fork.name}".
+Por favor, lee el archivo \`${fork.contextPath}\` que contiene:
+1. Un resumen ejecutivo del trabajo realizado
+2. El contexto completo de la conversación del fork
 
-    // 2. Cerrar el fork si está activo
-    if (fork.status === 'active' && fork.tmuxPaneId) {
-      logger.info('Closing fork pane...')
-      await TmuxCommands.killPane(fork.tmuxPaneId)
+Analiza el contenido y ayúdame a integrar los cambios y aprendizajes del fork a esta conversación principal.
+`.trim()
+
+    if (!session.main.tmuxPaneId) {
+      throw new Error('Main pane is not active. Cannot send merge command.')
     }
-
-    // 3. Enviar prompt al main para que Claude lea el archivo y resuma
-    logger.info('Sending merge prompt to main...')
-    const mergePrompt = `📋 MERGE desde fork "${fork.name}":
-
-Por favor lee el contenido del archivo \`${fork.contextPath}\` que tiene el resultado de la experimentación en esa rama, y da un brevísimo summary de lo que dice.`
 
     await TmuxCommands.sendKeys(session.main.tmuxPaneId, mergePrompt)
     await TmuxCommands.sendEnter(session.main.tmuxPaneId)
 
-    // 4. Marcar fork como merged
-    await this.stateManager.updateFork(sessionId, forkId, {
-      status: 'merged',
-      mergedToMain: true,
-      mergedAt: new Date().toISOString(),
-      tmuxPaneId: undefined,
-    })
+    // Actualizar fork como merged
+    fork.status = 'merged'
+    fork.mergedToMain = true
+    fork.mergedAt = new Date().toISOString()
 
-    logger.info(`Fork ${forkId} merged successfully to main`)
+    // Cerrar el pane del fork si está activo
+    if (fork.tmuxPaneId) {
+      await TmuxCommands.killPane(fork.tmuxPaneId)
+      fork.tmuxPaneId = undefined
+    }
+
+    session.lastActivity = new Date().toISOString()
+    await this.stateManager.replaceSession(session)
+
+    logger.info(`Fork ${fork.name} merged to main`)
   }
 
-  // --- HELPERS PRIVADOS ---
-
   /**
-   * Exportar contexto COMPLETO usando /export con clipboard
-   * Este método captura TODA la conversación tal cual para restaurarla después
-   * Se usa al cerrar sesiones/forks para guardar el estado completo
+   * Export manual de un fork (deprecated - usa generateForkExport)
    */
-  private async exportContext(paneId: string, outputPath: string): Promise<void> {
-    logger.debug(`Exporting context from pane ${paneId} to ${outputPath}`)
-
-    const fullPath = path.join(this.projectPath, outputPath)
-
-    // Asegurar que el directorio existe
-    await fs.ensureDir(path.dirname(fullPath))
-
-    // 1. Limpiar clipboard primero (macOS)
-    try {
-      const execa = (await import('execa')).default
-      await execa('pbcopy', { input: '' })
-      logger.debug('Clipboard cleared')
-    } catch (error: any) {
-      logger.warn(`Failed to clear clipboard: ${error.message}`)
-    }
-
-    await sleep(500)
-
-    // 2. Enviar comando /export
-    logger.debug('Sending /export command to Claude...')
-    await TmuxCommands.sendKeys(paneId, '/export')
-    await TmuxCommands.sendEnter(paneId)
-
-    // 3. Esperar a que aparezca el selector
-    logger.debug('Waiting for export menu to appear...')
-    await sleep(1500)
-
-    // 4. Confirmar opción 1 (copy to clipboard) con Enter
-    logger.debug('Confirming "copy to clipboard" option...')
-    await TmuxCommands.sendEnter(paneId)
-
-    // 5. Esperar a que Claude genere el export y copie al clipboard
-    logger.debug('Waiting for Claude to copy to clipboard...')
-    await sleep(5000)
-
-    // 6. Leer del clipboard y guardar
-    try {
-      const execa = (await import('execa')).default
-      const result = await execa('pbpaste')
-      const clipboardContent = result.stdout
-
-      if (!clipboardContent || clipboardContent.length < 100) {
-        // Reintentar con más tiempo
-        logger.debug('Clipboard content too small, retrying...')
-        await sleep(3000)
-        const retryResult = await execa('pbpaste')
-        const retryContent = retryResult.stdout
-
-        if (!retryContent || retryContent.length < 100) {
-          throw new Error(`Clipboard content too small: ${retryContent?.length || 0} bytes`)
-        }
-
-        await fs.writeFile(fullPath, retryContent, 'utf-8')
-        logger.info(`Context exported successfully to: ${outputPath} (${retryContent.length} bytes)`)
-      } else {
-        await fs.writeFile(fullPath, clipboardContent, 'utf-8')
-        logger.info(`Context exported successfully to: ${outputPath} (${clipboardContent.length} bytes)`)
-      }
-    } catch (error: any) {
-      logger.error(`Failed to export from clipboard: ${error.message}`)
-      throw new Error(`Export verification failed: ${error.message}`)
-    }
+  async exportFork(sessionId: string, forkId: string): Promise<string> {
+    logger.warn('exportFork() is deprecated. Use generateForkExport() instead.')
+    return await this.generateForkExport(sessionId, forkId)
   }
 
-  /**
-   * Cargar contexto en un pane
-   * En lugar de enviar todo el contenido, le pedimos a Claude que lea el archivo
-   */
-  private async loadContext(paneId: string, contextPath: string): Promise<void> {
-    logger.info(`[CONTEXT LOAD] Loading context from ${contextPath} into pane ${paneId}`)
-
-    // Verificar que el archivo existe
-    const fullPath = path.join(this.projectPath, contextPath)
-    const exists = await fs.pathExists(fullPath)
-
-    if (!exists) {
-      logger.warn(`[CONTEXT LOAD] Context file not found: ${fullPath}`)
-      return
-    }
-
-    logger.info(`[CONTEXT LOAD] Context file found: ${fullPath}`)
-
-    // Pedirle a Claude que lea el archivo para restaurar el contexto
-    const prompt = `Lee el archivo \`${contextPath}\` que contiene el contexto de esta sesión y tómalo como contexto para continuar donde nos quedamos.`
-
-    logger.info(`[CONTEXT LOAD] Sending prompt to pane ${paneId}: "${prompt}"`)
-    await TmuxCommands.sendKeys(paneId, prompt)
-    await TmuxCommands.sendEnter(paneId)
-
-    logger.info('[CONTEXT LOAD] Prompt sent! Waiting 2s...')
-    await sleep(2000)
-
-    logger.info('[CONTEXT LOAD] Context load requested - DONE')
-  }
+  // ==========================================
+  // HELPERS PRIVADOS
+  // ==========================================
 
   /**
-   * Inicializar Claude en un pane
+   * Inicializar Claude en un pane con prompt inicial
    */
   private async initializeClaude(paneId: string, options: InitOptions): Promise<void> {
-    const { isFork, forkName, loadContext, contextPath, useContinue = true } = options
-
-    logger.debug(`Initializing Claude in pane ${paneId}`)
+    const { type, sessionId, resumeSessionId, parentSessionId, sessionName, forkName } = options
 
     // 1. cd al proyecto
     await TmuxCommands.sendKeys(paneId, `cd ${this.projectPath}`)
     await TmuxCommands.sendEnter(paneId)
     await sleep(500)
 
-    // 2. Iniciar Claude
-    // Si es restore (useContinue=false), usar 'claude' simple
-    // Si es nueva sesión (useContinue=true), usar 'claude --continue' para mantener contexto del proyecto
-    const claudeCommand = useContinue ? 'claude --continue' : 'claude'
-    logger.debug(`Starting Claude with: ${claudeCommand}`)
-    await TmuxCommands.sendKeys(paneId, claudeCommand)
+    // 2. Construir comando según tipo
+    let command = ''
+
+    switch (type) {
+      case 'new':
+        const newPrompt = `Hola, esta es una nueva sesión main llamada "${sessionName}". Estamos trabajando en el proyecto.`
+        command = `claude --session-id ${sessionId} "${newPrompt}"`
+        break
+
+      case 'resume':
+        const resumePrompt = `Continuando sesión "${sessionName}".`
+        command = `claude --resume ${resumeSessionId} "${resumePrompt}"`
+        break
+
+      case 'fork':
+        const forkPrompt = `Este es un fork llamado "${forkName}". Ten en cuenta que estamos explorando una alternativa a la conversación principal.`
+        command = `claude --resume ${parentSessionId} --fork-session "${forkPrompt}"`
+        break
+    }
+
+    logger.info(`Executing: ${command}`)
+    await TmuxCommands.sendKeys(paneId, command)
     await TmuxCommands.sendEnter(paneId)
-    await sleep(8000) // Esperar 8 segundos para que Claude se inicialice completamente
 
-    // 3. Si es fork NUEVO (no restaurado), notificar
-    // Solo enviamos el mensaje si NO estamos cargando contexto (fork nuevo)
-    if (isFork && forkName && !loadContext) {
-      await sleep(5000) // Espera adicional de 5s para forks (total: 13s desde inicio)
-      await TmuxCommands.sendKeys(paneId, `Este es un fork llamado "${forkName}". Ten esto en cuenta.`)
-      await TmuxCommands.sendEnter(paneId)
-      await sleep(1000)
-    }
-
-    // 4. Cargar contexto si existe (para restore)
-    if (loadContext && contextPath) {
-      logger.info(`Loading context from: ${contextPath}`)
-      // Esperar más tiempo para asegurar que Claude esté completamente listo
-      if (isFork) {
-        logger.debug('Waiting additional 10s for fork to be ready...')
-        await sleep(10000) // Espera adicional para forks (total: 18s)
-      } else {
-        logger.debug('Waiting additional 5s for main to be ready...')
-        await sleep(5000) // Espera adicional para main (total: 13s)
-      }
-      await this.loadContext(paneId, contextPath)
-    }
-
-    logger.info('Claude initialized')
+    // 3. Esperar a que Claude inicie y procese el prompt
+    await sleep(8000) // 8 segundos para que Claude inicie y registre la sesión
   }
 }

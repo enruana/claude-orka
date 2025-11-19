@@ -8,16 +8,19 @@ export interface ForkSummary {
   /** Nombre del fork */
   name: string
 
+  /** ID de la sesión de Claude del fork (para restaurar) */
+  claudeSessionId: string
+
   /** Estado del fork */
   status: 'active' | 'saved' | 'merged'
 
   /** Fecha de creación */
   createdAt: string
 
-  /** Si tiene contexto exportado */
+  /** Si tiene contexto exportado (para merge) */
   hasContext: boolean
 
-  /** Path del contexto (si existe) */
+  /** Path del contexto exportado (solo si hasContext = true) */
   contextPath?: string
 
   /** Si fue mergeado a main */
@@ -37,6 +40,9 @@ export interface SessionSummary {
   /** Nombre de la sesión */
   name: string
 
+  /** ID de la sesión de Claude (para restaurar) */
+  claudeSessionId: string
+
   /** Estado de la sesión */
   status: 'active' | 'saved'
 
@@ -45,12 +51,6 @@ export interface SessionSummary {
 
   /** Última actividad */
   lastActivity: string
-
-  /** Si tiene contexto del main exportado */
-  hasMainContext: boolean
-
-  /** Path del contexto del main (si existe) */
-  mainContextPath?: string
 
   /** Total de forks */
   totalForks: number

@@ -51,10 +51,9 @@ export class ClaudeOrka {
   /**
    * Cerrar una sesión
    * @param sessionId ID de la sesión
-   * @param saveContext Si debe guardar el contexto antes de cerrar (default: true)
    */
-  async closeSession(sessionId: string, saveContext?: boolean): Promise<void> {
-    await this.sessionManager.closeSession(sessionId, saveContext)
+  async closeSession(sessionId: string): Promise<void> {
+    await this.sessionManager.closeSession(sessionId)
   }
 
   /**
@@ -98,6 +97,7 @@ export class ClaudeOrka {
       const forkSummaries: ForkSummary[] = session.forks.map((fork) => ({
         id: fork.id,
         name: fork.name,
+        claudeSessionId: fork.claudeSessionId,
         status: fork.status,
         createdAt: fork.createdAt,
         hasContext: !!fork.contextPath,
@@ -114,11 +114,10 @@ export class ClaudeOrka {
       return {
         id: session.id,
         name: session.name,
+        claudeSessionId: session.main.claudeSessionId,
         status: session.status,
         createdAt: session.createdAt,
         lastActivity: session.lastActivity,
-        hasMainContext: !!session.main.contextPath,
-        mainContextPath: session.main.contextPath,
         totalForks: session.forks.length,
         activeForks,
         savedForks,
@@ -158,10 +157,9 @@ export class ClaudeOrka {
    * Cerrar un fork
    * @param sessionId ID de la sesión
    * @param forkId ID del fork
-   * @param saveContext Si debe guardar el contexto antes de cerrar (default: true)
    */
-  async closeFork(sessionId: string, forkId: string, saveContext?: boolean): Promise<void> {
-    await this.sessionManager.closeFork(sessionId, forkId, saveContext)
+  async closeFork(sessionId: string, forkId: string): Promise<void> {
+    await this.sessionManager.closeFork(sessionId, forkId)
   }
 
   /**
@@ -206,11 +204,10 @@ export class ClaudeOrka {
    * @deprecated Usa generateForkExport() en su lugar para que Claude genere el resumen
    * @param sessionId ID de la sesión
    * @param forkId ID del fork
-   * @param customName Nombre personalizado para el export (opcional)
    * @returns Path del archivo exportado
    */
-  async export(sessionId: string, forkId: string, customName?: string): Promise<string> {
-    return await this.sessionManager.exportFork(sessionId, forkId, customName)
+  async export(sessionId: string, forkId: string): Promise<string> {
+    return await this.sessionManager.exportFork(sessionId, forkId)
   }
 
   /**
@@ -302,6 +299,6 @@ export class ClaudeOrka {
    */
   async mergeAndClose(sessionId: string, forkId: string): Promise<void> {
     await this.exportAndMerge(sessionId, forkId)
-    await this.closeFork(sessionId, forkId, false) // No guardar de nuevo
+    await this.closeFork(sessionId, forkId)
   }
 }

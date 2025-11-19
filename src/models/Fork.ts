@@ -2,29 +2,26 @@
  * Representa un fork (rama de conversación) de una sesión
  */
 export interface Fork {
-  /** ID único del fork (fork-{name?}-{nanoid}) */
+  /** ID único del fork (internal) */
   id: string
 
   /** Nombre descriptivo del fork */
   name: string
 
+  /** ID de la sesión de Claude del fork (UUID) */
+  claudeSessionId: string
+
   /** ID del pane tmux (solo si status = 'active') */
   tmuxPaneId?: string
-
-  /** ID del padre: 'main' o ID de otro fork */
-  parentId: string
 
   /** Fecha de creación (ISO timestamp) */
   createdAt: string
 
-  /** Path al contexto guardado (relativo a projectPath) */
-  contextPath?: string
-
   /** Estado del fork */
   status: 'active' | 'saved' | 'merged'
 
-  /** Última actividad en este fork (ISO timestamp) */
-  lastActivity: string
+  /** Path al contexto exportado (solo para merge, relativo a projectPath) */
+  contextPath?: string
 
   /** Si el fork ya fue mergeado a main */
   mergedToMain?: boolean

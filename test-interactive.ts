@@ -77,11 +77,8 @@ async function testInteractiveFlow() {
       summary.sessions.forEach((session, index) => {
         console.log(`\n   ${index + 1}. ${session.name} (${session.id})`)
         console.log(`      Estado: ${session.status}`)
+        console.log(`      Claude Session ID: ${session.claudeSessionId.substring(0, 8)}...`)
         console.log(`      Creada: ${new Date(session.createdAt).toLocaleString()}`)
-        console.log(`      Contexto main: ${session.hasMainContext ? '✅ Disponible' : '❌ No disponible'}`)
-        if (session.mainContextPath) {
-          console.log(`         Path: ${session.mainContextPath}`)
-        }
         console.log(`      Forks: ${session.totalForks} total`)
         console.log(`         - Activos: ${session.activeForks}`)
         console.log(`         - Guardados: ${session.savedForks}`)
@@ -93,7 +90,8 @@ async function testInteractiveFlow() {
             const statusEmoji = fork.status === 'active' ? '🟢' : fork.status === 'merged' ? '🔀' : '💾'
             console.log(`         ${statusEmoji} ${fork.name} (${fork.id})`)
             console.log(`            Estado: ${fork.status}`)
-            console.log(`            Contexto: ${fork.hasContext ? '✅ Disponible' : '❌ No disponible'}`)
+            console.log(`            Claude Session ID: ${fork.claudeSessionId.substring(0, 8)}...`)
+            console.log(`            Contexto para merge: ${fork.hasContext ? '✅ Disponible' : '❌ No disponible'}`)
             if (fork.mergedToMain) {
               console.log(`            Merged: ✅ Sí (${new Date(fork.mergedAt!).toLocaleString()})`)
             }
@@ -129,7 +127,7 @@ async function testInteractiveFlow() {
         console.log('\n   📋 Sesiones disponibles para restaurar:')
         summary.sessions.forEach((s, index) => {
           console.log(`      ${index + 1}. ${s.name} (${s.id}) - ${s.status}`)
-          console.log(`         Forks: ${s.totalForks} | Main context: ${s.hasMainContext ? '✅' : '❌'}`)
+          console.log(`         Forks: ${s.totalForks} | Claude Session: ${s.claudeSessionId.substring(0, 8)}...`)
         })
 
         const sessionIndex = await new Promise<number>((resolve) => {
@@ -146,10 +144,10 @@ async function testInteractiveFlow() {
         console.log(`\n   🔄 Restaurando sesión: ${selectedSession.name}`)
         console.log('   Esto va a:')
         console.log('   1. Abrir sesión tmux')
-        console.log('   2. Ejecutar "claude --continue"')
-        console.log('   3. Cargar contexto del main (si existe)')
+        console.log(`   2. Ejecutar "claude --resume ${selectedSession.claudeSessionId.substring(0, 8)}..."`)
+        console.log('   3. Claude restaura el contexto automáticamente')
         console.log('   4. Restaurar forks guardados automáticamente')
-        console.log('   5. Cargar contexto de cada fork (si existe)')
+        console.log('   5. Claude restaura contexto de cada fork')
         await waitForEnter('▶️  Presiona ENTER para restaurar...')
 
         session = await orka.resumeSession(selectedSession.id)
@@ -164,7 +162,7 @@ async function testInteractiveFlow() {
         console.log('\n   📝 Creando nueva sesión')
         console.log('   Esto va a:')
         console.log('   1. Crear una sesión tmux')
-        console.log('   2. Ejecutar "claude --continue"')
+        console.log('   2. Ejecutar "claude --session-id <uuid>" con prompt inicial')
         console.log('   3. Abrir Terminal.app automáticamente')
         await waitForEnter('▶️  Presiona ENTER para crear la sesión...')
 
@@ -178,7 +176,7 @@ async function testInteractiveFlow() {
       console.log('   📝 Creando nueva sesión (no hay sesiones existentes)')
       console.log('   Esto va a:')
       console.log('   1. Crear una sesión tmux')
-      console.log('   2. Ejecutar "claude --continue"')
+      console.log('   2. Ejecutar "claude --session-id <uuid>" con prompt inicial')
       console.log('   3. Abrir Terminal.app automáticamente')
       await waitForEnter('▶️  Presiona ENTER para crear la sesión...')
 
@@ -216,8 +214,8 @@ async function testInteractiveFlow() {
     console.log('-'.repeat(70))
     console.log('   Esto va a:')
     console.log('   1. Hacer split horizontal de la ventana tmux')
-    console.log('   2. Ejecutar "claude --continue" en el nuevo pane')
-    console.log('   3. Enviar mensaje notificando que es un fork')
+    console.log('   2. Ejecutar "claude --resume <parent> --fork-session" con prompt inicial')
+    console.log('   3. Detectar el fork session ID del history.jsonl')
     await waitForEnter('▶️  Presiona ENTER para crear el fork...')
 
     const fork = await orka.createFork(session.id, 'test-planetas')
@@ -331,18 +329,17 @@ async function testInteractiveFlow() {
     console.log('   ✅ Merge verificado - Fork integrado en main\n')
 
     // ===== CERRAR SESIÓN =====
-    console.log('🔒 PASO 13: Cerrar sesión y exportar')
+    console.log('🔒 PASO 13: Cerrar sesión')
     console.log('-'.repeat(70))
     console.log('   Esto va a:')
-    console.log('   1. Enviar comando /export en el main')
-    console.log('   2. Copiar el contexto completo al clipboard')
-    console.log('   3. Guardar en .claude-orka/sessions/')
-    console.log('   4. Cerrar el pane de tmux')
+    console.log('   1. Cerrar el pane de tmux')
+    console.log('   2. Marcar sesión como "saved" en el estado')
+    console.log('   3. Claude session persiste (se puede restaurar con --resume)')
     await waitForEnter('▶️  Presiona ENTER para cerrar la sesión...')
 
-    await orka.closeSession(session.id, true)
+    await orka.closeSession(session.id)
     console.log('   ✅ Sesión cerrada')
-    console.log('   💾 Contexto exportado\n')
+    console.log('   💾 Estado guardado (Claude session persiste)\n')
 
     // ===== VERIFICAR ESTADO FINAL =====
     console.log('📊 PASO 14: Verificar estado final')
@@ -361,24 +358,18 @@ async function testInteractiveFlow() {
       if (mergedFork) {
         console.log(`\n   🍴 Fork "${mergedFork.name}":`)
         console.log(`      Estado: ${mergedFork.status}`)
+        console.log(`      Claude Session ID: ${mergedFork.claudeSessionId.substring(0, 8)}...`)
         console.log(`      Merged: ${mergedFork.mergedToMain ? '✅ SÍ' : '❌ NO'}`)
-        console.log(`      Export guardado: ${mergedFork.contextPath ? '✅ SÍ' : '❌ NO'}`)
-      }
-
-      // Verificar main export
-      if (updatedSession.main.contextPath) {
-        const mainPath = path.join(projectPath, updatedSession.main.contextPath)
-        const mainExists = await fs.pathExists(mainPath)
-        console.log(`\n   📝 Main export:`)
-        console.log(`      Existe: ${mainExists ? '✅ SÍ' : '❌ NO'}`)
-        console.log(`      Path: ${updatedSession.main.contextPath}`)
-
-        if (mainExists) {
-          const content = await fs.readFile(mainPath, 'utf-8')
-          const hasMerge = content.includes('MERGE') || content.includes('planetas')
-          console.log(`      Contiene merge: ${hasMerge ? '✅ SÍ' : '❌ NO'}`)
+        console.log(`      Export para merge: ${mergedFork.contextPath ? '✅ SÍ' : '❌ NO'}`)
+        if (mergedFork.contextPath) {
+          console.log(`      Path: ${mergedFork.contextPath}`)
         }
       }
+
+      // Info de la sesión main
+      console.log(`\n   📝 Sesión Main:`)
+      console.log(`      Claude Session ID: ${updatedSession.main.claudeSessionId.substring(0, 8)}...`)
+      console.log(`      Se puede restaurar con: orka.resumeSession('${updatedSession.id}')`)
     }
 
     // ===== RESUMEN =====
@@ -399,13 +390,16 @@ async function testInteractiveFlow() {
     console.log('   ✅ 10. Archivo verificado')
     console.log('   ✅ 11. Merge ejecutado')
     console.log('   ✅ 12. Merge verificado en main')
-    console.log('   ✅ 13. Sesión cerrada con export (/export)')
+    console.log('   ✅ 13. Sesión cerrada (Claude session persiste)')
     console.log('   ✅ 14. Estado final verificado\n')
 
     console.log('💡 Archivos generados:')
     console.log(`   - ${projectPath}/.claude-orka/state.json`)
-    console.log(`   - ${projectPath}/.claude-orka/sessions/${updatedSession?.id}.md`)
-    console.log(`   - ${projectPath}/.claude-orka/forks/${fork.id}.md\n`)
+    console.log(`   - ${projectPath}/.claude-orka/exports/fork-${fork.name}-*.md\n`)
+
+    console.log('🔄 Para restaurar esta sesión:')
+    console.log(`   const orka = new ClaudeOrka('${projectPath}')`)
+    console.log(`   await orka.resumeSession('${session.id}')\n`)
 
     rl.close()
 

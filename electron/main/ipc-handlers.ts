@@ -66,9 +66,9 @@ export function setupIPC(projectPath: string) {
     }
   })
 
-  ipcMain.handle('orka:closeSession', async (_, sessionId: string, saveContext?: boolean) => {
+  ipcMain.handle('orka:closeSession', async (_, sessionId: string) => {
     try {
-      await orka!.closeSession(sessionId, saveContext)
+      await orka!.closeSession(sessionId)
       return { success: true }
     } catch (error: any) {
       logger.error('Failed to close session:', error)
@@ -98,9 +98,9 @@ export function setupIPC(projectPath: string) {
     }
   })
 
-  ipcMain.handle('orka:closeFork', async (_, sessionId: string, forkId: string, saveContext?: boolean) => {
+  ipcMain.handle('orka:closeFork', async (_, sessionId: string, forkId: string) => {
     try {
-      await orka!.closeFork(sessionId, forkId, saveContext)
+      await orka!.closeFork(sessionId, forkId)
       return { success: true }
     } catch (error: any) {
       logger.error('Failed to close fork:', error)
@@ -142,9 +142,9 @@ export function setupIPC(projectPath: string) {
 
   // --- EXPORT & MERGE ---
 
-  ipcMain.handle('orka:export', async (_, sessionId: string, forkId: string, customName?: string) => {
+  ipcMain.handle('orka:export', async (_, sessionId: string, forkId: string) => {
     try {
-      const exportPath = await orka!.export(sessionId, forkId, customName)
+      const exportPath = await orka!.export(sessionId, forkId)
       return { success: true, data: exportPath }
     } catch (error: any) {
       logger.error('Failed to export:', error)
