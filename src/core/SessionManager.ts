@@ -3,8 +3,15 @@ import { Session, Fork, SessionFilters } from '../models'
 import { TmuxCommands, logger, getExistingSessionIds, detectNewSessionId } from '../utils'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
+import { fileURLToPath } from 'url'
+import { dirname } from 'path'
 import fs from 'fs-extra'
 import { spawn } from 'child_process'
+import { createRequire } from 'module'
+
+const require = createRequire(import.meta.url)
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -677,11 +684,16 @@ Analyze the content and help me integrate the changes and learnings from the for
       }
 
       // Get the path to the compiled main.js
-      const mainPath = path.join(__dirname, '../../electron/main/main.js')
-
-      // Check if the main.js exists (in production build)
+      // Try production path first (when installed from npm: dist/src/core -> dist/electron/main)
+      // Then try development path (when running locally: src/core -> dist/electron/main)
+      let mainPath = path.join(__dirname, '../../electron/main/main.js')
       if (!fs.existsSync(mainPath)) {
-        logger.warn('Electron main.js not found, skipping UI launch')
+        mainPath = path.join(__dirname, '../../dist/electron/main/main.js')
+      }
+
+      // Check if the main.js exists
+      if (!fs.existsSync(mainPath)) {
+        logger.warn(`Electron main.js not found at ${mainPath}, skipping UI launch`)
         return
       }
 

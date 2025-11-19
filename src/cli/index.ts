@@ -16,8 +16,15 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 // Read version from package.json
-// When bundled, dist/cli.js -> ../package.json
-const packageJsonPath = join(__dirname, '../package.json')
+// In development (src/cli/index.ts): ../../package.json
+// When bundled (dist/cli.js): ../package.json
+let packageJsonPath = join(__dirname, '../package.json')
+// Try the production path first, fallback to development path
+try {
+  readFileSync(packageJsonPath, 'utf-8')
+} catch {
+  packageJsonPath = join(__dirname, '../../package.json')
+}
 const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'))
 const version = packageJson.version
 
