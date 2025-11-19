@@ -115,7 +115,18 @@ export class SessionManager {
 
     const tmuxSessionId = `orka-${sessionId}`
 
-    // 1. Crear nueva tmux session
+    // Check if session is already active
+    if (session.status === 'active') {
+      logger.info(`Session is already active, reconnecting...`)
+
+      if (openTerminal) {
+        await TmuxCommands.openTerminalWindow(tmuxSessionId)
+      }
+
+      return session
+    }
+
+    // 1. Crear nueva tmux session (only if not active)
     await TmuxCommands.createSession(tmuxSessionId, this.projectPath)
 
     if (openTerminal) {
