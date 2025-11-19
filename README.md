@@ -2,7 +2,7 @@
 
 > SDK and CLI for orchestrating Claude Code sessions with tmux - Branch management for AI conversations
 
-[![npm version](https://img.shields.io/npm/v/claude-orka.svg)](https://www.npmjs.com/package/claude-orka)
+[![npm version](https://img.shields.io/npm/v/@enruana/claude-orka.svg)](https://www.npmjs.com/package/@enruana/claude-orka)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## What is Claude-Orka?
@@ -20,7 +20,7 @@ Perfect for complex development workflows where you need to explore multiple sol
 ## Installation
 
 ```bash
-npm install -g claude-orka
+npm install -g @enruana/claude-orka
 ```
 
 ## Prerequisites
@@ -29,28 +29,40 @@ npm install -g claude-orka
 - [tmux](https://github.com/tmux/tmux) - Terminal multiplexer
 - [Claude CLI](https://claude.ai/download) - Claude Code CLI
 
-**Verify installation:**
+**Quick setup (automatic):**
 
 ```bash
+# Install dependencies automatically
+orka prepare
+
+# Verify installation
 orka doctor
 ```
+
+**Manual setup:**
+- macOS: `brew install tmux`
+- Ubuntu: `sudo apt-get install tmux`
+- Claude CLI: Download from [claude.ai](https://claude.ai/download)
 
 ## Quick Start
 
 ```bash
-# Initialize in your project
+# 1. Install dependencies (if needed)
+orka prepare
+
+# 2. Initialize in your project
 orka init
 
-# Create a new session
+# 3. Create a new session
 orka session create "Implement Feature X"
 
-# Create a fork to explore an alternative
+# 4. Create a fork to explore an alternative
 orka fork create <session-id> "Try Alternative Approach"
 
-# When done, merge the fork back to main
+# 5. When done, merge the fork back to main
 orka merge auto <session-id> <fork-id>
 
-# Check project status
+# 6. Check project status
 orka status
 ```
 
@@ -85,11 +97,17 @@ orka status
 
 ## Commands
 
+### Setup
+
+```bash
+orka prepare           # Install system dependencies (tmux, etc.)
+orka doctor            # Check system dependencies
+orka init              # Initialize Claude-Orka in current project
+```
+
 ### Project
 
 ```bash
-orka init              # Initialize Claude-Orka in current project
-orka doctor            # Check system dependencies
 orka status            # Show project status
 ```
 
@@ -151,7 +169,7 @@ orka status
 You can also use Claude-Orka programmatically:
 
 ```typescript
-import { ClaudeOrka } from 'claude-orka'
+import { ClaudeOrka } from '@enruana/claude-orka'
 
 const orka = new ClaudeOrka('/path/to/project')
 await orka.initialize()
@@ -208,12 +226,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT © [Your Name]
+MIT © enruana
 
 ## Links
 
-- [GitHub Repository](https://github.com/yourusername/claude-orka)
-- [Issue Tracker](https://github.com/yourusername/claude-orka/issues)
+- [GitHub Repository](https://github.com/enruana/claude-orka)
+- [Issue Tracker](https://github.com/enruana/claude-orka/issues)
+- [npm Package](https://www.npmjs.com/package/@enruana/claude-orka)
 - [Claude Code](https://claude.ai/code)
 
 ---

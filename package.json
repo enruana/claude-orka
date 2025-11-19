@@ -1,6 +1,6 @@
 {
-  "name": "claude-orka",
-  "version": "1.0.0",
+  "name": "@enruana/claude-orka",
+  "version": "0.1.0",
   "description": "SDK for orchestrating Claude Code sessions with tmux - Branch management for conversations",
   "type": "module",
   "main": "dist/index.js",
@@ -36,16 +36,16 @@
     "ai",
     "cli"
   ],
-  "author": "Your Name <your.email@example.com>",
+  "author": "enruana",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/claude-orka.git"
+    "url": "git+https://github.com/enruana/claude-orka.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/claude-orka/issues"
+    "url": "https://github.com/enruana/claude-orka/issues"
   },
-  "homepage": "https://github.com/yourusername/claude-orka#readme",
+  "homepage": "https://github.com/enruana/claude-orka#readme",
   "files": [
     "dist",
     "bin",
