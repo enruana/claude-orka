@@ -166,10 +166,10 @@ export function sessionCommand(program: Command) {
 
         // If no session ID provided, show interactive selector
         if (!sessionId) {
-          const sessions = await orka.listSessions({ status: 'saved' })
+          const sessions = await orka.listSessions()
 
           if (sessions.length === 0) {
-            Output.warn('No saved sessions available to resume.')
+            Output.warn('No sessions available to resume.')
             Output.info('Create a new session with: orka session create')
             process.exit(0)
           }
