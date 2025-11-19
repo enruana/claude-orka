@@ -677,7 +677,7 @@ Analyze the content and help me integrate the changes and learnings from the for
       }
 
       // Get the path to the compiled main.js
-      const mainPath = path.join(__dirname, '../electron/main/main.js')
+      const mainPath = path.join(__dirname, '../../electron/main/main.js')
 
       // Check if the main.js exists (in production build)
       if (!fs.existsSync(mainPath)) {
