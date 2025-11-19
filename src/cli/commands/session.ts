@@ -1,8 +1,58 @@
 import { Command } from 'commander'
 import ora from 'ora'
+import chalk from 'chalk'
 import { ClaudeOrka } from '../../core/ClaudeOrka'
 import { Output } from '../utils/output'
 import { handleError, validateInitialized, validateSessionId } from '../utils/errors'
+import { Session } from '../../models/Session'
+import readline from 'readline'
+
+/**
+ * Interactive session selector
+ */
+async function selectSession(sessions: Session[]): Promise<Session | null> {
+  if (sessions.length === 0) {
+    Output.warn('No sessions available.')
+    return null
+  }
+
+  console.log(chalk.bold.cyan('\n📋 Select a session:\n'))
+
+  // Display sessions with index
+  sessions.forEach((session, index) => {
+    const statusColor = session.status === 'active' ? chalk.green : chalk.yellow
+    const status = statusColor(`[${session.status}]`)
+    const forkCount = session.forks.length > 0 ? chalk.gray(` (${session.forks.length} forks)`) : ''
+
+    console.log(`  ${chalk.bold(index + 1)}. ${session.name || 'Unnamed'} ${status}${forkCount}`)
+    console.log(chalk.gray(`     ID: ${session.id.slice(0, 8)}...`))
+    console.log()
+  })
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  })
+
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(chalk.cyan('Enter number (or q to quit): '), resolve)
+  })
+
+  rl.close()
+
+  if (answer.toLowerCase() === 'q') {
+    return null
+  }
+
+  const index = parseInt(answer, 10) - 1
+
+  if (isNaN(index) || index < 0 || index >= sessions.length) {
+    Output.error('Invalid selection')
+    return null
+  }
+
+  return sessions[index]
+}
 
 export function sessionCommand(program: Command) {
   const session = program.command('session').description('Manage Claude sessions')
@@ -103,17 +153,38 @@ export function sessionCommand(program: Command) {
 
   // Resume session
   session
-    .command('resume <session-id>')
-    .description('Resume a saved session')
+    .command('resume [session-id]')
+    .description('Resume a saved session (interactive if no ID provided)')
     .option('--no-terminal', 'Do not open terminal window')
     .action(async (sessionId, options) => {
       try {
         const projectPath = process.cwd()
         validateInitialized(projectPath)
-        validateSessionId(sessionId)
 
         const orka = new ClaudeOrka(projectPath)
         await orka.initialize()
+
+        // If no session ID provided, show interactive selector
+        if (!sessionId) {
+          const sessions = await orka.listSessions({ status: 'saved' })
+
+          if (sessions.length === 0) {
+            Output.warn('No saved sessions available to resume.')
+            Output.info('Create a new session with: orka session create')
+            process.exit(0)
+          }
+
+          const selectedSession = await selectSession(sessions)
+
+          if (!selectedSession) {
+            Output.info('Cancelled.')
+            process.exit(0)
+          }
+
+          sessionId = selectedSession.id
+        } else {
+          validateSessionId(sessionId)
+        }
 
         const spinner = ora('Resuming session...').start()
 
