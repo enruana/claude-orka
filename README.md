@@ -73,6 +73,7 @@ orka status
 - Create and manage multiple Claude Code sessions
 - Save sessions for later (preserves Claude context)
 - Resume sessions with full conversation history
+- **Automatic recovery** - Resume sessions even after system restarts
 - List and filter sessions by status
 
 ### 🌿 Fork & Merge Workflow
@@ -81,19 +82,48 @@ orka status
 - Each fork maintains its own Claude session
 - Generate summaries of fork explorations
 - Merge learnings back to main conversation
+- **Validation** - Merge button disabled until fork is exported
 
 ### 💾 State Persistence
 
 - All state stored in `.claude-orka/state.json`
 - Automatic context preservation via Claude's native sessions
 - Export summaries for fork integrations
+- **Smart recovery** - Detects missing tmux sessions and recreates them
 
-### 🎨 Beautiful CLI
+### 🎨 Beautiful CLI & UI
 
+- **Electron UI** - Visual session tree with fork hierarchy
 - Colored output with chalk
 - Interactive tables with cli-table3
 - Progress spinners with ora
 - JSON output for scripting
+
+### 🖥️ Electron UI
+
+- **Visual session tree** showing fork hierarchy
+- **Interactive nodes** - Click to select, view fork info
+- **Quick actions** - Code, Terminal, Save & Close buttons
+- **Real-time updates** - Automatically refreshes on state changes
+- **Fork management** - Create, export, merge, and close forks visually
+
+## What's New in v0.4.x
+
+### v0.4.2 (Latest)
+- 🐛 **Fixed**: `orka prepare` command now works correctly (readline import fix)
+- ✅ **Improved**: Dependency installation more reliable
+
+### v0.4.1
+- 🔄 **Session Recovery**: Automatically recovers sessions after system restarts
+- 💪 **Resilient**: Detects missing tmux sessions and recreates them with Claude context
+- 🔍 **Smart Detection**: Checks tmux session existence before attempting reconnection
+
+### v0.4.0
+- 🎨 **Electron UI**: Visual session tree with interactive fork management
+- 💾 **Save & Close**: Properly detaches from tmux (sessions stay alive for resume)
+- 🔒 **Merge Validation**: Merge button disabled until fork is exported
+- 🖥️ **UI Improvements**: Code and Terminal quick action buttons
+- 🚫 **No DevTools**: Cleaner UI without automatic developer tools
 
 ## Commands
 
