@@ -2,6 +2,7 @@ import { Command } from 'commander'
 import execa from 'execa'
 import chalk from 'chalk'
 import ora from 'ora'
+import readline from 'readline'
 import { Output } from '../utils/output'
 import { handleError } from '../utils/errors'
 
@@ -26,15 +27,15 @@ export function prepareCommand(program: Command) {
         console.log('  • Claude CLI (if needed)\n')
 
         if (!options.yes) {
-          const readline = require('readline').createInterface({
+          const rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout,
           })
 
           const answer = await new Promise<string>((resolve) => {
-            readline.question('Continue? (y/n): ', resolve)
+            rl.question('Continue? (y/n): ', resolve)
           })
-          readline.close()
+          rl.close()
 
           if (answer.toLowerCase() !== 'y') {
             Output.warn('Installation cancelled')

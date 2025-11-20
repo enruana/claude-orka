@@ -11,7 +11,7 @@
   "scripts": {
     "build": "npm run build:sdk && npm run build:cli && npm run build:electron-main && npm run build:ui",
     "build:sdk": "tsc",
-    "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --outfile=dist/cli.js --external:@anthropic-ai/claude-agent-sdk --external:chalk --external:cli-table3 --external:commander --external:execa --external:fs-extra --external:nanoid --external:ora --external:uuid --external:electron --external:react --external:react-dom --external:reactflow --external:lucide-react",
+    "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --outfile=dist/cli.js --external:@anthropic-ai/claude-agent-sdk --external:chalk --external:cli-table3 --external:commander --external:execa --external:fs-extra --external:nanoid --external:ora --external:uuid --external:electron --external:react --external:react-dom --external:reactflow --external:lucide-react --external:readline",
     "build:electron-main": "esbuild electron/main/main.ts --bundle --platform=node --format=esm --outfile=dist/electron/main/main.js --external:electron --external:chokidar --external:fs-extra --external:execa --external:@anthropic-ai/claude-agent-sdk --external:uuid --external:nanoid && esbuild electron/preload/preload.ts --bundle --platform=node --format=cjs --outfile=dist/electron/preload/preload.js --external:electron",
     "build:ui": "cd electron/renderer && vite build",
     "build:electron": "tsc && npm run copy:renderer",
