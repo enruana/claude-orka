@@ -1186,6 +1186,32 @@ interface ForkSummary {
 
 The Electron UI provides a visual interface for managing Claude Code sessions and forks. It automatically launches when you create or resume a session.
 
+### Screenshots
+
+**Active Fork with Visual Hierarchy**
+
+![Active Fork](https://raw.githubusercontent.com/enruana/claude-orka/refs/heads/main/public/1-fork.png)
+
+*Visual session tree showing main branch and an active fork with parent-child relationship*
+
+---
+
+**Closed and Merged Forks**
+
+![Closed and Merged Forks](https://raw.githubusercontent.com/enruana/claude-orka/refs/heads/main/public/2-forks-closed-merged.png)
+
+*Compact visual representation: Red circles for closed forks, green circles for merged forks*
+
+---
+
+**Fork Info Modal**
+
+![Fork Merged Dialog](https://raw.githubusercontent.com/enruana/claude-orka/refs/heads/main/public/3-fork-merged-dialog.png)
+
+*Detailed fork information modal with export file access for merged forks*
+
+---
+
 ### Features
 
 #### Visual Session Tree
