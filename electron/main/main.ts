@@ -23,6 +23,9 @@ function createWindow(sessionId: string, projectPath: string) {
     return existingWindow
   }
 
+  // Extract project name from path
+  const projectName = path.basename(projectPath)
+
   const mainWindow = new BrowserWindow({
     width: 600,
     height: 800,
@@ -32,6 +35,7 @@ function createWindow(sessionId: string, projectPath: string) {
     transparent: true,
     alwaysOnTop: true,
     resizable: true,
+    title: `Claude Orka - ${projectName}`,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
@@ -191,6 +195,52 @@ ipcMain.handle('open-export-file', async (_, exportPath: string) => {
 
   const fullPath = path.join(currentProjectPath, exportPath)
   await shell.openPath(fullPath)
+})
+
+ipcMain.handle('open-project-folder', async () => {
+  if (!currentProjectPath) {
+    throw new Error('No active project')
+  }
+
+  // Try to open with Cursor first
+  try {
+    await execa('cursor', [currentProjectPath])
+    return
+  } catch (error) {
+    // Cursor not available, try VSCode
+  }
+
+  // Try to open with VSCode
+  try {
+    await execa('code', [currentProjectPath])
+    return
+  } catch (error) {
+    // VSCode not available, fallback to Finder
+  }
+
+  // Fallback: open in Finder
+  await shell.openPath(currentProjectPath)
+})
+
+ipcMain.handle('focus-terminal', async () => {
+  // Try to activate Terminal.app or iTerm.app using AppleScript
+  const terminalApps = ['Terminal', 'iTerm']
+
+  for (const app of terminalApps) {
+    try {
+      await execa('osascript', ['-e', `tell application "${app}" to activate`])
+      return
+    } catch (error) {
+      // App not available or not running, try next
+    }
+  }
+
+  // If no terminal app is running, open Terminal.app
+  try {
+    await execa('open', ['-a', 'Terminal'])
+  } catch (error) {
+    console.error('Failed to open terminal:', error)
+  }
 })
 
 ipcMain.on('close-window', (event) => {

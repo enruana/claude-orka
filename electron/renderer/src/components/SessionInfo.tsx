@@ -1,4 +1,4 @@
-import { Clock, FolderOpen, GitBranch } from 'lucide-react'
+import { Clock, FolderOpen, GitBranch, Terminal } from 'lucide-react'
 import type { Session } from '../../../../src/models/Session'
 
 interface SessionInfoProps {
@@ -22,6 +22,22 @@ export function SessionInfo({ session }: SessionInfoProps) {
     }
   }
 
+  const handleOpenFolder = async () => {
+    try {
+      await window.electronAPI.openProjectFolder()
+    } catch (error) {
+      console.error('Error opening project folder:', error)
+    }
+  }
+
+  const handleFocusTerminal = async () => {
+    try {
+      await window.electronAPI.focusTerminal()
+    } catch (error) {
+      console.error('Error focusing terminal:', error)
+    }
+  }
+
   const activeForks = session.forks.filter((f) => f.status === 'active').length
   const savedForks = session.forks.filter((f) => f.status === 'saved').length
 
@@ -40,10 +56,23 @@ export function SessionInfo({ session }: SessionInfoProps) {
           <span>{formatDate(session.createdAt)}</span>
         </div>
 
-        <div className="session-meta-item">
+        <button
+          className="session-meta-item folder-button"
+          onClick={handleOpenFolder}
+          title="Open project folder (tries Cursor, VSCode, or Finder)"
+        >
           <FolderOpen size={14} />
-          <span>{session.projectPath?.split('/').pop()}</span>
-        </div>
+          <span>Code</span>
+        </button>
+
+        <button
+          className="session-meta-item terminal-button"
+          onClick={handleFocusTerminal}
+          title="Focus terminal window"
+        >
+          <Terminal size={14} />
+          <span>Terminal</span>
+        </button>
 
         <div className="session-meta-item">
           <GitBranch size={14} />

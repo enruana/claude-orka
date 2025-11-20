@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExportFile: (exportPath: string) =>
     ipcRenderer.invoke('open-export-file', exportPath),
 
+  openProjectFolder: () => ipcRenderer.invoke('open-project-folder'),
+
+  focusTerminal: () => ipcRenderer.invoke('focus-terminal'),
+
   onStateUpdate: (callback: (session: Session) => void) => {
     ipcRenderer.on('state-updated', (_, session) => callback(session))
   },

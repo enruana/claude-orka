@@ -111,6 +111,31 @@ body {
   color: #9399b2;
 }
 
+.folder-button,
+.terminal-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.folder-button:hover {
+  background: rgba(148, 226, 213, 0.1);
+  color: #94e2d5;
+}
+
+.terminal-button:hover {
+  background: rgba(137, 180, 250, 0.1);
+  color: #89b4fa;
+}
+
+.folder-button:active,
+.terminal-button:active {
+  transform: scale(0.95);
+}
+
 /* Content Area */
 .content {
   flex: 1;

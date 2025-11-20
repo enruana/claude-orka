@@ -8,6 +8,8 @@ export interface ElectronAPI {
   mergeFork: (sessionId: string, forkId: string) => Promise<void>
   closeFork: (sessionId: string, forkId: string) => Promise<void>
   openExportFile: (exportPath: string) => Promise<void>
+  openProjectFolder: () => Promise<void>
+  focusTerminal: () => Promise<void>
   onStateUpdate: (callback: (session: Session) => void) => void
   closeWindow: () => void
 }
