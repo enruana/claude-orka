@@ -10,6 +10,7 @@ export interface ElectronAPI {
   openExportFile: (exportPath: string) => Promise<void>
   openProjectFolder: () => Promise<void>
   focusTerminal: () => Promise<void>
+  saveAndClose: () => Promise<void>
   onStateUpdate: (callback: (session: Session) => void) => void
   closeWindow: () => void
 }

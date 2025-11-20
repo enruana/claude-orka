@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   focusTerminal: () => ipcRenderer.invoke('focus-terminal'),
 
+  saveAndClose: () => ipcRenderer.invoke('save-and-close'),
+
   onStateUpdate: (callback: (session: Session) => void) => {
     ipcRenderer.on('state-updated', (_, session) => callback(session))
   },

@@ -46,17 +46,20 @@ body {
 .titlebar-button {
   background: none;
   border: none;
-  color: #cdd6f4;
   cursor: pointer;
-  padding: 4px 8px;
-  font-size: 14px;
   -webkit-app-region: no-drag;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  font-size: 11px;
+  padding: 5px 14px;
+  background: rgba(148, 226, 213, 0.15);
+  color: #94e2d5;
+  font-weight: 500;
 }
 
 .titlebar-button:hover {
-  color: #f38ba8;
-  background: rgba(243, 139, 168, 0.1);
-  border-radius: 4px;
+  background: rgba(148, 226, 213, 0.25);
+  color: #94e2d5;
 }
 
 /* Session Info */

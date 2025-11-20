@@ -51,13 +51,10 @@ function createWindow(sessionId: string, projectPath: string) {
   if (process.env.NODE_ENV === 'development') {
     // Dev mode - load from Vite dev server
     mainWindow.loadURL('http://localhost:5173')
-    mainWindow.webContents.openDevTools()
   } else {
     // Production - load from built files
     const indexPath = path.join(__dirname, '../renderer/index.html')
     mainWindow.loadFile(indexPath)
-    // Open DevTools for debugging
-    mainWindow.webContents.openDevTools()
   }
 
   // Watch state.json for changes
@@ -243,7 +240,67 @@ ipcMain.handle('focus-terminal', async () => {
   }
 })
 
-ipcMain.on('close-window', (event) => {
+ipcMain.handle('save-and-close', async () => {
+  if (currentSessionId && currentProjectPath) {
+    try {
+      const orka = new ClaudeOrka(currentProjectPath)
+      await orka.initialize()
+
+      const session = await orka.getSession(currentSessionId)
+      if (session?.tmuxSessionId) {
+        console.log('Save and close: detaching from tmux session:', session.tmuxSessionId)
+
+        // Detach from tmux (but keep session alive)
+        try {
+          await execa('tmux', ['detach-client', '-s', session.tmuxSessionId])
+          console.log('Detached from tmux session (session remains alive)')
+        } catch (error) {
+          console.log('Error detaching from tmux:', error)
+        }
+
+        // Wait a moment for detach
+        await new Promise((resolve) => setTimeout(resolve, 300))
+
+        // Try to close the specific terminal window using AppleScript
+        try {
+          await execa('osascript', [
+            '-e',
+            `tell application "Terminal" to close (first window whose name contains "${session.tmuxSessionId}")`,
+          ])
+          console.log('Closed specific Terminal window')
+        } catch (error) {
+          console.log('Could not close specific window with AppleScript')
+
+          // Try to close by quitting Terminal if no other windows
+          try {
+            const { stdout } = await execa('osascript', [
+              '-e',
+              'tell application "Terminal" to count windows',
+            ])
+            const windowCount = parseInt(stdout.trim())
+
+            if (windowCount === 1) {
+              // Only one window, safe to quit Terminal
+              await execa('osascript', ['-e', 'tell application "Terminal" to quit'])
+              console.log('Quit Terminal (was last window)')
+            } else {
+              console.log('Multiple Terminal windows open, cannot close safely')
+            }
+          } catch (countError) {
+            console.log('Could not determine Terminal window count:', countError)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error in save-and-close:', error)
+    }
+  }
+
+  // Quit the Electron app
+  app.quit()
+})
+
+ipcMain.on('close-window', async (event) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   window?.close()
 })
@@ -273,7 +330,6 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // Quit app on all platforms when windows are closed
+  app.quit()
 })

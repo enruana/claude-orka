@@ -180,12 +180,16 @@ export function App() {
     )
   }
 
+  const handleSaveAndClose = async () => {
+    await window.electronAPI.saveAndClose()
+  }
+
   return (
     <div className="app">
       <div className="titlebar" data-tauri-drag-region>
         <span className="titlebar-text">🎭 Claude-Orka</span>
-        <button className="titlebar-button" onClick={() => window.electronAPI.closeWindow()}>
-          ✕
+        <button className="titlebar-button save-close" onClick={handleSaveAndClose}>
+          Save & Close
         </button>
       </div>
 
