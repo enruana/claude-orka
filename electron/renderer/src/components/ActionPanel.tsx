@@ -11,6 +11,7 @@ interface ActionPanelProps {
   isMerging: boolean
   isClosing: boolean
   canCreateFork: boolean
+  hasExport: boolean
 }
 
 export function ActionPanel({
@@ -24,6 +25,7 @@ export function ActionPanel({
   isMerging,
   isClosing,
   canCreateFork,
+  hasExport,
 }: ActionPanelProps) {
   const isForkSelected = selectedNode !== 'main'
   const isAnyOperationInProgress = isCreatingFork || isExporting || isMerging || isClosing
@@ -64,8 +66,12 @@ export function ActionPanel({
         <button
           className="action-button"
           onClick={onMergeFork}
-          disabled={!isForkSelected || isAnyOperationInProgress}
-          title="Merge fork back to parent"
+          disabled={!isForkSelected || isAnyOperationInProgress || !hasExport}
+          title={
+            !hasExport
+              ? 'Export the fork first before merging'
+              : 'Merge fork back to parent'
+          }
         >
           <GitMerge size={18} />
           <span>{isMerging ? 'Merging...' : 'Merge'}</span>

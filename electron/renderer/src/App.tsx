@@ -214,6 +214,7 @@ export function App() {
         isMerging={isMerging}
         isClosing={isClosing}
         canCreateFork={session.forks.filter(f => f.parentId === selectedNode && f.status === 'active').length === 0}
+        hasExport={selectedNode === 'main' ? false : !!session.forks.find(f => f.id === selectedNode)?.contextPath}
       />
 
       {showForkDialog && (
