@@ -128,19 +128,35 @@ export class SessionManager {
 
     const tmuxSessionId = `orka-${sessionId}`
 
-    // Check if session is already active
-    if (session.status === 'active') {
-      logger.info(`Session is already active, reconnecting...`)
+    // Check if tmux session actually exists (regardless of saved status)
+    const tmuxExists = await TmuxCommands.sessionExists(tmuxSessionId)
 
+    if (tmuxExists) {
+      logger.info(`Tmux session exists, reconnecting...`)
+
+      // Session exists in tmux, just reconnect
       if (openTerminal) {
         await TmuxCommands.openTerminalWindow(tmuxSessionId)
         await this.launchUI(sessionId)
       }
 
+      // Update status to active if it was saved
+      if (session.status === 'saved') {
+        const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
+        session.main.tmuxPaneId = paneId
+        session.main.status = 'active'
+        session.status = 'active'
+        session.lastActivity = new Date().toISOString()
+        await this.stateManager.replaceSession(session)
+      }
+
       return session
     }
 
-    // 1. Crear nueva tmux session (only if not active)
+    // Tmux session doesn't exist - need to recover
+    logger.info(`Tmux session not found, recovering from Claude session...`)
+
+    // 1. Create new tmux session
     await TmuxCommands.createSession(tmuxSessionId, this.projectPath)
 
     if (openTerminal) {
@@ -149,7 +165,7 @@ export class SessionManager {
 
     await sleep(2000)
 
-    // 2. Obtener pane ID
+    // 2. Get pane ID
     const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
 
     // 3. Resume Claude session (Claude handles context automatically)
@@ -357,6 +373,20 @@ export class SessionManager {
     }
 
     logger.info(`Resuming fork: ${fork.name}`)
+
+    // Check if fork pane already exists (fork is active)
+    if (fork.status === 'active' && fork.tmuxPaneId) {
+      try {
+        // Verify pane still exists in tmux
+        const allPanes = await TmuxCommands.listPanes(session.tmuxSessionId)
+        if (allPanes.includes(fork.tmuxPaneId)) {
+          logger.info(`Fork pane already exists, no need to resume`)
+          return fork
+        }
+      } catch (error) {
+        logger.warn(`Fork was marked active but pane not found, recreating...`)
+      }
+    }
 
     // 1. Crear split en tmux
     await TmuxCommands.splitPane(session.tmuxSessionId, false)
