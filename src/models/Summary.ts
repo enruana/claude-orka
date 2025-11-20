@@ -12,7 +12,7 @@ export interface ForkSummary {
   claudeSessionId: string
 
   /** Fork status */
-  status: 'active' | 'saved' | 'merged'
+  status: 'active' | 'saved' | 'closed' | 'merged'
 
   /** Creation date */
   createdAt: string

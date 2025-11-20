@@ -7,6 +7,7 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { NodeCard } from './NodeCard'
+import { CompactNode } from './CompactNode'
 import type { Session } from '../../../../src/models/Session'
 
 interface SessionTreeProps {
@@ -17,10 +18,33 @@ interface SessionTreeProps {
 
 const nodeTypes = {
   sessionNode: NodeCard,
+  compactNode: CompactNode,
 }
 
 export function SessionTree({ session, selectedNode, onNodeClick }: SessionTreeProps) {
-  // Create nodes for main and forks
+  // Calculate tree depth for each fork
+  const getDepth = (forkId: string, visited = new Set<string>()): number => {
+    if (forkId === 'main') return 0
+    if (visited.has(forkId)) return 0 // Prevent infinite loops
+
+    const fork = session.forks.find(f => f.id === forkId)
+    if (!fork) return 0
+
+    visited.add(forkId)
+    return 1 + getDepth(fork.parentId, visited)
+  }
+
+  // Group forks by depth
+  const forksByDepth = new Map<number, typeof session.forks>()
+  session.forks.forEach(fork => {
+    const depth = getDepth(fork.id)
+    if (!forksByDepth.has(depth)) {
+      forksByDepth.set(depth, [])
+    }
+    forksByDepth.get(depth)!.push(fork)
+  })
+
+  // Create main node
   const nodes: Node[] = [
     {
       id: 'main',
@@ -33,26 +57,37 @@ export function SessionTree({ session, selectedNode, onNodeClick }: SessionTreeP
         selected: selectedNode === 'main',
       },
     },
-    ...session.forks.map((fork, index) => ({
+  ]
+
+  // Create fork nodes with tree layout
+  session.forks.forEach((fork) => {
+    const depth = getDepth(fork.id)
+    const forksAtDepth = forksByDepth.get(depth) || []
+    const indexAtDepth = forksAtDepth.indexOf(fork)
+
+    // Use compact node for closed/merged forks, regular node for active/saved
+    const nodeType = (fork.status === 'closed' || fork.status === 'merged') ? 'compactNode' : 'sessionNode'
+
+    nodes.push({
       id: fork.id,
-      type: 'sessionNode',
+      type: nodeType,
       position: {
-        x: 100 + index * 150 - (session.forks.length * 75) + 250,
-        y: 200,
+        x: 100 + indexAtDepth * 150 - (forksAtDepth.length * 75) + 250,
+        y: 50 + depth * 150,
       },
       data: {
-        label: fork.name || `Fork ${index + 1}`,
+        label: fork.name,
         status: fork.status,
         claudeSessionId: fork.claudeSessionId,
         selected: selectedNode === fork.id,
       },
-    })),
-  ]
+    })
+  })
 
-  // Create edges from main to each fork
+  // Create edges based on parentId
   const edges: Edge[] = session.forks.map((fork) => ({
-    id: `main-${fork.id}`,
-    source: 'main',
+    id: `${fork.parentId}-${fork.id}`,
+    source: fork.parentId,
     target: fork.id,
     animated: fork.status === 'active',
     markerEnd: {

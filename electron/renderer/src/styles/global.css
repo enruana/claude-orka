@@ -273,6 +273,17 @@ body {
   border-color: #7aa2f7;
 }
 
+.action-button.danger {
+  background: #313244;
+  border-color: #f38ba8;
+  color: #f38ba8;
+}
+
+.action-button.danger:hover:not(:disabled) {
+  background: rgba(243, 139, 168, 0.1);
+  border-color: #f38ba8;
+}
+
 .action-button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -335,4 +346,182 @@ body {
 
 .react-flow__controls-button:hover {
   background: #313244;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  padding: 24px;
+  min-width: 320px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal h3 {
+  margin: 0 0 16px 0;
+  color: #cdd6f4;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.modal input {
+  width: 100%;
+  padding: 10px 12px;
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  color: #cdd6f4;
+  font-size: 14px;
+  font-family: inherit;
+  margin-bottom: 16px;
+  outline: none;
+}
+
+.modal input:focus {
+  border-color: #89b4fa;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.button-primary,
+.button-secondary {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.button-primary {
+  background: #89b4fa;
+  color: #1e1e2e;
+}
+
+.button-primary:hover {
+  background: #b4befe;
+}
+
+.button-secondary {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+.button-secondary:hover {
+  background: #45475a;
+}
+
+/* Fork Info Modal */
+.fork-info-modal {
+  min-width: 500px;
+  max-width: 600px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  color: #9399b2;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.modal-close-btn:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+.fork-info-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.info-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.info-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #9399b2;
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.info-value {
+  font-size: 13px;
+  color: #cdd6f4;
+  word-break: break-all;
+}
+
+.fork-id {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #89b4fa;
+}
+
+.export-path {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #a6e3a1;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+
+.modal-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-actions .button-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }

@@ -8,14 +8,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   selectNode: (nodeId: string) => ipcRenderer.invoke('select-node', nodeId),
 
-  createFork: (sessionId: string, name: string) =>
-    ipcRenderer.invoke('create-fork', sessionId, name),
+  createFork: (sessionId: string, name: string, parentId: string) =>
+    ipcRenderer.invoke('create-fork', sessionId, name, parentId),
 
   exportFork: (sessionId: string, forkId: string) =>
     ipcRenderer.invoke('export-fork', sessionId, forkId),
 
   mergeFork: (sessionId: string, forkId: string) =>
     ipcRenderer.invoke('merge-fork', sessionId, forkId),
+
+  closeFork: (sessionId: string, forkId: string) =>
+    ipcRenderer.invoke('close-fork', sessionId, forkId),
+
+  openExportFile: (exportPath: string) =>
+    ipcRenderer.invoke('open-export-file', exportPath),
 
   onStateUpdate: (callback: (session: Session) => void) => {
     ipcRenderer.on('state-updated', (_, session) => callback(session))

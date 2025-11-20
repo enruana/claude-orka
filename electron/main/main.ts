@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { ClaudeOrka } from '../../src/core/ClaudeOrka'
+import { ClaudeOrka } from '../../src/core/ClaudeOrka.js'
 import chokidar from 'chokidar'
 import execa from 'execa'
 
@@ -52,6 +52,8 @@ function createWindow(sessionId: string, projectPath: string) {
     // Production - load from built files
     const indexPath = path.join(__dirname, '../renderer/index.html')
     mainWindow.loadFile(indexPath)
+    // Open DevTools for debugging
+    mainWindow.webContents.openDevTools()
   }
 
   // Watch state.json for changes
@@ -136,7 +138,7 @@ ipcMain.handle('select-node', async (_, nodeId: string) => {
   }
 })
 
-ipcMain.handle('create-fork', async (_, sessionId: string, name: string) => {
+ipcMain.handle('create-fork', async (_, sessionId: string, name: string, parentId: string) => {
   if (!currentProjectPath) {
     throw new Error('No active project')
   }
@@ -144,7 +146,7 @@ ipcMain.handle('create-fork', async (_, sessionId: string, name: string) => {
   const orka = new ClaudeOrka(currentProjectPath)
   await orka.initialize()
 
-  const fork = await orka.createFork(sessionId, name)
+  const fork = await orka.createFork(sessionId, name, parentId)
   return fork
 })
 
@@ -168,7 +170,27 @@ ipcMain.handle('merge-fork', async (_, sessionId: string, forkId: string) => {
   const orka = new ClaudeOrka(currentProjectPath)
   await orka.initialize()
 
-  await orka.generateExportAndMerge(sessionId, forkId)
+  await orka.merge(sessionId, forkId)
+})
+
+ipcMain.handle('close-fork', async (_, sessionId: string, forkId: string) => {
+  if (!currentProjectPath) {
+    throw new Error('No active project')
+  }
+
+  const orka = new ClaudeOrka(currentProjectPath)
+  await orka.initialize()
+
+  await orka.closeFork(sessionId, forkId)
+})
+
+ipcMain.handle('open-export-file', async (_, exportPath: string) => {
+  if (!currentProjectPath) {
+    throw new Error('No active project')
+  }
+
+  const fullPath = path.join(currentProjectPath, exportPath)
+  await shell.openPath(fullPath)
 })
 
 ipcMain.on('close-window', (event) => {

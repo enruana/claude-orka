@@ -1,10 +1,16 @@
-import { GitBranch, Upload, GitMerge } from 'lucide-react'
+import { GitBranch, Upload, GitMerge, X } from 'lucide-react'
 
 interface ActionPanelProps {
   selectedNode: string
   onCreateFork: () => void
   onExportFork: () => void
   onMergeFork: () => void
+  onCloseFork: () => void
+  isCreatingFork: boolean
+  isExporting: boolean
+  isMerging: boolean
+  isClosing: boolean
+  canCreateFork: boolean
 }
 
 export function ActionPanel({
@@ -12,8 +18,15 @@ export function ActionPanel({
   onCreateFork,
   onExportFork,
   onMergeFork,
+  onCloseFork,
+  isCreatingFork,
+  isExporting,
+  isMerging,
+  isClosing,
+  canCreateFork,
 }: ActionPanelProps) {
   const isForkSelected = selectedNode !== 'main'
+  const isAnyOperationInProgress = isCreatingFork || isExporting || isMerging || isClosing
 
   return (
     <div className="action-panel">
@@ -27,30 +40,45 @@ export function ActionPanel({
         <button
           className="action-button primary"
           onClick={onCreateFork}
-          title="Create a new fork from the current branch"
+          disabled={!canCreateFork || isAnyOperationInProgress}
+          title={
+            !canCreateFork
+              ? 'Claude Code limitation: Only one active fork allowed per branch. Merge the existing fork or create from it.'
+              : 'Create a new fork from the current branch'
+          }
         >
           <GitBranch size={18} />
-          <span>New Fork</span>
+          <span>{isCreatingFork ? 'Creating...' : 'New Fork'}</span>
         </button>
 
         <button
           className="action-button"
           onClick={onExportFork}
-          disabled={!isForkSelected}
+          disabled={!isForkSelected || isAnyOperationInProgress}
           title="Export fork summary"
         >
           <Upload size={18} />
-          <span>Export</span>
+          <span>{isExporting ? 'Exporting...' : 'Export'}</span>
         </button>
 
         <button
           className="action-button"
           onClick={onMergeFork}
-          disabled={!isForkSelected}
-          title="Merge fork back to main"
+          disabled={!isForkSelected || isAnyOperationInProgress}
+          title="Merge fork back to parent"
         >
           <GitMerge size={18} />
-          <span>Merge</span>
+          <span>{isMerging ? 'Merging...' : 'Merge'}</span>
+        </button>
+
+        <button
+          className="action-button danger"
+          onClick={onCloseFork}
+          disabled={!isForkSelected || isAnyOperationInProgress}
+          title="Close fork (abandon experiment)"
+        >
+          <X size={18} />
+          <span>{isClosing ? 'Closing...' : 'Close'}</span>
         </button>
       </div>
     </div>

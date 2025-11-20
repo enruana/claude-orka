@@ -261,7 +261,12 @@ export class SessionManager {
   /**
    * Crear un fork (rama de conversación)
    */
-  async createFork(sessionId: string, name?: string, vertical = false): Promise<Fork> {
+  async createFork(
+    sessionId: string,
+    name?: string,
+    parentId: string = 'main',
+    vertical = false
+  ): Promise<Fork> {
     const session = await this.getSession(sessionId)
     if (!session) {
       throw new Error(`Session ${sessionId} not found`)
@@ -270,7 +275,21 @@ export class SessionManager {
     const forkId = uuidv4()
     const forkName = name || `Fork-${session.forks.length + 1}`
 
-    logger.info(`Creating fork: ${forkName} in session ${session.name}`)
+    logger.info(`Creating fork: ${forkName} from parent ${parentId} in session ${session.name}`)
+
+    // Find parent's claudeSessionId
+    let parentClaudeSessionId: string
+    if (parentId === 'main') {
+      parentClaudeSessionId = session.main.claudeSessionId
+    } else {
+      const parentFork = session.forks.find((f) => f.id === parentId)
+      if (!parentFork) {
+        throw new Error(`Parent fork ${parentId} not found`)
+      }
+      parentClaudeSessionId = parentFork.claudeSessionId
+    }
+
+    logger.debug(`Parent Claude session ID: ${parentClaudeSessionId}`)
 
     // 1. Crear split en tmux
     await TmuxCommands.splitPane(session.tmuxSessionId, vertical)
@@ -288,7 +307,7 @@ export class SessionManager {
     // 4. Start Claude fork con prompt inicial
     await this.initializeClaude(forkPaneId, {
       type: 'fork',
-      parentSessionId: session.main.claudeSessionId,
+      parentSessionId: parentClaudeSessionId,
       forkName: forkName,
     })
 
@@ -308,6 +327,7 @@ export class SessionManager {
     const fork: Fork = {
       id: forkId,
       name: forkName,
+      parentId: parentId,
       claudeSessionId: detectedForkId, // ✅ ID real detectado
       tmuxPaneId: forkPaneId,
       status: 'active',
@@ -386,7 +406,7 @@ export class SessionManager {
     }
 
     // Actualizar estado
-    fork.status = 'saved'
+    fork.status = 'closed'
     fork.tmuxPaneId = undefined
 
     session.lastActivity = new Date().toISOString()
@@ -504,11 +524,12 @@ export class SessionManager {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const exportName = `fork-${fork.name}-${timestamp}.md`
     const relativeExportPath = `.claude-orka/exports/${exportName}`
+    const absoluteExportPath = path.join(this.projectPath, relativeExportPath)
 
     // Prompt for Claude
     const prompt = `
 Please generate a complete summary of this fork conversation "${fork.name}" and save it to the file:
-\`${relativeExportPath}\`
+\`${absoluteExportPath}\`
 
 The summary should include:
 
@@ -545,7 +566,10 @@ Write the summary in Markdown format and save it to the specified file.
     fork.contextPath = relativeExportPath
     await this.stateManager.replaceSession(session)
 
-    logger.info(`Export generation requested. Path: ${relativeExportPath}`)
+    logger.info(`Export generation requested`)
+    logger.info(`  Filename: ${exportName}`)
+    logger.info(`  Relative path (saved in state): ${relativeExportPath}`)
+    logger.info(`  Absolute path (sent to Claude): ${absoluteExportPath}`)
     logger.warn('IMPORTANT: Wait for Claude to complete before calling merge()')
 
     return relativeExportPath
@@ -572,34 +596,69 @@ Write the summary in Markdown format and save it to the specified file.
       )
     }
 
-    logger.info(`Merging fork ${fork.name} to main`)
+    // Find parent target for merge
+    const parentId = fork.parentId
+    const parentName = parentId === 'main' ? 'MAIN' : session.forks.find(f => f.id === parentId)?.name || parentId
+    logger.info(`Merging fork ${fork.name} to parent ${parentName}`)
+
+    // Get parent's tmux pane
+    let parentTmuxPaneId: string | undefined
+    if (parentId === 'main') {
+      parentTmuxPaneId = session.main.tmuxPaneId
+    } else {
+      const parentFork = session.forks.find((f) => f.id === parentId)
+      if (!parentFork) {
+        throw new Error(`Parent fork ${parentId} not found`)
+      }
+      parentTmuxPaneId = parentFork.tmuxPaneId
+    }
+
+    if (!parentTmuxPaneId) {
+      throw new Error(`Parent ${parentName} is not active. Cannot send merge command.`)
+    }
 
     // Verificar que el archivo existe
-    const fullPath = path.join(this.projectPath, fork.contextPath)
-    const exists = await fs.pathExists(fullPath)
+    let contextPath = fork.contextPath
+    let fullPath = path.join(this.projectPath, contextPath)
+    let exists = await fs.pathExists(fullPath)
+
+    // Si el archivo específico no existe, buscar el export más reciente
+    if (!exists) {
+      logger.warn(`Export file not found: ${contextPath}. Looking for most recent export...`)
+
+      const exportsDir = path.join(this.projectPath, '.claude-orka', 'exports')
+      const files = await fs.readdir(exportsDir)
+      const forkExports = files
+        .filter(f => f.startsWith(`fork-${fork.name}-`) && f.endsWith('.md'))
+        .sort()
+        .reverse()
+
+      if (forkExports.length > 0) {
+        contextPath = `.claude-orka/exports/${forkExports[0]}`
+        fullPath = path.join(this.projectPath, contextPath)
+        exists = await fs.pathExists(fullPath)
+        logger.info(`Using most recent export: ${contextPath}`)
+      }
+    }
 
     if (!exists) {
       throw new Error(
-        `Export file not found: ${fork.contextPath}. Make sure generateForkExport() completed.`
+        `No export file found for fork "${fork.name}". Please run Export first and wait for Claude to complete.`
       )
     }
 
-    // Send merge prompt to main
+    // Send merge prompt to parent
     const mergePrompt = `
 I have completed work on the fork "${fork.name}".
-Please read the file \`${fork.contextPath}\` which contains:
+Please read the file \`${contextPath}\` which contains:
 1. An executive summary of the work completed
 2. The complete context of the fork conversation
 
-Analyze the content and help me integrate the changes and learnings from the fork into this main conversation.
+Analyze the content and help me integrate the changes and learnings from the fork into this conversation.
 `.trim()
 
-    if (!session.main.tmuxPaneId) {
-      throw new Error('Main pane is not active. Cannot send merge command.')
-    }
-
-    await TmuxCommands.sendKeys(session.main.tmuxPaneId, mergePrompt)
-    await TmuxCommands.sendEnter(session.main.tmuxPaneId)
+    await TmuxCommands.sendKeys(parentTmuxPaneId, mergePrompt)
+    await TmuxCommands.sendEnter(parentTmuxPaneId)
 
     // Update fork as merged
     fork.status = 'merged'

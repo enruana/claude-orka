@@ -8,6 +8,9 @@ export interface Fork {
   /** Descriptive fork name */
   name: string
 
+  /** ID del fork/session padre ('main' o id de otro fork) */
+  parentId: string
+
   /** Claude fork session ID (UUID) */
   claudeSessionId: string
 
@@ -18,7 +21,7 @@ export interface Fork {
   createdAt: string
 
   /** Fork status */
-  status: 'active' | 'saved' | 'merged'
+  status: 'active' | 'saved' | 'closed' | 'merged'
 
   /** Path al contexto exportado (solo para merge, relativo a projectPath) */
   contextPath?: string

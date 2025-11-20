@@ -14,6 +14,7 @@ export class ClaudeOrka {
    * @param projectPath Absolute path to the project
    */
   constructor(projectPath: string) {
+    logger.setLogFile(projectPath)
     this.sessionManager = new SessionManager(projectPath)
   }
 
@@ -146,11 +147,17 @@ export class ClaudeOrka {
    * Create a fork (conversation branch)
    * @param sessionId Session ID
    * @param name Optional fork name
+   * @param parentId Parent fork/session ID (default: 'main')
    * @param vertical Whether to split vertically (default: false = horizontal)
    * @returns Created fork
    */
-  async createFork(sessionId: string, name?: string, vertical?: boolean): Promise<Fork> {
-    return await this.sessionManager.createFork(sessionId, name, vertical)
+  async createFork(
+    sessionId: string,
+    name?: string,
+    parentId: string = 'main',
+    vertical?: boolean
+  ): Promise<Fork> {
+    return await this.sessionManager.createFork(sessionId, name, parentId, vertical)
   }
 
   /**
