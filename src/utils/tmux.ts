@@ -1,5 +1,12 @@
 import execa from 'execa'
 import { logger } from './logger'
+import * as path from 'path'
+import * as fs from 'fs'
+import { fileURLToPath } from 'url'
+
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 /**
  * Error personalizado para comandos tmux
@@ -35,12 +42,55 @@ export class TmuxCommands {
       logger.debug(`Creating tmux session: ${name} at ${projectPath}`)
       await execa('tmux', ['new-session', '-d', '-s', name, '-c', projectPath])
       logger.info(`Tmux session created: ${name}`)
+
+      // Apply Claude-Orka custom theme
+      await this.applyOrkaTheme(name)
     } catch (error: any) {
       throw new TmuxError(
         `Failed to create tmux session: ${name}`,
         `tmux new-session -d -s ${name} -c ${projectPath}`,
         error
       )
+    }
+  }
+
+  /**
+   * Apply Claude-Orka custom tmux theme to a session
+   */
+  private static async applyOrkaTheme(sessionName: string): Promise<void> {
+    try {
+      // Find the config file (look for it in the package installation directory)
+      const possiblePaths = [
+        // When installed globally via npm
+        path.join(__dirname, '../../.tmux.orka.conf'),
+        // When running from source
+        path.join(process.cwd(), '.tmux.orka.conf'),
+        // Fallback: check in the module directory
+        path.join(__dirname, '../../../.tmux.orka.conf'),
+      ]
+
+      let configPath: string | null = null
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          configPath = p
+          break
+        }
+      }
+
+      if (!configPath) {
+        logger.warn('Claude-Orka tmux config not found, skipping theme application')
+        return
+      }
+
+      logger.debug(`Applying Orka theme from: ${configPath}`)
+
+      // Source the config file for this specific session
+      await execa('tmux', ['source-file', '-t', sessionName, configPath])
+
+      logger.info('Claude-Orka theme applied successfully')
+    } catch (error: any) {
+      // Don't fail the session creation if theme application fails
+      logger.warn('Failed to apply Orka theme, continuing with default tmux theme', error)
     }
   }
 

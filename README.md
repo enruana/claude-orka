@@ -136,6 +136,41 @@ orka status
 - **Fork management** - Create, export, merge, and close forks visually
 - **Status indicators** - Visual distinction for active, saved, merged, and closed forks
 
+### 🎨 Custom tmux Theme
+
+- **Automatic branding** - Claude-Orka sessions get a custom orange theme
+- **Enhanced status bar** - Shows session name, project path, and current time
+- **Visual hierarchy** - Distinct colors for active/inactive panes and windows
+- **Mouse support** - Click to select panes and windows
+- **Vim-like navigation** - Optional h/j/k/l keys for pane movement
+- **Persistent configuration** - Theme automatically applied to all new sessions
+
+The custom theme makes it easy to distinguish Claude-Orka managed sessions from regular tmux sessions. The orange branding 🎭 appears in the status bar, with the session name and project information clearly visible.
+
+**Customization:**
+
+To modify the theme, edit `.tmux.orka.conf` in your Claude-Orka installation:
+
+```bash
+# Find your global installation
+npm root -g
+# Edit the config
+vim $(npm root -g)/@enruana/claude-orka/.tmux.orka.conf
+```
+
+Or create your own theme file and source it manually:
+```bash
+# After creating a session
+tmux source-file ~/.my-custom-theme.conf -t <session-name>
+```
+
+**Key Features of the Theme:**
+- **Orange highlights** (#208) for active windows and Orka branding
+- **Top status bar** with session info
+- **Pane borders** with titles showing current command
+- **Enhanced readability** with high contrast colors
+- **Powerline-style separators** for a modern look
+
 ---
 
 ## CLI Reference

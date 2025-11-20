@@ -54,6 +54,7 @@
   "files": [
     "dist",
     "bin",
+    ".tmux.orka.conf",
     "README.md",
     "LICENSE"
   ],
