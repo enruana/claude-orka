@@ -133,22 +133,39 @@ npm run electron:dev       # Build and launch Electron in dev mode
 ### Electron UI Architecture
 
 **Main process** (`electron/main/main.ts`)
-- Creates frameless window (600x800)
+- Creates two types of windows:
+  - Main window: frameless (600x800) with full UI
+  - Taskbar window: compact (80x220+, dynamic height) minimized view
 - Watches `.claude-orka/state.json` with chokidar
 - Provides IPC handlers for actions (createFork, exportFork, merge, close, etc.)
 - Opens terminal windows and launches child processes
 
-**Renderer** (`electron/renderer/src/`)
+**Main Window Renderer** (`electron/renderer/src/`)
 - React + TypeScript + Vite
 - Uses ReactFlow for visual session tree
 - Components: SessionTree, ActionPanel, ForkInfoModal
 - Real-time state updates via file watching
 - Custom node types for main branch and forks (active/closed/merged)
+- Minimize button to show taskbar
+
+**Taskbar Window Renderer** (`electron/renderer/src/TaskbarApp.tsx`)
+- Compact always-on-top window with minimal UI
+- Three action buttons: Restore, Open Folder, Focus Terminal
+- Visual branch tree showing all forks with colored dots:
+  - Green (#a6e3a1): active branches
+  - Yellow (#f9e2af): saved branches
+  - Cyan (#94e2d5): merged branches
+  - Gray (#6c7086): closed branches
+- Hierarchical display with indentation and connection lines
+- Dynamic height adjustment based on number of branches
+- Fully draggable to any screen position
+- Real-time updates when branches change
 
 **IPC Communication**:
-- Renderer requests actions via `window.electron.{action}()`
+- Renderer requests actions via `window.electronAPI.{action}()`
 - Main process executes via ClaudeOrka SDK
-- State changes trigger file watch → window reload
+- State changes trigger file watch → updates both windows
+- Taskbar can request resize via `resizeTaskbar(height)` IPC
 
 ### Important Implementation Details
 

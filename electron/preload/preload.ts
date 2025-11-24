@@ -29,8 +29,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   saveAndClose: () => ipcRenderer.invoke('save-and-close'),
 
+  minimizeToTaskbar: () => ipcRenderer.invoke('minimize-to-taskbar'),
+
+  restoreFromTaskbar: () => ipcRenderer.invoke('restore-from-taskbar'),
+
+  resizeTaskbar: (height: number) => ipcRenderer.invoke('resize-taskbar', height),
+
   onStateUpdate: (callback: (session: Session) => void) => {
     ipcRenderer.on('state-updated', (_, session) => callback(session))
+  },
+
+  onSessionData: (callback: (session: Session) => void) => {
+    ipcRenderer.on('session-data', (_, session) => callback(session))
   },
 
   closeWindow: () => ipcRenderer.send('close-window'),

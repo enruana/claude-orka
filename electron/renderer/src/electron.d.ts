@@ -11,7 +11,11 @@ export interface ElectronAPI {
   openProjectFolder: () => Promise<void>
   focusTerminal: () => Promise<void>
   saveAndClose: () => Promise<void>
+  minimizeToTaskbar: () => Promise<void>
+  restoreFromTaskbar: () => Promise<void>
+  resizeTaskbar: (height: number) => Promise<void>
   onStateUpdate: (callback: (session: Session) => void) => void
+  onSessionData: (callback: (session: Session) => void) => void
   closeWindow: () => void
 }
 

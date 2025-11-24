@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, screen } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { ClaudeOrka } from '../../src/core/ClaudeOrka.js'
@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename)
 
 // Store windows by project path
 const windows = new Map<string, BrowserWindow>()
+const taskbarWindows = new Map<string, BrowserWindow>()
 
 // Store active sessions
 let currentSessionId: string | null = null
@@ -65,9 +66,94 @@ function createWindow(sessionId: string, projectPath: string) {
 
   mainWindow.on('closed', () => {
     windows.delete(projectPath)
+    // Close taskbar if exists
+    const taskbar = taskbarWindows.get(projectPath)
+    if (taskbar && !taskbar.isDestroyed()) {
+      taskbar.close()
+    }
+    taskbarWindows.delete(projectPath)
   })
 
   return mainWindow
+}
+
+function createTaskbarWindow(projectPath: string): BrowserWindow {
+  console.log('[Taskbar] Creating taskbar window for project:', projectPath)
+
+  // If taskbar already exists for this project, return it
+  if (taskbarWindows.has(projectPath)) {
+    const existingTaskbar = taskbarWindows.get(projectPath)!
+    console.log('[Taskbar] Taskbar already exists, showing it')
+    existingTaskbar.show()
+    return existingTaskbar
+  }
+
+  // Get screen dimensions
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width, height } = primaryDisplay.workAreaSize
+
+  console.log('[Taskbar] Screen size:', width, 'x', height)
+
+  const taskbarWindow = new BrowserWindow({
+    width: 80,
+    height: 220, // Initial height
+    minHeight: 160,
+    maxHeight: height - 100, // Leave some margin from screen edges
+    x: width - 90,
+    y: height / 2 - 110,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    movable: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  // Load taskbar UI
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Taskbar] Loading from dev server: http://localhost:5173/taskbar.html')
+    taskbarWindow.loadURL('http://localhost:5173/taskbar.html')
+  } else {
+    const taskbarPath = path.join(__dirname, '../renderer/taskbar.html')
+    console.log('[Taskbar] Loading from file:', taskbarPath)
+    taskbarWindow.loadFile(taskbarPath)
+  }
+
+  // Store taskbar window
+  taskbarWindows.set(projectPath, taskbarWindow)
+
+  taskbarWindow.on('closed', () => {
+    console.log('[Taskbar] Taskbar window closed')
+    taskbarWindows.delete(projectPath)
+  })
+
+  taskbarWindow.on('ready-to-show', async () => {
+    console.log('[Taskbar] Taskbar ready to show')
+    taskbarWindow.show()
+
+    // Send initial session data
+    try {
+      const orka = new ClaudeOrka(projectPath)
+      await orka.initialize()
+
+      if (currentSessionId) {
+        const session = await orka.getSession(currentSessionId)
+        if (session) {
+          taskbarWindow.webContents.send('session-data', session)
+        }
+      }
+    } catch (error) {
+      console.error('[Taskbar] Error loading session data:', error)
+    }
+  })
+
+  console.log('[Taskbar] Taskbar window created successfully')
+  return taskbarWindow
 }
 
 function watchStateFile(projectPath: string, window: BrowserWindow) {
@@ -87,6 +173,12 @@ function watchStateFile(projectPath: string, window: BrowserWindow) {
         const session = await orka.getSession(currentSessionId)
         if (session) {
           window.webContents.send('state-updated', session)
+
+          // Also update taskbar if it exists
+          const taskbar = taskbarWindows.get(projectPath)
+          if (taskbar && !taskbar.isDestroyed()) {
+            taskbar.webContents.send('session-data', session)
+          }
         }
       }
     } catch (error) {
@@ -303,6 +395,68 @@ ipcMain.handle('save-and-close', async () => {
 ipcMain.on('close-window', async (event) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   window?.close()
+})
+
+ipcMain.handle('minimize-to-taskbar', async () => {
+  console.log('[Minimize] minimize-to-taskbar called')
+
+  if (!currentProjectPath) {
+    console.error('[Minimize] No active project path')
+    throw new Error('No active project')
+  }
+
+  console.log('[Minimize] Current project path:', currentProjectPath)
+
+  const mainWindow = windows.get(currentProjectPath)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    console.log('[Minimize] Hiding main window and creating taskbar')
+    mainWindow.hide()
+    createTaskbarWindow(currentProjectPath)
+  } else {
+    console.error('[Minimize] Main window not found or destroyed')
+  }
+})
+
+ipcMain.handle('restore-from-taskbar', async () => {
+  if (!currentProjectPath) {
+    throw new Error('No active project')
+  }
+
+  const mainWindow = windows.get(currentProjectPath)
+  const taskbarWindow = taskbarWindows.get(currentProjectPath)
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show()
+    mainWindow.focus()
+  }
+
+  if (taskbarWindow && !taskbarWindow.isDestroyed()) {
+    taskbarWindow.close()
+  }
+  taskbarWindows.delete(currentProjectPath)
+})
+
+ipcMain.handle('resize-taskbar', async (_, newHeight: number) => {
+  if (!currentProjectPath) {
+    throw new Error('No active project')
+  }
+
+  const taskbarWindow = taskbarWindows.get(currentProjectPath)
+  if (taskbarWindow && !taskbarWindow.isDestroyed()) {
+    const [currentWidth] = taskbarWindow.getSize()
+    const bounds = taskbarWindow.getBounds()
+
+    // Keep the window centered vertically when resizing
+    const heightDiff = newHeight - bounds.height
+    const newY = bounds.y - heightDiff / 2
+
+    taskbarWindow.setBounds({
+      x: bounds.x,
+      y: Math.max(50, newY), // Don't go above screen
+      width: currentWidth,
+      height: newHeight,
+    })
+  }
 })
 
 // App lifecycle

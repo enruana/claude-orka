@@ -11,6 +11,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
+        taskbar: path.resolve(__dirname, 'taskbar.html'),
       },
     },
   },

@@ -43,6 +43,11 @@ body {
   color: #cdd6f4;
 }
 
+.titlebar-buttons {
+  display: flex;
+  gap: 8px;
+}
+
 .titlebar-button {
   background: none;
   border: none;
@@ -52,12 +57,25 @@ body {
   transition: all 0.2s ease;
   font-size: 11px;
   padding: 5px 14px;
-  background: rgba(148, 226, 213, 0.15);
-  color: #94e2d5;
   font-weight: 500;
 }
 
-.titlebar-button:hover {
+.titlebar-button.minimize {
+  background: rgba(137, 180, 250, 0.15);
+  color: #89b4fa;
+}
+
+.titlebar-button.minimize:hover {
+  background: rgba(137, 180, 250, 0.25);
+  color: #89b4fa;
+}
+
+.titlebar-button.save-close {
+  background: rgba(148, 226, 213, 0.15);
+  color: #94e2d5;
+}
+
+.titlebar-button.save-close:hover {
   background: rgba(148, 226, 213, 0.25);
   color: #94e2d5;
 }

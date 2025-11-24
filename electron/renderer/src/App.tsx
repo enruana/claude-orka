@@ -184,13 +184,22 @@ export function App() {
     await window.electronAPI.saveAndClose()
   }
 
+  const handleMinimize = async () => {
+    await window.electronAPI.minimizeToTaskbar()
+  }
+
   return (
     <div className="app">
       <div className="titlebar" data-tauri-drag-region>
         <span className="titlebar-text">🎭 Claude-Orka</span>
-        <button className="titlebar-button save-close" onClick={handleSaveAndClose}>
-          Save & Close
-        </button>
+        <div className="titlebar-buttons">
+          <button className="titlebar-button minimize" onClick={handleMinimize}>
+            Minimize
+          </button>
+          <button className="titlebar-button save-close" onClick={handleSaveAndClose}>
+            Save & Close
+          </button>
+        </div>
       </div>
 
       <SessionInfo session={session} />
