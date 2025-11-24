@@ -291,9 +291,69 @@ ipcMain.handle('open-project-folder', async () => {
     throw new Error('No active project')
   }
 
-  // Try to open with Cursor first
+  const projectName = path.basename(currentProjectPath)
+
+  // Try to focus existing Cursor window first
+  try {
+    // Check if Cursor is running and has a window with this project
+    const checkCursor = await execa('osascript', [
+      '-e',
+      `tell application "System Events"
+        if exists (processes where name is "Cursor") then
+          tell process "Cursor"
+            set windowList to name of every window
+            repeat with windowName in windowList
+              if windowName contains "${projectName}" then
+                set frontmost to true
+                return "found"
+              end if
+            end repeat
+          end tell
+        end if
+        return "not_found"
+      end tell`,
+    ])
+
+    if (checkCursor.stdout.trim() === 'found') {
+      console.log('[Focus] Focused existing Cursor window')
+      return
+    }
+  } catch (error) {
+    console.log('[Focus] Could not check/focus Cursor:', error)
+  }
+
+  // Try to focus existing VSCode window
+  try {
+    const checkVSCode = await execa('osascript', [
+      '-e',
+      `tell application "System Events"
+        if exists (processes where name is "Code") then
+          tell process "Code"
+            set windowList to name of every window
+            repeat with windowName in windowList
+              if windowName contains "${projectName}" then
+                set frontmost to true
+                return "found"
+              end if
+            end repeat
+          end tell
+        end if
+        return "not_found"
+      end tell`,
+    ])
+
+    if (checkVSCode.stdout.trim() === 'found') {
+      console.log('[Focus] Focused existing VSCode window')
+      return
+    }
+  } catch (error) {
+    console.log('[Focus] Could not check/focus VSCode:', error)
+  }
+
+  // No existing window found, open new one with Cursor
   try {
     await execa('cursor', [currentProjectPath])
+    console.log('[Focus] Opened new Cursor window')
     return
   } catch (error) {
     // Cursor not available, try VSCode
@@ -302,12 +362,14 @@ ipcMain.handle('open-project-folder', async () => {
   // Try to open with VSCode
   try {
     await execa('code', [currentProjectPath])
+    console.log('[Focus] Opened new VSCode window')
     return
   } catch (error) {
     // VSCode not available, fallback to Finder
   }
 
   // Fallback: open in Finder
+  console.log('[Focus] Fallback to Finder')
   await shell.openPath(currentProjectPath)
 })
 
