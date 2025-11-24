@@ -7,9 +7,7 @@ import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import fs from 'fs-extra'
 import { spawn } from 'child_process'
-import { createRequire } from 'module'
-
-const require = createRequire(import.meta.url)
+import execa from 'execa'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
@@ -763,12 +761,17 @@ Analyze the content and help me integrate the changes and learnings from the for
    */
   private async launchUI(sessionId: string): Promise<void> {
     try {
-      // Try to require electron
+      // Try to find electron executable (same method as orka doctor)
       let electronPath: string
       try {
-        electronPath = require('electron') as unknown as string
+        const result = await execa('which', ['electron'])
+        electronPath = result.stdout.trim()
+        if (!electronPath) {
+          throw new Error('Electron path is empty')
+        }
       } catch (error) {
-        logger.warn('Electron not available, skipping UI launch')
+        logger.warn('Electron not found in PATH, skipping UI launch')
+        logger.warn('Install Electron with: npm install -g electron')
         return
       }
 
