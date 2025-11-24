@@ -773,20 +773,29 @@ Analyze the content and help me integrate the changes and learnings from the for
       }
 
       // Get the path to the compiled main.js
-      // When installed globally via npm:
-      //   __dirname = /path/to/node_modules/@enruana/claude-orka/dist/src/core
-      //   We need:    /path/to/node_modules/@enruana/claude-orka/dist/electron/main/main.js
-      //   Relative:   ../../electron/main/main.js (from dist/src/core)
+      // The __dirname varies depending on how the code is executed:
       //
-      // When running from source:
-      //   __dirname = /path/to/claude-orka/src/core
-      //   We need:    /path/to/claude-orka/dist/electron/main/main.js
-      //   Relative:   ../../dist/electron/main/main.js
+      // 1. Via CLI (bundled with esbuild):
+      //    __dirname = /path/to/node_modules/@enruana/claude-orka/dist
+      //    We need:    /path/to/node_modules/@enruana/claude-orka/dist/electron/main/main.js
+      //    Relative:   ./electron/main/main.js
+      //
+      // 2. Via SDK (not bundled, TypeScript compiled):
+      //    __dirname = /path/to/node_modules/@enruana/claude-orka/dist/src/core
+      //    We need:    /path/to/node_modules/@enruana/claude-orka/dist/electron/main/main.js
+      //    Relative:   ../../electron/main/main.js
+      //
+      // 3. Development (from source):
+      //    __dirname = /path/to/claude-orka/src/core
+      //    We need:    /path/to/claude-orka/dist/electron/main/main.js
+      //    Relative:   ../../dist/electron/main/main.js
 
       const possiblePaths = [
-        // Production (installed globally): dist/src/core -> ../../electron/main/main.js
+        // Via CLI (bundled): dist -> ./electron/main/main.js
+        path.join(__dirname, './electron/main/main.js'),
+        // Via SDK: dist/src/core -> ../../electron/main/main.js
         path.join(__dirname, '../../electron/main/main.js'),
-        // Development (from src): src/core -> ../../dist/electron/main/main.js
+        // Development: src/core -> ../../dist/electron/main/main.js
         path.join(__dirname, '../../dist/electron/main/main.js'),
       ]
 
