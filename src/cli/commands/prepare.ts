@@ -24,6 +24,7 @@ export function prepareCommand(program: Command) {
         console.log(chalk.bold.cyan('\n🔧 Claude-Orka Preparation\n'))
         console.log('This will help you install required dependencies:\n')
         console.log('  • tmux (terminal multiplexer)')
+        console.log('  • Electron (for visual UI)')
         console.log('  • Claude CLI (if needed)\n')
 
         if (!options.yes) {
@@ -49,6 +50,9 @@ export function prepareCommand(program: Command) {
 
         // Install tmux
         await installTmux(system)
+
+        // Install Electron
+        await installElectron()
 
         // Check Claude CLI
         await checkClaudeCLI()
@@ -153,6 +157,36 @@ async function installTmux(system: SystemInfo) {
     console.log(chalk.cyan('  macOS: brew install tmux'))
     console.log(chalk.cyan('  Ubuntu: sudo apt-get install tmux'))
     console.log(chalk.cyan('  CentOS: sudo yum install tmux'))
+  }
+}
+
+async function installElectron() {
+  console.log(chalk.bold('\n⚡ Installing Electron...\n'))
+
+  // Check if already installed
+  try {
+    await execa('electron', ['--version'])
+    Output.success('Electron is already installed')
+    return
+  } catch {
+    // Not installed, continue
+  }
+
+  const spinner = ora('Installing Electron globally...').start()
+
+  try {
+    await execa('npm', ['install', '-g', 'electron'], {
+      stdio: 'ignore',
+    })
+    spinner.succeed('Electron installed globally')
+  } catch (error: any) {
+    spinner.fail('Failed to install Electron')
+    console.log(chalk.red(`\nError: ${error.message}`))
+    console.log(chalk.yellow('\nPlease install Electron manually:'))
+    console.log(chalk.cyan('  npm install -g electron'))
+    console.log(
+      chalk.gray('\nNote: Electron is required for the visual UI interface.')
+    )
   }
 }
 

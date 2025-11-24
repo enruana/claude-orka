@@ -773,16 +773,33 @@ Analyze the content and help me integrate the changes and learnings from the for
       }
 
       // Get the path to the compiled main.js
-      // Try production path first (when installed from npm: dist/src/core -> dist/electron/main)
-      // Then try development path (when running locally: src/core -> dist/electron/main)
-      let mainPath = path.join(__dirname, '../../electron/main/main.js')
-      if (!fs.existsSync(mainPath)) {
-        mainPath = path.join(__dirname, '../../dist/electron/main/main.js')
+      // When installed globally: __dirname is like /usr/local/lib/node_modules/@enruana/claude-orka/dist/core
+      // When running locally: __dirname is like /path/to/claude-orka/src/core or /path/to/claude-orka/dist/core
+
+      const possiblePaths = [
+        // Production (installed globally): dist/core -> ../../dist/electron/main/main.js
+        path.join(__dirname, '../../dist/electron/main/main.js'),
+        // Development (running from dist): dist/core -> ../electron/main/main.js
+        path.join(__dirname, '../electron/main/main.js'),
+        // Development (running from src): src/core -> ../../dist/electron/main/main.js
+        path.join(__dirname, '../../dist/electron/main/main.js'),
+        // Fallback: check relative to package root
+        path.join(__dirname, '../../electron/main/main.js'),
+      ]
+
+      let mainPath: string | null = null
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          mainPath = p
+          logger.debug(`Found Electron main.js at: ${p}`)
+          break
+        }
       }
 
       // Check if the main.js exists
-      if (!fs.existsSync(mainPath)) {
-        logger.warn(`Electron main.js not found at ${mainPath}, skipping UI launch`)
+      if (!mainPath) {
+        logger.warn(`Electron main.js not found. Tried paths: ${possiblePaths.join(', ')}`)
+        logger.warn('Skipping UI launch')
         return
       }
 
