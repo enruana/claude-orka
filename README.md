@@ -1,9 +1,13 @@
-# Claude-Orka 🎭
+<div align="center">
+  <img src="public/icon.png" alt="Claude-Orka Logo" width="200" height="200">
 
-> SDK and CLI for orchestrating Claude Code sessions with tmux - Branch management for AI conversations
+  # Claude-Orka
 
-[![npm version](https://img.shields.io/npm/v/@enruana/claude-orka.svg)](https://www.npmjs.com/package/@enruana/claude-orka)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  > SDK and CLI for orchestrating Claude Code sessions with tmux - Branch management for AI conversations
+
+  [![npm version](https://img.shields.io/npm/v/@enruana/claude-orka.svg)](https://www.npmjs.com/package/@enruana/claude-orka)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+</div>
 
 ## What is Claude-Orka?
 

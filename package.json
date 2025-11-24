@@ -55,6 +55,7 @@
     "dist",
     "bin",
     ".tmux.orka.conf",
+    "public/icon.png",
     "README.md",
     "LICENSE"
   ],
@@ -99,14 +100,22 @@
     },
     "files": [
       "dist/**/*",
+      "public/icon.png",
       "package.json"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
+      "icon": "public/icon.png",
       "target": [
         "dmg",
         "zip"
       ]
+    },
+    "win": {
+      "icon": "public/icon.png"
+    },
+    "linux": {
+      "icon": "public/icon.png"
     },
     "dmg": {
       "contents": [

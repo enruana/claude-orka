@@ -27,6 +27,9 @@ function createWindow(sessionId: string, projectPath: string) {
   // Extract project name from path
   const projectName = path.basename(projectPath)
 
+  // Icon path - check multiple locations
+  const iconPath = path.join(__dirname, '../../../public/icon.png')
+
   const mainWindow = new BrowserWindow({
     width: 600,
     height: 800,
@@ -37,6 +40,7 @@ function createWindow(sessionId: string, projectPath: string) {
     alwaysOnTop: true,
     resizable: true,
     title: `Claude Orka - ${projectName}`,
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
@@ -94,6 +98,9 @@ function createTaskbarWindow(projectPath: string): BrowserWindow {
 
   console.log('[Taskbar] Screen size:', width, 'x', height)
 
+  // Icon path
+  const iconPath = path.join(__dirname, '../../../public/icon.png')
+
   const taskbarWindow = new BrowserWindow({
     width: 80,
     height: 220, // Initial height
@@ -107,6 +114,7 @@ function createTaskbarWindow(projectPath: string): BrowserWindow {
     resizable: false,
     skipTaskbar: true,
     movable: true,
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
