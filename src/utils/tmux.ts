@@ -60,14 +60,18 @@ export class TmuxCommands {
   static async applyOrkaTheme(sessionName: string): Promise<void> {
     try {
       // Find the config file (look for it in the package installation directory)
+      // __dirname when bundled with esbuild points to dist/ folder
       const possiblePaths = [
-        // When installed globally via npm
+        // When installed globally via npm (dist/ -> package root)
+        path.join(__dirname, '../.tmux.orka.conf'),
+        // When running from source (src/utils/ -> package root)
         path.join(__dirname, '../../.tmux.orka.conf'),
-        // When running from source
+        // When running from current working directory
         path.join(process.cwd(), '.tmux.orka.conf'),
-        // Fallback: check in the module directory
-        path.join(__dirname, '../../../.tmux.orka.conf'),
       ]
+
+      logger.debug(`Looking for Orka theme config. __dirname: ${__dirname}`)
+      logger.debug(`Possible paths: ${possiblePaths.map(p => path.resolve(p)).join(', ')}`)
 
       let configPath: string | null = null
       for (const p of possiblePaths) {
