@@ -184,6 +184,9 @@ export class SessionManager {
     // 1. Create new tmux session
     await TmuxCommands.createSession(tmuxSessionId, this.projectPath)
 
+    // 1.5. Re-apply Orka theme (in case it wasn't applied)
+    await TmuxCommands.applyOrkaTheme(tmuxSessionId)
+
     if (openTerminal) {
       await TmuxCommands.openTerminalWindow(tmuxSessionId)
     }

@@ -57,7 +57,7 @@ export class TmuxCommands {
   /**
    * Apply Claude-Orka custom tmux theme to a session
    */
-  private static async applyOrkaTheme(sessionName: string): Promise<void> {
+  static async applyOrkaTheme(sessionName: string): Promise<void> {
     try {
       // Find the config file (look for it in the package installation directory)
       const possiblePaths = [
