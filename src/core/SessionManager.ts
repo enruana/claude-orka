@@ -17,12 +17,21 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * Opciones para inicializar Claude
  */
 interface InitOptions {
-  type: 'new' | 'resume' | 'fork'
+  type: 'new' | 'resume' | 'fork' | 'continue'
   sessionId?: string // Para new
-  resumeSessionId?: string // Para resume
+  resumeSessionId?: string // Para resume y continue
   parentSessionId?: string // Para fork
   sessionName?: string // Para contexto en el prompt
   forkName?: string // Para forks
+}
+
+/**
+ * Opciones para crear una sesión
+ */
+export interface CreateSessionOptions {
+  name?: string
+  openTerminal?: boolean
+  continueFromClaudeSession?: string // Claude session ID to continue from
 }
 
 /**
@@ -58,12 +67,17 @@ export class SessionManager {
   /**
    * Crear una nueva sesión de Claude Code
    */
-  async createSession(name?: string, openTerminal = true): Promise<Session> {
+  async createSession(options: CreateSessionOptions = {}): Promise<Session> {
+    const { name, openTerminal = true, continueFromClaudeSession } = options
+
     const sessionId = uuidv4()
     const sessionName = name || `Session-${Date.now()}`
     const tmuxSessionId = `orka-${sessionId}`
 
     logger.info(`Creating session: ${sessionName}`)
+    if (continueFromClaudeSession) {
+      logger.info(`Continuing from Claude session: ${continueFromClaudeSession}`)
+    }
 
     // 1. Create tmux session
     await TmuxCommands.createSession(tmuxSessionId, this.projectPath)
@@ -78,13 +92,26 @@ export class SessionManager {
     const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
     logger.debug(`Main pane ID: ${paneId}`)
 
-    // 3. Generar Claude session ID y crear sesión con prompt inicial
-    const claudeSessionId = uuidv4()
-    await this.initializeClaude(paneId, {
-      type: 'new',
-      sessionId: claudeSessionId,
-      sessionName: sessionName,
-    })
+    // 3. Inicializar Claude - nueva sesión o continuar desde existente
+    let claudeSessionId: string
+
+    if (continueFromClaudeSession) {
+      // Continuar desde sesión de Claude existente
+      claudeSessionId = continueFromClaudeSession
+      await this.initializeClaude(paneId, {
+        type: 'continue',
+        resumeSessionId: continueFromClaudeSession,
+        sessionName: sessionName,
+      })
+    } else {
+      // Nueva sesión de Claude
+      claudeSessionId = uuidv4()
+      await this.initializeClaude(paneId, {
+        type: 'new',
+        sessionId: claudeSessionId,
+        sessionName: sessionName,
+      })
+    }
 
     // 4. Crear y guardar session
     const session: Session = {
@@ -740,6 +767,11 @@ Analyze the content and help me integrate the changes and learnings from the for
       case 'resume':
         const resumePrompt = `Resuming session "${sessionName}".`
         command = `claude --resume ${resumeSessionId} "${resumePrompt}"`
+        break
+
+      case 'continue':
+        const continuePrompt = `Continuing previous conversation in Orka session "${sessionName}".`
+        command = `claude --resume ${resumeSessionId} "${continuePrompt}"`
         break
 
       case 'fork':

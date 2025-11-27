@@ -1,6 +1,6 @@
-import { SessionManager } from './SessionManager'
+import { SessionManager, CreateSessionOptions } from './SessionManager'
 import { Session, Fork, SessionFilters, ProjectSummary, SessionSummary, ForkSummary } from '../models'
-import { logger } from '../utils'
+import { logger, listClaudeSessions, ClaudeSessionSummary } from '../utils'
 
 /**
  * Claude-Orka SDK
@@ -31,12 +31,40 @@ export class ClaudeOrka {
 
   /**
    * Create a new Claude Code session
+   * @param options Session creation options
+   * @returns Created session
+   */
+  async createSession(options?: CreateSessionOptions): Promise<Session>
+  /**
+   * Create a new Claude Code session (legacy signature)
    * @param name Optional name for the session
    * @param openTerminal Whether to open a terminal window (default: true)
    * @returns Created session
+   * @deprecated Use createSession(options) instead
    */
-  async createSession(name?: string, openTerminal?: boolean): Promise<Session> {
-    return await this.sessionManager.createSession(name, openTerminal)
+  async createSession(name?: string, openTerminal?: boolean): Promise<Session>
+  async createSession(
+    nameOrOptions?: string | CreateSessionOptions,
+    openTerminal?: boolean
+  ): Promise<Session> {
+    // Handle both legacy and new signatures
+    if (typeof nameOrOptions === 'object') {
+      return await this.sessionManager.createSession(nameOrOptions)
+    }
+    // Legacy signature
+    return await this.sessionManager.createSession({
+      name: nameOrOptions,
+      openTerminal,
+    })
+  }
+
+  /**
+   * List available Claude sessions that can be continued
+   * @param limit Maximum number of sessions to return (default: 10)
+   * @returns Array of Claude session summaries for current project
+   */
+  async listClaudeSessions(limit: number = 10): Promise<ClaudeSessionSummary[]> {
+    return await listClaudeSessions(this.sessionManager['projectPath'], limit)
   }
 
   /**

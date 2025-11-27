@@ -105,3 +105,74 @@ export async function getLatestSessionId(): Promise<string | null> {
 
   return entries[0].sessionId
 }
+
+/**
+ * Información resumida de una sesión de Claude
+ */
+export interface ClaudeSessionSummary {
+  sessionId: string
+  project: string
+  firstMessage: string
+  lastTimestamp: number
+  messageCount: number
+}
+
+/**
+ * Obtiene un listado de sesiones de Claude agrupadas y ordenadas
+ * @param projectPath Si se proporciona, filtra solo las sesiones de ese proyecto
+ * @param limit Número máximo de sesiones a devolver (default: 20)
+ */
+export async function listClaudeSessions(
+  projectPath?: string,
+  limit: number = 20
+): Promise<ClaudeSessionSummary[]> {
+  const entries = await readClaudeHistory()
+  if (entries.length === 0) return []
+
+  // Agrupar por sessionId
+  const sessionMap = new Map<string, ClaudeHistoryEntry[]>()
+  for (const entry of entries) {
+    const existing = sessionMap.get(entry.sessionId) || []
+    existing.push(entry)
+    sessionMap.set(entry.sessionId, existing)
+  }
+
+  // Convertir a resumen
+  const summaries: ClaudeSessionSummary[] = []
+  for (const [sessionId, sessionEntries] of sessionMap) {
+    // Ordenar entradas de esta sesión por timestamp
+    sessionEntries.sort((a, b) => a.timestamp - b.timestamp)
+
+    const firstEntry = sessionEntries[0]
+    const lastEntry = sessionEntries[sessionEntries.length - 1]
+
+    // Filtrar por proyecto si se especificó
+    if (projectPath && firstEntry.project !== projectPath) {
+      continue
+    }
+
+    summaries.push({
+      sessionId,
+      project: firstEntry.project,
+      firstMessage: firstEntry.display.substring(0, 80),
+      lastTimestamp: lastEntry.timestamp,
+      messageCount: sessionEntries.length,
+    })
+  }
+
+  // Ordenar por última actividad (más reciente primero)
+  summaries.sort((a, b) => b.lastTimestamp - a.lastTimestamp)
+
+  // Limitar resultados
+  return summaries.slice(0, limit)
+}
+
+/**
+ * Obtiene la sesión de Claude más reciente para un proyecto
+ */
+export async function getLatestSessionForProject(
+  projectPath: string
+): Promise<ClaudeSessionSummary | null> {
+  const sessions = await listClaudeSessions(projectPath, 1)
+  return sessions.length > 0 ? sessions[0] : null
+}
