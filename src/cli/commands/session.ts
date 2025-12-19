@@ -23,7 +23,8 @@ async function selectSession(sessions: Session[]): Promise<Session | null> {
   sessions.forEach((session, index) => {
     const statusColor = session.status === 'active' ? chalk.green : chalk.yellow
     const status = statusColor(`[${session.status}]`)
-    const forkCount = session.forks.length > 0 ? chalk.gray(` (${session.forks.length} forks)`) : ''
+    const forks = session.forks || []
+    const forkCount = forks.length > 0 ? chalk.gray(` (${forks.length} forks)`) : ''
 
     console.log(`  ${chalk.bold(index + 1)}. ${session.name || 'Unnamed'} ${status}${forkCount}`)
     console.log(chalk.gray(`     ID: ${session.id.slice(0, 8)}...`))
@@ -252,9 +253,10 @@ export function sessionCommand(program: Command) {
         } else {
           Output.session(session)
 
-          if (session.forks.length > 0) {
+          const sessionForks = session.forks || []
+          if (sessionForks.length > 0) {
             Output.section('\n🌿 Forks:')
-            for (const fork of session.forks) {
+            for (const fork of sessionForks) {
               Output.fork(fork)
             }
           }

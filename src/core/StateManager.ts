@@ -1,7 +1,12 @@
 import path from 'path'
 import fs from 'fs-extra'
+import { fileURLToPath } from 'url'
 import { ProjectState, Session, Fork, SessionFilters } from '../models'
 import { logger } from '../utils'
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 /**
  * Manages state persistence in .claude-orka/state.json
@@ -25,6 +30,9 @@ export class StateManager {
     logger.debug('Initializing StateManager')
     await this.ensureDirectories()
 
+    // Copy tmux theme to project directory for persistence
+    await this.copyThemeConfig()
+
     // If state.json doesn't exist, create an initial one
     if (!(await fs.pathExists(this.statePath))) {
       logger.info('Creating initial state.json')
@@ -38,6 +46,55 @@ export class StateManager {
     }
 
     logger.info('StateManager initialized')
+  }
+
+  /**
+   * Copy tmux theme config to project's .claude-orka directory
+   * This ensures the theme persists across system restarts
+   */
+  private async copyThemeConfig(): Promise<void> {
+    const destPath = path.join(this.orkaDir, '.tmux.orka.conf')
+
+    // Skip if theme already exists in project
+    if (await fs.pathExists(destPath)) {
+      logger.debug('Theme config already exists in project')
+      return
+    }
+
+    // Look for source theme in package installation
+    const possibleSources = [
+      // When running from dist/ (bundled CLI)
+      path.join(__dirname, '../.tmux.orka.conf'),
+      // When running from src/core/ (development)
+      path.join(__dirname, '../../.tmux.orka.conf'),
+      // Fallback: look in node_modules (when used as dependency)
+      path.join(__dirname, '../../../.tmux.orka.conf'),
+    ]
+
+    logger.debug(`Looking for tmux theme. __dirname: ${__dirname}`)
+
+    let sourcePath: string | null = null
+    for (const p of possibleSources) {
+      const resolved = path.resolve(p)
+      const exists = await fs.pathExists(resolved)
+      logger.debug(`  Checking ${resolved}: ${exists ? 'EXISTS' : 'not found'}`)
+      if (exists) {
+        sourcePath = resolved
+        break
+      }
+    }
+
+    if (!sourcePath) {
+      logger.warn('Could not find tmux theme source file to copy')
+      return
+    }
+
+    try {
+      await fs.copy(sourcePath, destPath)
+      logger.info(`Tmux theme copied to ${destPath}`)
+    } catch (error: any) {
+      logger.warn(`Failed to copy tmux theme: ${error.message}`)
+    }
   }
 
   /**

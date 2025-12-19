@@ -44,7 +44,7 @@ export class TmuxCommands {
       logger.info(`Tmux session created: ${name}`)
 
       // Apply Claude-Orka custom theme
-      await this.applyOrkaTheme(name)
+      await this.applyOrkaTheme(name, projectPath)
     } catch (error: any) {
       throw new TmuxError(
         `Failed to create tmux session: ${name}`,
@@ -57,16 +57,20 @@ export class TmuxCommands {
   /**
    * Apply Claude-Orka custom tmux theme to a session
    */
-  static async applyOrkaTheme(sessionName: string): Promise<void> {
+  static async applyOrkaTheme(sessionName: string, projectPath?: string): Promise<void> {
     try {
-      // Find the config file (look for it in the package installation directory)
-      // __dirname when bundled with esbuild points to dist/ folder
+      // Find the config file - prioritize project-local config
       const possiblePaths = [
+        // PRIORITY 1: Project-local theme (copied during orka init)
+        ...(projectPath ? [path.join(projectPath, '.claude-orka', '.tmux.orka.conf')] : []),
+        // PRIORITY 2: Current working directory project
+        path.join(process.cwd(), '.claude-orka', '.tmux.orka.conf'),
+        // FALLBACK: Package installation paths
         // When installed globally via npm (dist/ -> package root)
         path.join(__dirname, '../.tmux.orka.conf'),
         // When running from source (src/utils/ -> package root)
         path.join(__dirname, '../../.tmux.orka.conf'),
-        // When running from current working directory
+        // When running from current working directory (legacy)
         path.join(process.cwd(), '.tmux.orka.conf'),
       ]
 

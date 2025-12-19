@@ -67,16 +67,17 @@ export class Output {
       console.log(`  ${chalk.gray('Tmux Session:')} ${session.tmuxSessionId}`)
     }
 
-    if (session.forks.length > 0) {
-      console.log(`  ${chalk.gray('Forks:')} ${session.forks.length}`)
+    const forks = session.forks || []
+    if (forks.length > 0) {
+      console.log(`  ${chalk.gray('Forks:')} ${forks.length}`)
       console.log(
-        `    ${chalk.green('Active:')} ${session.forks.filter((f) => f.status === 'active').length}`
+        `    ${chalk.green('Active:')} ${forks.filter((f) => f.status === 'active').length}`
       )
       console.log(
-        `    ${chalk.yellow('Saved:')} ${session.forks.filter((f) => f.status === 'saved').length}`
+        `    ${chalk.yellow('Saved:')} ${forks.filter((f) => f.status === 'saved').length}`
       )
       console.log(
-        `    ${chalk.blue('Merged:')} ${session.forks.filter((f) => f.status === 'merged').length}`
+        `    ${chalk.blue('Merged:')} ${forks.filter((f) => f.status === 'merged').length}`
       )
     }
   }
@@ -136,9 +137,10 @@ export class Output {
 
     for (const session of sessions) {
       const statusColor = session.status === 'active' ? chalk.green : chalk.yellow
-      const activeForks = session.forks.filter((f) => f.status === 'active').length
-      const savedForks = session.forks.filter((f) => f.status === 'saved').length
-      const mergedForks = session.forks.filter((f) => f.status === 'merged').length
+      const forks = session.forks || []
+      const activeForks = forks.filter((f) => f.status === 'active').length
+      const savedForks = forks.filter((f) => f.status === 'saved').length
+      const mergedForks = forks.filter((f) => f.status === 'merged').length
 
       table.push([
         session.name,
@@ -234,9 +236,10 @@ export class Output {
         `    ${chalk.green('Active:')} ${session.activeForks} | ${chalk.yellow('Saved:')} ${session.savedForks} | ${chalk.blue('Merged:')} ${session.mergedForks}`
       )
 
-      if (session.forks.length > 0) {
+      const sessionForks = session.forks || []
+      if (sessionForks.length > 0) {
         console.log(`\n  ${chalk.bold('Forks:')}`)
-        for (const fork of session.forks) {
+        for (const fork of sessionForks) {
           const forkEmoji =
             fork.status === 'active' ? '✓' : fork.status === 'merged' ? '🔀' : '💾'
           const forkColor =

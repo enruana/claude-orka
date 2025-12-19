@@ -61,7 +61,7 @@ export function forkCommand(program: Command) {
           process.exit(1)
         }
 
-        let forks = session.forks
+        let forks = session.forks || []
 
         if (options.status) {
           forks = forks.filter((f) => f.status === options.status)
