@@ -212,8 +212,9 @@ export class SessionManager {
 
     await this.stateManager.replaceSession(session)
 
-    // 5. Resume non-merged forks
-    const forksToRestore = session.forks.filter((f) => f.status !== 'merged')
+    // 5. Resume only active or saved forks (not closed or merged)
+    const forks = session.forks || []
+    const forksToRestore = forks.filter((f) => f.status === 'active' || f.status === 'saved')
     if (forksToRestore.length > 0) {
       logger.info(`Restoring ${forksToRestore.length} fork(s)...`)
       for (const fork of forksToRestore) {
