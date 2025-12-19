@@ -336,4 +336,18 @@ export class ClaudeOrka {
     await this.exportAndMerge(sessionId, forkId)
     await this.closeFork(sessionId, forkId)
   }
+
+  // ==========================================
+  // UI METHODS
+  // ==========================================
+
+  /**
+   * Save node position for UI persistence
+   * @param sessionId Session ID
+   * @param nodeId Node ID ('main' or fork id)
+   * @param position Position {x, y}
+   */
+  async saveNodePosition(sessionId: string, nodeId: string, position: { x: number; y: number }): Promise<void> {
+    await this.sessionManager.saveNodePosition(sessionId, nodeId, position)
+  }
 }

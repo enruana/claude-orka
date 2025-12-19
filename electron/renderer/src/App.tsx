@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { SessionTree } from './components/SessionTree'
 import { SessionInfo } from './components/SessionInfo'
 import { ActionPanel } from './components/ActionPanel'
 import { ForkInfoModal } from './components/ForkInfoModal'
-import type { Session } from '../../../src/models/Session'
+import type { Session, NodePosition } from '../../../src/models/Session'
 import type { Fork } from '../../../src/models/Fork'
 import './styles/global.css'
 
@@ -188,6 +188,15 @@ export function App() {
     await window.electronAPI.minimizeToTaskbar()
   }
 
+  const handleNodePositionChange = useCallback(async (nodeId: string, position: NodePosition) => {
+    if (!session) return
+    try {
+      await window.electronAPI.saveNodePosition(session.id, nodeId, position)
+    } catch (error) {
+      console.error('Failed to save node position:', error)
+    }
+  }, [session])
+
   return (
     <div className="app">
       <div className="titlebar" data-tauri-drag-region>
@@ -209,6 +218,7 @@ export function App() {
           session={session}
           selectedNode={selectedNode}
           onNodeClick={handleNodeClick}
+          onNodePositionChange={handleNodePositionChange}
         />
       </div>
 

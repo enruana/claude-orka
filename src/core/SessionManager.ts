@@ -745,6 +745,34 @@ Analyze the content and help me integrate the changes and learnings from the for
   }
 
   // ==========================================
+  // UI METHODS
+  // ==========================================
+
+  /**
+   * Save node position for UI persistence
+   * @param sessionId Session ID
+   * @param nodeId Node ID ('main' or fork id)
+   * @param position Position {x, y}
+   */
+  async saveNodePosition(sessionId: string, nodeId: string, position: { x: number; y: number }): Promise<void> {
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
+    }
+
+    // Initialize nodePositions if not exists
+    if (!session.nodePositions) {
+      session.nodePositions = {}
+    }
+
+    // Save position
+    session.nodePositions[nodeId] = position
+
+    await this.stateManager.replaceSession(session)
+    logger.debug(`Node position saved: ${nodeId} -> (${position.x}, ${position.y})`)
+  }
+
+  // ==========================================
   // HELPERS PRIVADOS
   // ==========================================
 

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Session } from '../../src/models/Session'
+import type { Session, NodePosition } from '../../src/models/Session'
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restoreFromTaskbar: () => ipcRenderer.invoke('restore-from-taskbar'),
 
   resizeTaskbar: (height: number) => ipcRenderer.invoke('resize-taskbar', height),
+
+  saveNodePosition: (sessionId: string, nodeId: string, position: NodePosition) =>
+    ipcRenderer.invoke('save-node-position', sessionId, nodeId, position),
 
   onStateUpdate: (callback: (session: Session) => void) => {
     ipcRenderer.on('state-updated', (_, session) => callback(session))

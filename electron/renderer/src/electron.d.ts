@@ -1,4 +1,4 @@
-import type { Session } from '../../../src/models/Session'
+import type { Session, NodePosition } from '../../../src/models/Session'
 
 export interface ElectronAPI {
   getSession: () => Promise<Session>
@@ -14,6 +14,7 @@ export interface ElectronAPI {
   minimizeToTaskbar: () => Promise<void>
   restoreFromTaskbar: () => Promise<void>
   resizeTaskbar: (height: number) => Promise<void>
+  saveNodePosition: (sessionId: string, nodeId: string, position: NodePosition) => Promise<void>
   onStateUpdate: (callback: (session: Session) => void) => void
   onSessionData: (callback: (session: Session) => void) => void
   closeWindow: () => void

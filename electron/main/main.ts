@@ -285,6 +285,17 @@ ipcMain.handle('close-fork', async (_, sessionId: string, forkId: string) => {
   await orka.closeFork(sessionId, forkId)
 })
 
+ipcMain.handle('save-node-position', async (_, sessionId: string, nodeId: string, position: { x: number; y: number }) => {
+  if (!currentProjectPath) {
+    throw new Error('No active project')
+  }
+
+  const orka = new ClaudeOrka(currentProjectPath)
+  await orka.initialize()
+
+  await orka.saveNodePosition(sessionId, nodeId, position)
+})
+
 ipcMain.handle('open-export-file', async (_, exportPath: string) => {
   if (!currentProjectPath) {
     throw new Error('No active project')

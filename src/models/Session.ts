@@ -1,6 +1,14 @@
 import { Fork } from './Fork'
 
 /**
+ * Position for UI node placement
+ */
+export interface NodePosition {
+  x: number
+  y: number
+}
+
+/**
  * Representa una sesión de Claude Code
  */
 export interface Session {
@@ -27,6 +35,9 @@ export interface Session {
 
   /** Forks (ramas) de esta sesión */
   forks: Fork[]
+
+  /** UI node positions (keyed by node id: 'main' or fork id) */
+  nodePositions?: Record<string, NodePosition>
 }
 
 /**
