@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, screen } from 'electron'
 import path from 'path'
+import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
 import { ClaudeOrka } from '../../src/core/ClaudeOrka.js'
 import chokidar from 'chokidar'
@@ -7,6 +8,40 @@ import execa from 'execa'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
+// UI Logger - writes to orka.log
+class UILogger {
+  private logPath: string | null = null
+
+  setProjectPath(projectPath: string) {
+    this.logPath = path.join(projectPath, '.claude-orka', 'orka.log')
+  }
+
+  private write(level: string, ...args: any[]) {
+    const timestamp = new Date().toISOString()
+    const message = args.map(arg =>
+      typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+    ).join(' ')
+    const logLine = `${timestamp} [UI:${level}] ${message}`
+
+    console.log(logLine)
+
+    if (this.logPath) {
+      try {
+        fs.appendFileSync(this.logPath, logLine + '\n')
+      } catch (e) {
+        // Silently fail if we can't write
+      }
+    }
+  }
+
+  info(...args: any[]) { this.write('INFO', ...args) }
+  error(...args: any[]) { this.write('ERROR', ...args) }
+  debug(...args: any[]) { this.write('DEBUG', ...args) }
+  warn(...args: any[]) { this.write('WARN', ...args) }
+}
+
+const uiLogger = new UILogger()
 
 // Store windows by project path
 const windows = new Map<string, BrowserWindow>()
@@ -17,8 +52,14 @@ let currentSessionId: string | null = null
 let currentProjectPath: string | null = null
 
 function createWindow(sessionId: string, projectPath: string) {
+  uiLogger.setProjectPath(projectPath)
+  uiLogger.info('=== Creating main window ===')
+  uiLogger.info(`Session ID: ${sessionId}`)
+  uiLogger.info(`Project path: ${projectPath}`)
+
   // If window already exists for this project, focus it
   if (windows.has(projectPath)) {
+    uiLogger.info('Window already exists, focusing existing window')
     const existingWindow = windows.get(projectPath)!
     existingWindow.focus()
     return existingWindow
@@ -29,6 +70,11 @@ function createWindow(sessionId: string, projectPath: string) {
 
   // Icon path - check multiple locations
   const iconPath = path.join(__dirname, '../../../public/icon.png')
+  const preloadPath = path.join(__dirname, '../preload/preload.js')
+
+  uiLogger.info(`Icon path: ${iconPath}`)
+  uiLogger.info(`Preload path: ${preloadPath}`)
+  uiLogger.info(`Preload exists: ${fs.existsSync(preloadPath)}`)
 
   const mainWindow = new BrowserWindow({
     width: 600,
@@ -42,25 +88,79 @@ function createWindow(sessionId: string, projectPath: string) {
     title: `Claude Orka - ${projectName}`,
     icon: iconPath,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/preload.js'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
     },
   })
+
+  uiLogger.info('BrowserWindow created')
 
   // Store session info
   currentSessionId = sessionId
   currentProjectPath = projectPath
 
   // Load UI
+  let loadTarget: string
   if (process.env.NODE_ENV === 'development') {
     // Dev mode - load from Vite dev server
-    mainWindow.loadURL('http://localhost:5173')
+    loadTarget = 'http://localhost:5173'
+    uiLogger.info(`Loading UI from dev server: ${loadTarget}`)
+    mainWindow.loadURL(loadTarget)
   } else {
     // Production - load from built files
-    const indexPath = path.join(__dirname, '../renderer/index.html')
-    mainWindow.loadFile(indexPath)
+    loadTarget = path.join(__dirname, '../renderer/index.html')
+    uiLogger.info(`Loading UI from file: ${loadTarget}`)
+    uiLogger.info(`File exists: ${fs.existsSync(loadTarget)}`)
+    mainWindow.loadFile(loadTarget)
   }
+
+  // Add window lifecycle events for debugging
+  mainWindow.webContents.on('did-start-loading', () => {
+    uiLogger.info('WebContents: did-start-loading')
+  })
+
+  mainWindow.webContents.on('did-stop-loading', () => {
+    uiLogger.info('WebContents: did-stop-loading')
+  })
+
+  mainWindow.webContents.on('dom-ready', () => {
+    uiLogger.info('WebContents: dom-ready')
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    uiLogger.info('WebContents: did-finish-load')
+  })
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    uiLogger.error(`WebContents: did-fail-load - Code: ${errorCode}, Desc: ${errorDescription}, URL: ${validatedURL}`)
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    uiLogger.error('WebContents: render-process-gone', details)
+  })
+
+  mainWindow.webContents.on('unresponsive', () => {
+    uiLogger.warn('WebContents: unresponsive')
+  })
+
+  mainWindow.webContents.on('responsive', () => {
+    uiLogger.info('WebContents: responsive again')
+  })
+
+  mainWindow.webContents.on('console-message', (_event, level, message) => {
+    const levelNames = ['DEBUG', 'INFO', 'WARN', 'ERROR']
+    const levelName = levelNames[level] || 'LOG'
+    uiLogger.info(`[Renderer:${levelName}] ${message}`)
+  })
+
+  mainWindow.on('ready-to-show', () => {
+    uiLogger.info('Window: ready-to-show')
+  })
+
+  mainWindow.on('show', () => {
+    uiLogger.info('Window: show')
+  })
 
   // Watch state.json for changes
   watchStateFile(projectPath, mainWindow)
@@ -69,6 +169,7 @@ function createWindow(sessionId: string, projectPath: string) {
   windows.set(projectPath, mainWindow)
 
   mainWindow.on('closed', () => {
+    uiLogger.info('Window: closed')
     windows.delete(projectPath)
     // Close taskbar if exists
     const taskbar = taskbarWindows.get(projectPath)
@@ -78,6 +179,7 @@ function createWindow(sessionId: string, projectPath: string) {
     taskbarWindows.delete(projectPath)
   })
 
+  uiLogger.info('Window setup complete')
   return mainWindow
 }
 
@@ -201,15 +303,36 @@ function watchStateFile(projectPath: string, window: BrowserWindow) {
 
 // IPC Handlers
 ipcMain.handle('get-session', async () => {
+  uiLogger.info('IPC: get-session called')
+  uiLogger.info(`  currentSessionId: ${currentSessionId}`)
+  uiLogger.info(`  currentProjectPath: ${currentProjectPath}`)
+
   if (!currentSessionId || !currentProjectPath) {
+    uiLogger.error('IPC: get-session failed - No active session')
     throw new Error('No active session')
   }
 
-  const orka = new ClaudeOrka(currentProjectPath)
-  await orka.initialize()
+  try {
+    uiLogger.info('IPC: Initializing ClaudeOrka...')
+    const orka = new ClaudeOrka(currentProjectPath)
+    await orka.initialize()
+    uiLogger.info('IPC: ClaudeOrka initialized')
 
-  const session = await orka.getSession(currentSessionId)
-  return session
+    uiLogger.info(`IPC: Getting session ${currentSessionId}...`)
+    const session = await orka.getSession(currentSessionId)
+
+    if (session) {
+      uiLogger.info(`IPC: Session retrieved successfully - ${session.name}`)
+      uiLogger.info(`IPC: Session has ${session.forks?.length || 0} forks`)
+    } else {
+      uiLogger.warn('IPC: Session not found')
+    }
+
+    return session
+  } catch (error: any) {
+    uiLogger.error(`IPC: get-session error - ${error.message}`)
+    throw error
+  }
 })
 
 ipcMain.handle('select-node', async (_, nodeId: string) => {
@@ -542,10 +665,17 @@ ipcMain.handle('resize-taskbar', async (_, newHeight: number) => {
 
 // App lifecycle
 app.whenReady().then(() => {
+  console.log('[Electron] App ready')
+
   // Get session ID and project path from command line args
   const args = process.argv.slice(2)
+  console.log('[Electron] Command line args:', args)
+
   const sessionIdIndex = args.indexOf('--session-id')
   const projectPathIndex = args.indexOf('--project-path')
+
+  console.log('[Electron] sessionIdIndex:', sessionIdIndex)
+  console.log('[Electron] projectPathIndex:', projectPathIndex)
 
   if (sessionIdIndex !== -1 && args[sessionIdIndex + 1]) {
     const sessionId = args[sessionIdIndex + 1]
@@ -554,7 +684,13 @@ app.whenReady().then(() => {
         ? args[projectPathIndex + 1]
         : process.cwd()
 
+    console.log('[Electron] Creating window with sessionId:', sessionId)
+    console.log('[Electron] Creating window with projectPath:', projectPath)
+
     createWindow(sessionId, projectPath)
+  } else {
+    console.error('[Electron] Missing required --session-id argument')
+    console.log('[Electron] Available args:', args)
   }
 
   app.on('activate', () => {
@@ -565,6 +701,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  console.log('[Electron] All windows closed, quitting...')
   // Quit app on all platforms when windows are closed
   app.quit()
 })

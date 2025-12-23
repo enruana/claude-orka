@@ -7,10 +7,22 @@ import type { Session, NodePosition } from '../../../src/models/Session'
 import type { Fork } from '../../../src/models/Fork'
 import './styles/global.css'
 
+// Logger helper for renderer
+const log = {
+  info: (...args: any[]) => console.log('[App]', ...args),
+  error: (...args: any[]) => console.error('[App]', ...args),
+  warn: (...args: any[]) => console.warn('[App]', ...args),
+}
+
+log.info('=== App module loaded ===')
+
 export function App() {
+  log.info('App component rendering...')
+
   const [session, setSession] = useState<Session | null>(null)
   const [selectedNode, setSelectedNode] = useState<string>('main')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [showForkDialog, setShowForkDialog] = useState(false)
   const [forkNameInput, setForkNameInput] = useState('')
   const [isCreatingFork, setIsCreatingFork] = useState(false)
@@ -21,16 +33,40 @@ export function App() {
   const [selectedForkInfo, setSelectedForkInfo] = useState<Fork | null>(null)
 
   useEffect(() => {
-    // Request session data from main process
-    window.electronAPI.getSession().then((sessionData) => {
-      setSession(sessionData)
+    log.info('useEffect: Initializing app...')
+    log.info('electronAPI available:', !!window.electronAPI)
+
+    if (!window.electronAPI) {
+      log.error('electronAPI is not available! Preload script may have failed.')
+      setError('electronAPI not available - preload script may have failed')
       setLoading(false)
-    })
+      return
+    }
+
+    // Request session data from main process
+    log.info('Requesting session data from main process...')
+    window.electronAPI.getSession()
+      .then((sessionData) => {
+        log.info('Session data received:', sessionData?.id, sessionData?.name)
+        log.info('Session has', sessionData?.forks?.length || 0, 'forks')
+        setSession(sessionData)
+        setLoading(false)
+        log.info('Loading state set to false')
+      })
+      .catch((err) => {
+        log.error('Failed to get session:', err.message)
+        setError(`Failed to get session: ${err.message}`)
+        setLoading(false)
+      })
 
     // Listen for state updates
+    log.info('Setting up state update listener...')
     window.electronAPI.onStateUpdate((updatedSession) => {
+      log.info('State update received:', updatedSession?.id)
       setSession(updatedSession)
     })
+
+    log.info('useEffect: Initialization complete')
   }, [])
 
   const handleNodeClick = async (nodeId: string) => {
@@ -164,6 +200,7 @@ export function App() {
   }
 
   if (loading) {
+    log.info('Rendering loading state...')
     return (
       <div className="loading">
         <div className="spinner"></div>
@@ -172,13 +209,26 @@ export function App() {
     )
   }
 
+  if (error) {
+    log.error('Rendering error state:', error)
+    return (
+      <div className="error">
+        <p>Error loading session</p>
+        <p style={{ fontSize: '12px', color: '#888' }}>{error}</p>
+      </div>
+    )
+  }
+
   if (!session) {
+    log.warn('Rendering no-session state')
     return (
       <div className="error">
         <p>No session data available</p>
       </div>
     )
   }
+
+  log.info('Rendering main UI with session:', session.id)
 
   const handleSaveAndClose = async () => {
     await window.electronAPI.saveAndClose()

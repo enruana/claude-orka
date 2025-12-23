@@ -1,9 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Session, NodePosition } from '../../src/models/Session'
 
+console.log('[Preload] Script starting...')
+
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
-contextBridge.exposeInMainWorld('electronAPI', {
+try {
+  console.log('[Preload] Exposing electronAPI to renderer...')
+  contextBridge.exposeInMainWorld('electronAPI', {
   getSession: () => ipcRenderer.invoke('get-session'),
 
   selectNode: (nodeId: string) => ipcRenderer.invoke('select-node', nodeId),
@@ -48,3 +52,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   closeWindow: () => ipcRenderer.send('close-window'),
 })
+  console.log('[Preload] electronAPI exposed successfully')
+} catch (error) {
+  console.error('[Preload] Failed to expose electronAPI:', error)
+}
+
+console.log('[Preload] Script complete')
