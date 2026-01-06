@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useEffect } from 'react'
 import ReactFlow, {
   Node,
   Edge,
@@ -135,10 +135,10 @@ export function SessionTree({ session, selectedNode, onNodeClick, onNodePosition
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
 
   // Update nodes when session changes
-  useMemo(() => {
+  useEffect(() => {
     setNodes(initialNodes)
     setEdges(initialEdges)
-  }, [initialNodes, initialEdges])
+  }, [initialNodes, initialEdges, setNodes, setEdges])
 
   // Handle node drag end - save position
   const onNodeDragStop: NodeDragHandler = useCallback((_, node) => {

@@ -51,15 +51,12 @@ export class StateManager {
   /**
    * Copy tmux theme config to project's .claude-orka directory
    * This ensures the theme persists across system restarts
+   * Always overwrites to ensure the latest version
    */
   private async copyThemeConfig(): Promise<void> {
     const destPath = path.join(this.orkaDir, '.tmux.orka.conf')
 
-    // Skip if theme already exists in project
-    if (await fs.pathExists(destPath)) {
-      logger.debug('Theme config already exists in project')
-      return
-    }
+    logger.info(`Copying tmux theme to project...`)
 
     // Look for source theme in package installation
     const possibleSources = [
@@ -71,13 +68,13 @@ export class StateManager {
       path.join(__dirname, '../../../.tmux.orka.conf'),
     ]
 
-    logger.debug(`Looking for tmux theme. __dirname: ${__dirname}`)
+    logger.info(`Looking for tmux theme source. __dirname: ${__dirname}`)
 
     let sourcePath: string | null = null
     for (const p of possibleSources) {
       const resolved = path.resolve(p)
       const exists = await fs.pathExists(resolved)
-      logger.debug(`  Checking ${resolved}: ${exists ? 'EXISTS' : 'not found'}`)
+      logger.info(`  Checking: ${resolved} -> ${exists ? 'FOUND' : 'not found'}`)
       if (exists) {
         sourcePath = resolved
         break
@@ -90,8 +87,8 @@ export class StateManager {
     }
 
     try {
-      await fs.copy(sourcePath, destPath)
-      logger.info(`Tmux theme copied to ${destPath}`)
+      await fs.copy(sourcePath, destPath, { overwrite: true })
+      logger.info(`Tmux theme copied successfully to ${destPath}`)
     } catch (error: any) {
       logger.warn(`Failed to copy tmux theme: ${error.message}`)
     }
