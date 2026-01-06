@@ -3,6 +3,8 @@ import { SessionTree } from './components/SessionTree'
 import { SessionInfo } from './components/SessionInfo'
 import { ActionPanel } from './components/ActionPanel'
 import { ForkInfoModal } from './components/ForkInfoModal'
+import { TimelineView } from './components/TimelineView'
+import { ViewSwitcher, ViewMode } from './components/ViewSwitcher'
 import type { Session, NodePosition } from '../../../src/models/Session'
 import type { Fork } from '../../../src/models/Fork'
 import './styles/global.css'
@@ -23,6 +25,7 @@ export function App() {
   const [selectedNode, setSelectedNode] = useState<string>('main')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>('timeline') // Default to timeline
   const [showForkDialog, setShowForkDialog] = useState(false)
   const [forkNameInput, setForkNameInput] = useState('')
   const [isCreatingFork, setIsCreatingFork] = useState(false)
@@ -248,6 +251,7 @@ export function App() {
     <div className="app">
       <div className="titlebar" data-tauri-drag-region>
         <span className="titlebar-text">🎭 Claude-Orka</span>
+        <ViewSwitcher currentView={viewMode} onViewChange={setViewMode} />
         <div className="titlebar-buttons">
           <button className="titlebar-button minimize" onClick={handleMinimize}>
             Minimize
@@ -261,11 +265,19 @@ export function App() {
       <SessionInfo session={session} />
 
       <div className="content">
-        <SessionTree
-          session={session}
-          selectedNode={selectedNode}
-          onNodeClick={handleNodeClick}
-        />
+        {viewMode === 'timeline' ? (
+          <TimelineView
+            session={session}
+            selectedNode={selectedNode}
+            onNodeClick={handleNodeClick}
+          />
+        ) : (
+          <SessionTree
+            session={session}
+            selectedNode={selectedNode}
+            onNodeClick={handleNodeClick}
+          />
+        )}
       </div>
 
       <ActionPanel

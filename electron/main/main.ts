@@ -77,9 +77,9 @@ function createWindow(sessionId: string, projectPath: string) {
   uiLogger.info(`Preload exists: ${fs.existsSync(preloadPath)}`)
 
   const mainWindow = new BrowserWindow({
-    width: 600,
+    width: 1200,
     height: 800,
-    minWidth: 500,
+    minWidth: 800,
     minHeight: 600,
     frame: false,
     transparent: true,
