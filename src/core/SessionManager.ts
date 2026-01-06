@@ -805,8 +805,8 @@ Analyze the content and help me integrate the changes and learnings from the for
     await TmuxCommands.sendKeys(paneId, command)
     await TmuxCommands.sendEnter(paneId)
 
-    // 3. Esperar a que Claude inicie y procese el prompt
-    await sleep(8000) // 8 segundos para que Claude inicie y registre la sesión
+    // 3. Esperar a que Claude inicie (reducido porque ya no detectamos session ID)
+    await sleep(2000) // 2 segundos para que Claude inicie
   }
 
   /**

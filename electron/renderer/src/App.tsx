@@ -62,7 +62,10 @@ export function App() {
     // Listen for state updates
     log.info('Setting up state update listener...')
     window.electronAPI.onStateUpdate((updatedSession) => {
-      log.info('State update received:', updatedSession?.id)
+      log.info('State update received:', updatedSession?.id, 'forks:', updatedSession?.forks?.length)
+      if (updatedSession?.forks) {
+        log.info('Fork details:', updatedSession.forks.map(f => `${f.name}:${f.status}`).join(', '))
+      }
       setSession(updatedSession)
     })
 

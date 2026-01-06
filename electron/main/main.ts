@@ -371,6 +371,16 @@ ipcMain.handle('create-fork', async (_, sessionId: string, name: string, parentI
   await orka.initialize()
 
   const fork = await orka.createFork(sessionId, name, parentId)
+
+  // Send state update to UI immediately after fork creation
+  const updatedSession = await orka.getSession(sessionId)
+  if (updatedSession && currentProjectPath) {
+    const mainWin = windows.get(currentProjectPath)
+    const taskbarWin = taskbarWindows.get(currentProjectPath)
+    if (mainWin) mainWin.webContents.send('state-updated', updatedSession)
+    if (taskbarWin) taskbarWin.webContents.send('state-updated', updatedSession)
+  }
+
   return fork
 })
 
@@ -395,6 +405,15 @@ ipcMain.handle('merge-fork', async (_, sessionId: string, forkId: string) => {
   await orka.initialize()
 
   await orka.merge(sessionId, forkId)
+
+  // Send state update to UI
+  const updatedSession = await orka.getSession(sessionId)
+  if (updatedSession && currentProjectPath) {
+    const mainWin = windows.get(currentProjectPath)
+    const taskbarWin = taskbarWindows.get(currentProjectPath)
+    if (mainWin) mainWin.webContents.send('state-updated', updatedSession)
+    if (taskbarWin) taskbarWin.webContents.send('state-updated', updatedSession)
+  }
 })
 
 ipcMain.handle('close-fork', async (_, sessionId: string, forkId: string) => {
@@ -406,6 +425,15 @@ ipcMain.handle('close-fork', async (_, sessionId: string, forkId: string) => {
   await orka.initialize()
 
   await orka.closeFork(sessionId, forkId)
+
+  // Send state update to UI
+  const updatedSession = await orka.getSession(sessionId)
+  if (updatedSession && currentProjectPath) {
+    const mainWin = windows.get(currentProjectPath)
+    const taskbarWin = taskbarWindows.get(currentProjectPath)
+    if (mainWin) mainWin.webContents.send('state-updated', updatedSession)
+    if (taskbarWin) taskbarWin.webContents.send('state-updated', updatedSession)
+  }
 })
 
 ipcMain.handle('save-node-position', async (_, sessionId: string, nodeId: string, position: { x: number; y: number }) => {

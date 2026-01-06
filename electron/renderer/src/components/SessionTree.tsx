@@ -25,11 +25,20 @@ const nodeTypes = {
 }
 
 export function SessionTree({ session, selectedNode, onNodeClick }: SessionTreeProps) {
-  const forks = session.forks || []
-  const savedPositions = session.nodePositions || {}
+  // Create a stable key that captures fork structure AND status
+  // This is used as the primary dependency for rebuilding nodes/edges
+  const forksKey = useMemo(() => {
+    const forks = session.forks || []
+    return forks.map(f => `${f.id}:${f.status}:${f.parentId}`).join(',')
+  }, [session.forks])
+
+  // Stable positions key
+  const positionsKey = useMemo(() => {
+    return JSON.stringify(session.nodePositions || {})
+  }, [session.nodePositions])
 
   // Calculate tree depth for each fork - stable function
-  const getDepth = useCallback((forkId: string, forksArray: typeof forks, visited = new Set<string>()): number => {
+  const getDepth = useCallback((forkId: string, forksArray: Array<{id: string; parentId: string}>, visited = new Set<string>()): number => {
     if (forkId === 'main') return 0
     if (visited.has(forkId)) return 0
 
@@ -40,8 +49,10 @@ export function SessionTree({ session, selectedNode, onNodeClick }: SessionTreeP
     return 1 + getDepth(fork.parentId, forksArray, visited)
   }, [])
 
-  // Build nodes - memoized based on session structure only
+  // Build nodes - only recalculate when forksKey changes
   const nodes: Node[] = useMemo(() => {
+    const forks = session.forks || []
+    const savedPositions = session.nodePositions || {}
 
     // Group forks by depth
     const forksByDepth = new Map<number, typeof forks>()
@@ -86,7 +97,7 @@ export function SessionTree({ session, selectedNode, onNodeClick }: SessionTreeP
           label: 'MAIN',
           status: session.main?.status || session.status,
           claudeSessionId: session.main?.claudeSessionId,
-          selected: false, // Will be updated below
+          selected: false,
         },
       },
     ]
@@ -109,10 +120,11 @@ export function SessionTree({ session, selectedNode, onNodeClick }: SessionTreeP
     })
 
     return result
-  }, [session.id, session.status, session.main?.status, session.main?.claudeSessionId, forks.length, getDepth])
+  }, [session.id, session.status, session.main?.status, session.main?.claudeSessionId, forksKey, positionsKey, getDepth])
 
-  // Build edges - memoized based on forks
+  // Build edges - only recalculate when forksKey changes
   const edges: Edge[] = useMemo(() => {
+    const forks = session.forks || []
     return forks.map((fork) => ({
       id: `${fork.parentId}-${fork.id}`,
       source: fork.parentId,
@@ -126,22 +138,17 @@ export function SessionTree({ session, selectedNode, onNodeClick }: SessionTreeP
         strokeWidth: 2,
       },
     }))
-  }, [forks.length])
-
-  // Create a stable key for when structure changes
-  const structureKey = useMemo(() => {
-    const forkIds = forks.map(f => `${f.id}:${f.status}`).join(',')
-    return `${session.id}-${forkIds}`
-  }, [session.id, forks])
+  }, [forksKey])
 
   // Use controlled state for nodes and edges
   const [controlledNodes, setControlledNodes, onNodesChange] = useNodesState(nodes)
-  const [controlledEdges, , onEdgesChange] = useEdgesState(edges)
+  const [controlledEdges, setControlledEdges, onEdgesChange] = useEdgesState(edges)
 
-  // Reset nodes when structure changes
+  // Reset nodes AND edges when forksKey changes (structure or status change)
   useEffect(() => {
     setControlledNodes(nodes)
-  }, [structureKey]) // eslint-disable-line react-hooks/exhaustive-deps
+    setControlledEdges(edges)
+  }, [forksKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply selection to controlled nodes
   const nodesWithSelection = useMemo(() => {
