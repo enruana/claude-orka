@@ -288,6 +288,22 @@ export class TmuxCommands {
   }
 
   /**
+   * Set the title of a pane (shown in pane border)
+   * @param paneId ID del pane
+   * @param title Título a mostrar
+   */
+  static async setPaneTitle(paneId: string, title: string): Promise<void> {
+    try {
+      logger.debug(`Setting pane title for ${paneId}: ${title}`)
+      await execa('tmux', ['select-pane', '-t', paneId, '-T', title])
+      logger.info(`Pane title set: ${title}`)
+    } catch (error: any) {
+      // Don't fail if title setting fails
+      logger.warn(`Failed to set pane title: ${error.message}`)
+    }
+  }
+
+  /**
    * Cerrar un pane específico
    */
   static async killPane(paneId: string): Promise<void> {

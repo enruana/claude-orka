@@ -93,6 +93,9 @@ export class SessionManager {
     const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
     logger.debug(`Main pane ID: ${paneId}`)
 
+    // 2.5. Set pane title for main branch
+    await TmuxCommands.setPaneTitle(paneId, `🎭 MAIN`)
+
     // 3. Inicializar Claude - nueva sesión o continuar desde existente
     let claudeSessionId: string
 
@@ -196,6 +199,9 @@ export class SessionManager {
 
     // 2. Get pane ID
     const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
+
+    // 2.5. Set pane title for main branch
+    await TmuxCommands.setPaneTitle(paneId, `🎭 MAIN`)
 
     // 3. Resume Claude session (Claude handles context automatically)
     await this.initializeClaude(paneId, {
@@ -348,6 +354,9 @@ export class SessionManager {
     const forkPaneId = allPanes[allPanes.length - 1]
     logger.debug(`Fork pane ID: ${forkPaneId}`)
 
+    // 2.5. Set pane title to show fork name
+    await TmuxCommands.setPaneTitle(forkPaneId, `🔀 ${forkName}`)
+
     // 3. Start Claude fork con session ID pre-generado (no need to detect!)
     await this.initializeClaude(forkPaneId, {
       type: 'fork',
@@ -412,6 +421,9 @@ export class SessionManager {
     // 2. Obtener nuevo pane ID
     const allPanes = await TmuxCommands.listPanes(session.tmuxSessionId)
     const forkPaneId = allPanes[allPanes.length - 1]
+
+    // 2.5. Set pane title to show fork name
+    await TmuxCommands.setPaneTitle(forkPaneId, `🔀 ${fork.name}`)
 
     // 3. Restaurar Claude fork session (Claude maneja el contexto)
     await this.initializeClaude(forkPaneId, {
