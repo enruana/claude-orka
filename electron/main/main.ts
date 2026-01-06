@@ -435,18 +435,21 @@ ipcMain.handle('open-project-folder', async () => {
 
   const projectName = path.basename(currentProjectPath)
 
+  uiLogger.info(`[OpenFolder] Looking for window with project: ${projectName}`)
+
   // Try to focus existing Cursor window first
   try {
-    // Check if Cursor is running and has a window with this project
     const checkCursor = await execa('osascript', [
       '-e',
       `tell application "System Events"
         if exists (processes where name is "Cursor") then
-          tell process "Cursor"
+          tell application "Cursor"
+            activate
             set windowList to name of every window
-            repeat with windowName in windowList
+            repeat with i from 1 to count of windowList
+              set windowName to item i of windowList
               if windowName contains "${projectName}" then
-                set frontmost to true
+                set index of window i to 1
                 return "found"
               end if
             end repeat
@@ -456,12 +459,12 @@ ipcMain.handle('open-project-folder', async () => {
       end tell`,
     ])
 
+    uiLogger.info(`[OpenFolder] Cursor check result: ${checkCursor.stdout.trim()}`)
     if (checkCursor.stdout.trim() === 'found') {
-      console.log('[Focus] Focused existing Cursor window')
       return
     }
-  } catch (error) {
-    console.log('[Focus] Could not check/focus Cursor:', error)
+  } catch (error: any) {
+    uiLogger.info(`[OpenFolder] Could not check/focus Cursor: ${error.message}`)
   }
 
   // Try to focus existing VSCode window
@@ -470,11 +473,13 @@ ipcMain.handle('open-project-folder', async () => {
       '-e',
       `tell application "System Events"
         if exists (processes where name is "Code") then
-          tell process "Code"
+          tell application "Visual Studio Code"
+            activate
             set windowList to name of every window
-            repeat with windowName in windowList
+            repeat with i from 1 to count of windowList
+              set windowName to item i of windowList
               if windowName contains "${projectName}" then
-                set frontmost to true
+                set index of window i to 1
                 return "found"
               end if
             end repeat
@@ -484,18 +489,19 @@ ipcMain.handle('open-project-folder', async () => {
       end tell`,
     ])
 
+    uiLogger.info(`[OpenFolder] VSCode check result: ${checkVSCode.stdout.trim()}`)
     if (checkVSCode.stdout.trim() === 'found') {
-      console.log('[Focus] Focused existing VSCode window')
       return
     }
-  } catch (error) {
-    console.log('[Focus] Could not check/focus VSCode:', error)
+  } catch (error: any) {
+    uiLogger.info(`[OpenFolder] Could not check/focus VSCode: ${error.message}`)
   }
 
   // No existing window found, open new one with Cursor
+  uiLogger.info('[OpenFolder] No existing window found, opening new one')
   try {
     await execa('cursor', [currentProjectPath])
-    console.log('[Focus] Opened new Cursor window')
+    uiLogger.info('[OpenFolder] Opened new Cursor window')
     return
   } catch (error) {
     // Cursor not available, try VSCode
@@ -504,14 +510,14 @@ ipcMain.handle('open-project-folder', async () => {
   // Try to open with VSCode
   try {
     await execa('code', [currentProjectPath])
-    console.log('[Focus] Opened new VSCode window')
+    uiLogger.info('[OpenFolder] Opened new VSCode window')
     return
   } catch (error) {
     // VSCode not available, fallback to Finder
   }
 
   // Fallback: open in Finder
-  console.log('[Focus] Fallback to Finder')
+  uiLogger.info('[OpenFolder] Fallback to Finder')
   await shell.openPath(currentProjectPath)
 })
 
