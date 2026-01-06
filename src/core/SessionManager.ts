@@ -1,6 +1,6 @@
 import { StateManager } from './StateManager'
 import { Session, Fork, SessionFilters } from '../models'
-import { TmuxCommands, logger, getExistingSessionIds, detectNewSessionId } from '../utils'
+import { TmuxCommands, logger } from '../utils'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -21,6 +21,7 @@ interface InitOptions {
   sessionId?: string // Para new
   resumeSessionId?: string // Para resume y continue
   parentSessionId?: string // Para fork
+  forkSessionId?: string // Pre-generated session ID for fork (eliminates detection wait)
   sessionName?: string // Para contexto en el prompt
   forkName?: string // Para forks
 }
@@ -318,6 +319,7 @@ export class SessionManager {
     }
 
     const forkId = uuidv4()
+    const forkClaudeSessionId = uuidv4() // Pre-generate the Claude session ID
     const forkName = name || `Fork-${session.forks.length + 1}`
 
     logger.info(`Creating fork: ${forkName} from parent ${parentId} in session ${session.name}`)
@@ -335,6 +337,7 @@ export class SessionManager {
     }
 
     logger.debug(`Parent Claude session ID: ${parentClaudeSessionId}`)
+    logger.debug(`Pre-generated fork Claude session ID: ${forkClaudeSessionId}`)
 
     // 1. Crear split en tmux
     await TmuxCommands.splitPane(session.tmuxSessionId, vertical)
@@ -345,35 +348,20 @@ export class SessionManager {
     const forkPaneId = allPanes[allPanes.length - 1]
     logger.debug(`Fork pane ID: ${forkPaneId}`)
 
-    // 3. 🔑 CLAVE: Capturar session IDs ANTES de crear el fork
-    const existingIds = await getExistingSessionIds()
-    logger.debug(`Existing sessions before fork: ${existingIds.size}`)
-
-    // 4. Start Claude fork con prompt inicial
+    // 3. Start Claude fork con session ID pre-generado (no need to detect!)
     await this.initializeClaude(forkPaneId, {
       type: 'fork',
       parentSessionId: parentClaudeSessionId,
+      forkSessionId: forkClaudeSessionId,
       forkName: forkName,
     })
 
-    // 5. 🔍 Detectar el fork session ID del history
-    logger.info('Detecting fork session ID from history...')
-    const detectedForkId = await detectNewSessionId(existingIds, 30000, 500)
-
-    if (!detectedForkId) {
-      throw new Error(
-        'Failed to detect fork session ID. Fork may not have been created. Check if the parent session is valid.'
-      )
-    }
-
-    logger.info(`Fork session ID detected: ${detectedForkId}`)
-
-    // 6. Crear fork con el ID detectado
+    // 4. Crear fork con el ID pre-generado (no waiting for detection!)
     const fork: Fork = {
       id: forkId,
       name: forkName,
       parentId: parentId,
-      claudeSessionId: detectedForkId, // ✅ ID real detectado
+      claudeSessionId: forkClaudeSessionId, // ✅ Pre-generated ID
       tmuxPaneId: forkPaneId,
       status: 'active',
       createdAt: new Date().toISOString(),
@@ -383,7 +371,7 @@ export class SessionManager {
     session.lastActivity = new Date().toISOString()
     await this.stateManager.replaceSession(session)
 
-    logger.info(`Fork created: ${forkName} (${forkId})`)
+    logger.info(`Fork created: ${forkName} (${forkId}) with Claude session ${forkClaudeSessionId}`)
     return fork
   }
 
@@ -780,7 +768,7 @@ Analyze the content and help me integrate the changes and learnings from the for
    * Initialize Claude en un pane con prompt inicial
    */
   private async initializeClaude(paneId: string, options: InitOptions): Promise<void> {
-    const { type, sessionId, resumeSessionId, parentSessionId, sessionName, forkName } = options
+    const { type, sessionId, resumeSessionId, parentSessionId, forkSessionId, sessionName, forkName } = options
 
     // 1. cd al proyecto
     await TmuxCommands.sendKeys(paneId, `cd ${this.projectPath}`)
@@ -808,7 +796,8 @@ Analyze the content and help me integrate the changes and learnings from the for
 
       case 'fork':
         const forkPrompt = `This is a fork called "${forkName}". Keep in mind we are exploring an alternative to the main conversation.`
-        command = `claude --resume ${parentSessionId} --fork-session "${forkPrompt}"`
+        // Use --session-id to pre-set the fork's session ID (eliminates need to detect from history)
+        command = `claude --resume ${parentSessionId} --fork-session --session-id ${forkSessionId} "${forkPrompt}"`
         break
     }
 
