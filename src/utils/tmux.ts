@@ -57,7 +57,7 @@ export class TmuxCommands {
   /**
    * Apply Claude-Orka custom tmux theme to a session
    */
-  static async applyOrkaTheme(sessionName: string, projectPath?: string): Promise<void> {
+  static async applyOrkaTheme(_sessionName: string, projectPath?: string): Promise<void> {
     try {
       // Find the config file - prioritize project-local config
       const possiblePaths = [
@@ -92,8 +92,8 @@ export class TmuxCommands {
 
       logger.debug(`Applying Orka theme from: ${configPath}`)
 
-      // Source the config file for this specific session
-      await execa('tmux', ['source-file', '-t', sessionName, configPath])
+      // Source the config file (applies to all sessions, but that's fine)
+      await execa('tmux', ['source-file', configPath])
 
       logger.info('Claude-Orka theme applied successfully')
     } catch (error: any) {

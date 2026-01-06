@@ -1,10 +1,12 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useState, useEffect } from 'react'
 import ReactFlow, {
   Node,
   Edge,
   Background,
   Controls,
   MarkerType,
+  useNodesState,
+  useEdgesState,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { NodeCard } from './NodeCard'
@@ -126,16 +128,31 @@ export function SessionTree({ session, selectedNode, onNodeClick }: SessionTreeP
     }))
   }, [forks.length])
 
-  // Apply selection to nodes - this can change without rebuilding everything
+  // Create a stable key for when structure changes
+  const structureKey = useMemo(() => {
+    const forkIds = forks.map(f => `${f.id}:${f.status}`).join(',')
+    return `${session.id}-${forkIds}`
+  }, [session.id, forks])
+
+  // Use controlled state for nodes and edges
+  const [controlledNodes, setControlledNodes, onNodesChange] = useNodesState(nodes)
+  const [controlledEdges, , onEdgesChange] = useEdgesState(edges)
+
+  // Reset nodes when structure changes
+  useEffect(() => {
+    setControlledNodes(nodes)
+  }, [structureKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Apply selection to controlled nodes
   const nodesWithSelection = useMemo(() => {
-    return nodes.map(node => ({
+    return controlledNodes.map(node => ({
       ...node,
       data: {
         ...node.data,
         selected: node.id === selectedNode,
       },
     }))
-  }, [nodes, selectedNode])
+  }, [controlledNodes, selectedNode])
 
   // Handle node click
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
@@ -146,8 +163,10 @@ export function SessionTree({ session, selectedNode, onNodeClick }: SessionTreeP
     <div style={{ width: '100%', height: '100%' }}>
       <ReactFlow
         nodes={nodesWithSelection}
-        edges={edges}
+        edges={controlledEdges}
         nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
         fitView
         minZoom={0.5}
