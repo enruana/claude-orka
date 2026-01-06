@@ -230,6 +230,8 @@ export function App() {
 
   log.info('Rendering main UI with session:', session.id)
 
+  const forks = session.forks || []
+
   const handleSaveAndClose = async () => {
     await window.electronAPI.saveAndClose()
   }
@@ -238,14 +240,6 @@ export function App() {
     await window.electronAPI.minimizeToTaskbar()
   }
 
-  const handleNodePositionChange = useCallback(async (nodeId: string, position: NodePosition) => {
-    if (!session) return
-    try {
-      await window.electronAPI.saveNodePosition(session.id, nodeId, position)
-    } catch (error) {
-      console.error('Failed to save node position:', error)
-    }
-  }, [session])
 
   return (
     <div className="app">
@@ -268,7 +262,6 @@ export function App() {
           session={session}
           selectedNode={selectedNode}
           onNodeClick={handleNodeClick}
-          onNodePositionChange={handleNodePositionChange}
         />
       </div>
 
@@ -282,8 +275,8 @@ export function App() {
         isExporting={isExporting}
         isMerging={isMerging}
         isClosing={isClosing}
-        canCreateFork={session.forks.filter(f => f.parentId === selectedNode && f.status === 'active').length === 0}
-        hasExport={selectedNode === 'main' ? false : !!session.forks.find(f => f.id === selectedNode)?.contextPath}
+        canCreateFork={forks.filter(f => f.parentId === selectedNode && f.status === 'active').length === 0}
+        hasExport={selectedNode === 'main' ? false : !!forks.find(f => f.id === selectedNode)?.contextPath}
       />
 
       {showForkDialog && (
