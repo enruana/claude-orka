@@ -20,5 +20,5 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src/**/*", "electron/main/**/*", "electron/preload/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "electron/renderer"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "electron/renderer", "src/web-ui"]
 }

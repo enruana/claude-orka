@@ -8,6 +8,26 @@ import { logger } from '../utils'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+// Get version from package.json
+async function getOrkaVersion(): Promise<string> {
+  const possiblePaths = [
+    path.join(__dirname, '../../package.json'),     // From dist/core
+    path.join(__dirname, '../../../package.json'),  // Alternative
+  ]
+
+  for (const pkgPath of possiblePaths) {
+    try {
+      if (await fs.pathExists(pkgPath)) {
+        const pkg = await fs.readJson(pkgPath)
+        return pkg.version || '0.0.0'
+      }
+    } catch {
+      // Continue to next path
+    }
+  }
+  return '0.0.0'
+}
+
 /**
  * Manages state persistence in .claude-orka/state.json
  */
@@ -35,9 +55,10 @@ export class StateManager {
 
     // If state.json doesn't exist, create an initial one
     if (!(await fs.pathExists(this.statePath))) {
-      logger.info('Creating initial state.json')
+      const version = await getOrkaVersion()
+      logger.info(`Creating initial state.json (orka v${version})`)
       const initialState: ProjectState = {
-        version: '1.0.0',
+        version,
         projectPath: this.projectPath,
         sessions: [],
         lastUpdated: new Date().toISOString(),

@@ -11,6 +11,7 @@ import { forkCommand } from './commands/fork'
 import { mergeCommand } from './commands/merge'
 import { doctorCommand } from './commands/doctor'
 import { prepareCommand } from './commands/prepare'
+import { startCommand } from './commands/start'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -36,6 +37,7 @@ program
   .version(version)
 
 // Register commands
+program.addCommand(startCommand)
 prepareCommand(program)
 initCommand(program)
 doctorCommand(program)

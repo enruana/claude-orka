@@ -1,4 +1,5 @@
 import { StateManager } from './StateManager'
+import { getGlobalStateManager } from './GlobalStateManager'
 import { Session, Fork, SessionFilters } from '../models'
 import { TmuxCommands, logger } from '../utils'
 import { v4 as uuidv4 } from 'uuid'
@@ -12,9 +13,6 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
-// Default port for ttyd web terminal
-const TTYD_DEFAULT_PORT = 4444
 
 /**
  * Opciones para inicializar Claude
@@ -281,7 +279,7 @@ export class SessionManager {
 
     // 2. Stop ttyd web terminal
     if (session.ttydPid || session.ttydPort) {
-      await this.stopTtyd(session.ttydPid || 0, session.ttydPort || TTYD_DEFAULT_PORT)
+      await this.stopTtyd(session.ttydPid || 0, session.ttydPort)
     }
 
     // 3. Keep tmux session alive (processes continue running)
@@ -817,9 +815,10 @@ Analyze the content and help me integrate the changes and learnings from the for
 
   /**
    * Start ttyd web terminal for a tmux session
+   * Uses GlobalStateManager to find an available port
    * @returns Object with port and pid, or null if ttyd is not available
    */
-  private async startTtyd(tmuxSessionId: string, port: number = TTYD_DEFAULT_PORT): Promise<{ port: number; pid: number } | null> {
+  private async startTtyd(tmuxSessionId: string): Promise<{ port: number; pid: number } | null> {
     try {
       // Check if ttyd is available
       await execa('which', ['ttyd'])
@@ -829,15 +828,9 @@ Analyze the content and help me integrate the changes and learnings from the for
     }
 
     try {
-      // Check if port is already in use
-      try {
-        await execa('lsof', ['-i', `:${port}`])
-        // Port is in use, try to find the ttyd process for this session
-        logger.warn(`Port ${port} is already in use, ttyd may already be running`)
-        return null
-      } catch {
-        // Port is free, continue
-      }
+      // Get next available port from GlobalStateManager
+      const globalState = await getGlobalStateManager()
+      const port = await globalState.getNextTtydPort()
 
       // Start ttyd in background
       const ttydProcess = spawn(
@@ -845,6 +838,12 @@ Analyze the content and help me integrate the changes and learnings from the for
         [
           '-W',  // Writable (allow input)
           '-p', port.toString(),
+          '-t', 'rightClickSelectsWord=false',  // Don't select word on right-click
+          '-t', 'fontSize=14',
+          '-t', 'fontFamily=Menlo, Monaco, "Courier New", monospace',
+          '-t', 'cursorBlink=true',
+          '-t', 'cursorStyle=block',
+          '-t', 'theme={"background": "#1e1e2e", "foreground": "#cdd6f4", "cursor": "#f5e0dc", "selectionBackground": "#585b70"}',
           'tmux', 'attach', '-t', tmuxSessionId
         ],
         {
@@ -874,7 +873,7 @@ Analyze the content and help me integrate the changes and learnings from the for
   /**
    * Stop ttyd web terminal by PID
    */
-  private async stopTtyd(pid: number, port: number = TTYD_DEFAULT_PORT): Promise<void> {
+  private async stopTtyd(pid: number, port?: number): Promise<void> {
     logger.info(`Stopping ttyd (PID: ${pid}, port: ${port})...`)
 
     // Try to kill by PID using system kill command (more reliable for detached processes)

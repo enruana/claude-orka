@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Terminal</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+    #terminal {
+      height: 100%;
+      width: 100%;
+    }
+    /* Hide scrollbar but keep functionality */
+    .xterm-viewport::-webkit-scrollbar {
+      width: 8px;
+    }
+    .xterm-viewport::-webkit-scrollbar-track {
+      background: #1e1e2e;
+    }
+    .xterm-viewport::-webkit-scrollbar-thumb {
+      background: #45475a;
+      border-radius: 4px;
+    }
+  </style>
+  <link rel="stylesheet" href="./xterm.css">
+</head>
+<body>
+  <div id="terminal"></div>
+  <script src="./xterm.js"></script>
+  <script src="./xterm-addon-fit.js"></script>
+  <script src="./xterm-addon-web-links.js"></script>
+  <script src="./xterm-addon-webgl.js"></script>
+  <script src="./overlay.js"></script>
+  <script>
+    // Prevent browser context menu globally
+    document.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      return false;
+    });
+
+    // ttyd client code will initialize here
+    var defined_options = {};
+
+    // Override the default options to ensure mouse works
+    Object.assign(defined_options, {
+      rightClickSelectsWord: false,
+      allowProposedApi: true
+    });
+  </script>
+  <script src="./wetty.js"></script>
+</body>
+</html>

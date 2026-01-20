@@ -4,6 +4,7 @@
 
 import fs from 'fs-extra'
 import path from 'path'
+import os from 'os'
 
 export enum LogLevel {
   DEBUG = 0,
@@ -20,10 +21,21 @@ class Logger {
     this.level = level
   }
 
-  setLogFile(projectPath: string) {
-    const logDir = path.join(projectPath, '.claude-orka')
+  /**
+   * Set log file in global ~/.orka/ directory
+   */
+  setGlobalLogFile() {
+    const logDir = path.join(os.homedir(), '.orka')
     fs.ensureDirSync(logDir)
     this.logFilePath = path.join(logDir, 'orka.log')
+  }
+
+  /**
+   * @deprecated Use setGlobalLogFile() instead
+   */
+  setLogFile(_projectPath: string) {
+    // Now redirects to global log
+    this.setGlobalLogFile()
   }
 
   private writeToFile(level: string, ...args: any[]) {

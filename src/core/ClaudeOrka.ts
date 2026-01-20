@@ -14,7 +14,7 @@ export class ClaudeOrka {
    * @param projectPath Absolute path to the project
    */
   constructor(projectPath: string) {
-    logger.setLogFile(projectPath)
+    logger.setGlobalLogFile()
     this.sessionManager = new SessionManager(projectPath)
   }
 
