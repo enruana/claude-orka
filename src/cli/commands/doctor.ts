@@ -37,6 +37,9 @@ export function doctorCommand(program: Command) {
         // Check Electron
         results.push(await checkElectron())
 
+        // Check ttyd
+        results.push(await checkTtyd())
+
         // Check project initialization
         results.push(await checkProjectInit())
 
@@ -150,6 +153,28 @@ async function checkElectron(): Promise<CheckResult> {
       message: 'Not found',
       details: 'Electron is required for the visual UI (optional)',
       fix: 'Install Electron: npm install -g electron',
+    }
+  }
+}
+
+async function checkTtyd(): Promise<CheckResult> {
+  try {
+    const { stdout } = await execa('ttyd', ['--version'])
+    const version = stdout.trim()
+
+    return {
+      name: 'ttyd',
+      status: 'pass',
+      message: version,
+      details: 'Web terminal for remote session access',
+    }
+  } catch (error) {
+    return {
+      name: 'ttyd',
+      status: 'warn',
+      message: 'Not found',
+      details: 'ttyd enables web-based terminal access (optional)',
+      fix: 'Install ttyd:\n  macOS: brew install ttyd\n  Ubuntu: sudo apt-get install ttyd',
     }
   }
 }

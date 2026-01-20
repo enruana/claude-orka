@@ -38,6 +38,12 @@ export interface Session {
 
   /** UI node positions (keyed by node id: 'main' or fork id) */
   nodePositions?: Record<string, NodePosition>
+
+  /** ttyd web terminal port (for remote access) */
+  ttydPort?: number
+
+  /** ttyd process ID (for cleanup) */
+  ttydPid?: number
 }
 
 /**

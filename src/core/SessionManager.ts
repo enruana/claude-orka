@@ -13,6 +13,9 @@ const __dirname = dirname(__filename)
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// Default port for ttyd web terminal
+const TTYD_DEFAULT_PORT = 4444
+
 /**
  * Opciones para inicializar Claude
  */
@@ -117,7 +120,10 @@ export class SessionManager {
       })
     }
 
-    // 4. Crear y guardar session
+    // 4. Start ttyd web terminal
+    const ttydResult = await this.startTtyd(tmuxSessionId)
+
+    // 5. Crear y guardar session
     const session: Session = {
       id: sessionId,
       name: sessionName,
@@ -131,6 +137,8 @@ export class SessionManager {
         status: 'active',
       },
       forks: [],
+      ttydPort: ttydResult?.port,
+      ttydPid: ttydResult?.pid,
     }
 
     await this.stateManager.addSession(session)
@@ -169,6 +177,15 @@ export class SessionManager {
         await this.launchUI(sessionId)
       }
 
+      // Start ttyd if not already running
+      if (!session.ttydPid) {
+        const ttydResult = await this.startTtyd(tmuxSessionId)
+        if (ttydResult) {
+          session.ttydPort = ttydResult.port
+          session.ttydPid = ttydResult.pid
+        }
+      }
+
       // Update status to active if it was saved
       if (session.status === 'saved') {
         const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
@@ -176,8 +193,9 @@ export class SessionManager {
         session.main.status = 'active'
         session.status = 'active'
         session.lastActivity = new Date().toISOString()
-        await this.stateManager.replaceSession(session)
       }
+
+      await this.stateManager.replaceSession(session)
 
       return session
     }
@@ -210,12 +228,17 @@ export class SessionManager {
       sessionName: session.name,
     })
 
-    // 4. Update session
+    // 4. Start ttyd web terminal
+    const ttydResult = await this.startTtyd(tmuxSessionId)
+
+    // 5. Update session
     session.tmuxSessionId = tmuxSessionId
     session.main.tmuxPaneId = paneId
     session.main.status = 'active'
     session.status = 'active'
     session.lastActivity = new Date().toISOString()
+    session.ttydPort = ttydResult?.port
+    session.ttydPid = ttydResult?.pid
 
     await this.stateManager.replaceSession(session)
 
@@ -256,16 +279,23 @@ export class SessionManager {
       await this.closeFork(sessionId, fork.id)
     }
 
-    // 2. Kill tmux session (Claude session persists automatically)
+    // 2. Stop ttyd web terminal
+    if (session.ttydPid) {
+      await this.stopTtyd(session.ttydPid)
+    }
+
+    // 3. Kill tmux session (Claude session persists automatically)
     if (session.tmuxSessionId) {
       await TmuxCommands.killSession(session.tmuxSessionId)
     }
 
-    // 3. Update state
+    // 4. Update state
     session.main.status = 'saved'
     session.main.tmuxPaneId = undefined
     session.status = 'saved'
     session.lastActivity = new Date().toISOString()
+    session.ttydPort = undefined
+    session.ttydPid = undefined
 
     await this.stateManager.replaceSession(session)
     logger.info(`Session closed: ${session.name}`)
@@ -770,6 +800,81 @@ Analyze the content and help me integrate the changes and learnings from the for
 
     await this.stateManager.replaceSession(session)
     logger.debug(`Node position saved: ${nodeId} -> (${position.x}, ${position.y})`)
+  }
+
+  // ==========================================
+  // TTYD WEB TERMINAL
+  // ==========================================
+
+  /**
+   * Start ttyd web terminal for a tmux session
+   * @returns Object with port and pid, or null if ttyd is not available
+   */
+  private async startTtyd(tmuxSessionId: string, port: number = TTYD_DEFAULT_PORT): Promise<{ port: number; pid: number } | null> {
+    try {
+      // Check if ttyd is available
+      await execa('which', ['ttyd'])
+    } catch {
+      logger.warn('ttyd not found, skipping web terminal')
+      return null
+    }
+
+    try {
+      // Check if port is already in use
+      try {
+        await execa('lsof', ['-i', `:${port}`])
+        // Port is in use, try to find the ttyd process for this session
+        logger.warn(`Port ${port} is already in use, ttyd may already be running`)
+        return null
+      } catch {
+        // Port is free, continue
+      }
+
+      // Start ttyd in background
+      const ttydProcess = spawn(
+        'ttyd',
+        [
+          '-W',  // Writable (allow input)
+          '-p', port.toString(),
+          '-t', 'fontSize=14',
+          '-t', 'theme={"background":"#1e1e2e","foreground":"#cdd6f4"}',
+          'tmux', 'attach', '-t', tmuxSessionId
+        ],
+        {
+          detached: true,
+          stdio: 'ignore',
+        }
+      )
+
+      ttydProcess.unref()
+
+      const pid = ttydProcess.pid
+      if (!pid) {
+        logger.warn('Failed to get ttyd process ID')
+        return null
+      }
+
+      logger.info(`Started ttyd web terminal on port ${port} (PID: ${pid})`)
+      logger.info(`Access at: http://localhost:${port}`)
+
+      return { port, pid }
+    } catch (error) {
+      logger.warn(`Failed to start ttyd: ${error}`)
+      return null
+    }
+  }
+
+  /**
+   * Stop ttyd web terminal by PID
+   */
+  private async stopTtyd(pid: number): Promise<void> {
+    try {
+      process.kill(pid, 'SIGTERM')
+      logger.info(`Stopped ttyd (PID: ${pid})`)
+    } catch (error) {
+      // Process may already be dead
+      logger.debug(`Could not kill ttyd (PID: ${pid}): ${error}`)
+    }
   }
 
   // ==========================================

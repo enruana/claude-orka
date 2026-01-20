@@ -24,6 +24,7 @@ export function prepareCommand(program: Command) {
         console.log(chalk.bold.cyan('\n🔧 Claude-Orka Preparation\n'))
         console.log('This will help you install required dependencies:\n')
         console.log('  • tmux (terminal multiplexer)')
+        console.log('  • ttyd (web terminal for remote access)')
         console.log('  • Electron (for visual UI)')
         console.log('  • Claude CLI (if needed)\n')
 
@@ -50,6 +51,9 @@ export function prepareCommand(program: Command) {
 
         // Install tmux
         await installTmux(system)
+
+        // Install ttyd
+        await installTtyd(system)
 
         // Install Electron
         await installElectron()
@@ -157,6 +161,68 @@ async function installTmux(system: SystemInfo) {
     console.log(chalk.cyan('  macOS: brew install tmux'))
     console.log(chalk.cyan('  Ubuntu: sudo apt-get install tmux'))
     console.log(chalk.cyan('  CentOS: sudo yum install tmux'))
+  }
+}
+
+async function installTtyd(system: SystemInfo) {
+  console.log(chalk.bold('\n🌐 Installing ttyd...\n'))
+
+  // Check if already installed
+  try {
+    await execa('which', ['ttyd'])
+    const { stdout } = await execa('ttyd', ['--version'])
+    Output.success(`ttyd is already installed: ${stdout}`)
+    return
+  } catch {
+    // Not installed, continue
+  }
+
+  const spinner = ora('Installing ttyd...').start()
+
+  try {
+    if (system.platform === 'darwin') {
+      if (!system.hasHomebrew) {
+        spinner.fail('Homebrew is not installed')
+        console.log(chalk.yellow('\nPlease install Homebrew first:'))
+        console.log(
+          chalk.cyan(
+            '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+          )
+        )
+        console.log('\nThen run: ' + chalk.cyan('brew install ttyd'))
+        return
+      }
+
+      await execa('brew', ['install', 'ttyd'])
+      spinner.succeed('ttyd installed via Homebrew')
+    } else if (system.platform === 'linux') {
+      if (system.hasApt) {
+        // Debian/Ubuntu
+        await execa('sudo', ['apt-get', 'update'])
+        await execa('sudo', ['apt-get', 'install', '-y', 'ttyd'])
+        spinner.succeed('ttyd installed via apt')
+      } else if (system.hasYum) {
+        // RedHat/CentOS - ttyd may need to be built from source
+        spinner.fail('ttyd not available in yum')
+        console.log(chalk.yellow('\nPlease install ttyd manually:'))
+        console.log(chalk.cyan('  https://github.com/tsl0922/ttyd#installation'))
+      } else {
+        spinner.fail('Unknown package manager')
+        console.log(chalk.yellow('\nPlease install ttyd manually:'))
+        console.log(chalk.cyan('  https://github.com/tsl0922/ttyd#installation'))
+      }
+    } else {
+      spinner.fail(`Unsupported platform: ${system.platform}`)
+      console.log(chalk.yellow('\nPlease install ttyd manually:'))
+      console.log(chalk.cyan('  https://github.com/tsl0922/ttyd#installation'))
+    }
+  } catch (error: any) {
+    spinner.fail('Failed to install ttyd')
+    console.log(chalk.red(`\nError: ${error.message}`))
+    console.log(chalk.yellow('\nPlease install ttyd manually:'))
+    console.log(chalk.cyan('  macOS: brew install ttyd'))
+    console.log(chalk.cyan('  Ubuntu: sudo apt-get install ttyd'))
+    console.log(chalk.cyan('  Other: https://github.com/tsl0922/ttyd#installation'))
   }
 }
 
