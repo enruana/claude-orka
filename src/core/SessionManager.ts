@@ -15,6 +15,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // Default port for ttyd web terminal
 const TTYD_DEFAULT_PORT = 4444
+// Default port for web wrapper (with virtual keyboard)
+const WEB_WRAPPER_PORT = 4445
 
 /**
  * Opciones para inicializar Claude
@@ -123,6 +125,9 @@ export class SessionManager {
     // 4. Start ttyd web terminal
     const ttydResult = await this.startTtyd(tmuxSessionId)
 
+    // 4.5. Start web wrapper server (virtual keyboard UI)
+    const webWrapperResult = await this.startWebWrapper()
+
     // 5. Crear y guardar session
     const session: Session = {
       id: sessionId,
@@ -139,6 +144,8 @@ export class SessionManager {
       forks: [],
       ttydPort: ttydResult?.port,
       ttydPid: ttydResult?.pid,
+      webWrapperPort: webWrapperResult?.port,
+      webWrapperPid: webWrapperResult?.pid,
     }
 
     await this.stateManager.addSession(session)
@@ -183,6 +190,15 @@ export class SessionManager {
         if (ttydResult) {
           session.ttydPort = ttydResult.port
           session.ttydPid = ttydResult.pid
+        }
+      }
+
+      // Start web wrapper if not already running
+      if (!session.webWrapperPid) {
+        const webWrapperResult = await this.startWebWrapper()
+        if (webWrapperResult) {
+          session.webWrapperPort = webWrapperResult.port
+          session.webWrapperPid = webWrapperResult.pid
         }
       }
 
@@ -231,6 +247,9 @@ export class SessionManager {
     // 4. Start ttyd web terminal
     const ttydResult = await this.startTtyd(tmuxSessionId)
 
+    // 4.5. Start web wrapper server
+    const webWrapperResult = await this.startWebWrapper()
+
     // 5. Update session
     session.tmuxSessionId = tmuxSessionId
     session.main.tmuxPaneId = paneId
@@ -239,6 +258,8 @@ export class SessionManager {
     session.lastActivity = new Date().toISOString()
     session.ttydPort = ttydResult?.port
     session.ttydPid = ttydResult?.pid
+    session.webWrapperPort = webWrapperResult?.port
+    session.webWrapperPid = webWrapperResult?.pid
 
     await this.stateManager.replaceSession(session)
 
@@ -284,6 +305,11 @@ export class SessionManager {
       await this.stopTtyd(session.ttydPid || 0, session.ttydPort || TTYD_DEFAULT_PORT)
     }
 
+    // 2.5. Stop web wrapper server
+    if (session.webWrapperPid || session.webWrapperPort) {
+      await this.stopWebWrapper(session.webWrapperPid || 0, session.webWrapperPort || WEB_WRAPPER_PORT)
+    }
+
     // 3. Kill tmux session (Claude session persists automatically)
     if (session.tmuxSessionId) {
       await TmuxCommands.killSession(session.tmuxSessionId)
@@ -296,6 +322,8 @@ export class SessionManager {
     session.lastActivity = new Date().toISOString()
     session.ttydPort = undefined
     session.ttydPid = undefined
+    session.webWrapperPort = undefined
+    session.webWrapperPid = undefined
 
     await this.stateManager.replaceSession(session)
     logger.info(`Session closed: ${session.name}`)
@@ -893,6 +921,136 @@ Analyze the content and help me integrate the changes and learnings from the for
       }
     } catch (error) {
       logger.debug(`Could not find ttyd process on port ${port}: ${error}`)
+    }
+  }
+
+  /**
+   * Start web wrapper server (serves HTML with virtual keyboard)
+   * Uses Node's built-in http module - no additional dependencies
+   */
+  private async startWebWrapper(port: number = WEB_WRAPPER_PORT): Promise<{ port: number; pid: number } | null> {
+    try {
+      // Check if port is already in use
+      try {
+        await execa('lsof', ['-i', `:${port}`])
+        logger.warn(`Port ${port} is already in use, web wrapper may already be running`)
+        return null
+      } catch {
+        // Port is free, continue
+      }
+
+      // Find the web-terminal.html file
+      const possiblePaths = [
+        // Via CLI (bundled): dist -> ../public/web-terminal.html
+        path.join(__dirname, '../public/web-terminal.html'),
+        // Via SDK: dist/src/core -> ../../../public/web-terminal.html
+        path.join(__dirname, '../../../public/web-terminal.html'),
+        // Development: src/core -> ../../public/web-terminal.html
+        path.join(__dirname, '../../public/web-terminal.html'),
+      ]
+
+      let htmlPath: string | null = null
+      for (const p of possiblePaths) {
+        const resolvedPath = path.resolve(p)
+        if (await fs.pathExists(resolvedPath)) {
+          htmlPath = resolvedPath
+          logger.debug(`Found web-terminal.html at: ${resolvedPath}`)
+          break
+        }
+      }
+
+      if (!htmlPath) {
+        logger.warn('web-terminal.html not found, skipping web wrapper server')
+        return null
+      }
+
+      // Start a simple HTTP server using a child process running Node
+      const serverScript = `
+        const http = require('http');
+        const fs = require('fs');
+        const path = require('path');
+
+        const htmlPath = ${JSON.stringify(htmlPath)};
+        const port = ${port};
+
+        const server = http.createServer((req, res) => {
+          // Serve the HTML file for any request
+          fs.readFile(htmlPath, (err, data) => {
+            if (err) {
+              res.writeHead(500);
+              res.end('Error loading terminal');
+              return;
+            }
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(data);
+          });
+        });
+
+        server.listen(port, () => {
+          console.log('Web wrapper server running on port ' + port);
+        });
+
+        // Keep the server running
+        process.on('SIGTERM', () => {
+          server.close(() => process.exit(0));
+        });
+      `;
+
+      const serverProcess = spawn('node', ['-e', serverScript], {
+        detached: true,
+        stdio: 'ignore',
+      })
+
+      serverProcess.unref()
+
+      const pid = serverProcess.pid
+      if (!pid) {
+        logger.warn('Failed to get web wrapper server process ID')
+        return null
+      }
+
+      // Wait a moment for server to start
+      await sleep(500)
+
+      logger.info(`Started web wrapper server on port ${port} (PID: ${pid})`)
+      logger.info(`Access terminal with virtual keyboard at: http://localhost:${port}`)
+
+      return { port, pid }
+    } catch (error) {
+      logger.warn(`Failed to start web wrapper server: ${error}`)
+      return null
+    }
+  }
+
+  /**
+   * Stop web wrapper server by PID
+   */
+  private async stopWebWrapper(pid: number, port: number = WEB_WRAPPER_PORT): Promise<void> {
+    logger.info(`Stopping web wrapper server (PID: ${pid}, port: ${port})...`)
+
+    // Try to kill by PID using system kill command
+    try {
+      await execa('kill', ['-TERM', pid.toString()])
+      logger.info(`Stopped web wrapper via kill command (PID: ${pid})`)
+      return
+    } catch (error) {
+      logger.debug(`Could not kill web wrapper by PID ${pid}: ${error}`)
+    }
+
+    // Fallback: kill by port using lsof
+    try {
+      const { stdout } = await execa('lsof', ['-t', `-i:${port}`])
+      const pids = stdout.trim().split('\n').filter(p => p)
+      for (const p of pids) {
+        try {
+          await execa('kill', ['-TERM', p])
+          logger.info(`Stopped web wrapper via port lookup (PID: ${p})`)
+        } catch (e) {
+          // Continue trying other PIDs
+        }
+      }
+    } catch (error) {
+      logger.debug(`Could not find web wrapper process on port ${port}: ${error}`)
     }
   }
 

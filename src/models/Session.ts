@@ -44,6 +44,12 @@ export interface Session {
 
   /** ttyd process ID (for cleanup) */
   ttydPid?: number
+
+  /** Web wrapper server port (serves virtual keyboard UI) */
+  webWrapperPort?: number
+
+  /** Web wrapper server PID (for cleanup) */
+  webWrapperPid?: number
 }
 
 /**

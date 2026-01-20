@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Claude Orka - Web Terminal</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .header {
+      background: #313244;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #45475a;
+    }
+
+    .header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: #45475a;
+    }
+
+    .status.connected {
+      background: #a6e3a1;
+      color: #1e1e2e;
+    }
+
+    .status.disconnected {
+      background: #f38ba8;
+      color: #1e1e2e;
+    }
+
+    .terminal-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .terminal-container iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    .keyboard {
+      background: #313244;
+      padding: 8px;
+      border-top: 1px solid #45475a;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .keyboard-row {
+      display: flex;
+      gap: 4px;
+      justify-content: center;
+    }
+
+    .key {
+      background: #45475a;
+      border: 1px solid #585b70;
+      border-radius: 6px;
+      color: #cdd6f4;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 10px 12px;
+      min-width: 44px;
+      cursor: pointer;
+      transition: all 0.1s ease;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+
+    .key:hover {
+      background: #585b70;
+    }
+
+    .key:active {
+      background: #89b4fa;
+      color: #1e1e2e;
+      transform: scale(0.95);
+    }
+
+    .key.wide {
+      min-width: 70px;
+    }
+
+    .key.wider {
+      min-width: 90px;
+    }
+
+    .key.ctrl {
+      background: #f38ba8;
+      color: #1e1e2e;
+    }
+
+    .key.ctrl:hover {
+      background: #eba0ac;
+    }
+
+    .key.nav {
+      background: #89b4fa;
+      color: #1e1e2e;
+    }
+
+    .key.nav:hover {
+      background: #b4befe;
+    }
+
+    .key.special {
+      background: #a6e3a1;
+      color: #1e1e2e;
+    }
+
+    .key.special:hover {
+      background: #94e2d5;
+    }
+
+    .arrow-keys {
+      display: grid;
+      grid-template-columns: repeat(3, 44px);
+      grid-template-rows: repeat(2, 38px);
+      gap: 2px;
+    }
+
+    .arrow-keys .key {
+      padding: 8px;
+      min-width: unset;
+    }
+
+    .arrow-keys .key.up {
+      grid-column: 2;
+    }
+
+    .arrow-keys .key.left {
+      grid-column: 1;
+      grid-row: 2;
+    }
+
+    .arrow-keys .key.down {
+      grid-column: 2;
+      grid-row: 2;
+    }
+
+    .arrow-keys .key.right {
+      grid-column: 3;
+      grid-row: 2;
+    }
+
+    @media (max-width: 600px) {
+      .key {
+        padding: 12px 8px;
+        min-width: 40px;
+        font-size: 11px;
+      }
+      .key.wide {
+        min-width: 60px;
+      }
+      .key.wider {
+        min-width: 75px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎭 Claude Orka Terminal</h1>
+    <span id="status" class="status disconnected">Connecting...</span>
+  </div>
+
+  <div class="terminal-container">
+    <iframe id="ttyd-frame" src="http://localhost:4444"></iframe>
+  </div>
+
+  <div class="keyboard">
+    <div class="keyboard-row">
+      <button class="key ctrl" data-key="CTRL_C">Ctrl+C</button>
+      <button class="key ctrl" data-key="CTRL_D">Ctrl+D</button>
+      <button class="key ctrl" data-key="CTRL_Z">Ctrl+Z</button>
+      <button class="key ctrl" data-key="CTRL_L">Ctrl+L</button>
+      <button class="key ctrl" data-key="CTRL_R">Ctrl+R</button>
+      <button class="key ctrl" data-key="CTRL_A">Ctrl+A</button>
+      <button class="key ctrl" data-key="CTRL_E">Ctrl+E</button>
+    </div>
+    <div class="keyboard-row">
+      <button class="key special wide" data-key="TAB">Tab</button>
+      <button class="key special wide" data-key="ESC">Esc</button>
+      <button class="key special wide" data-key="ENTER">Enter</button>
+      <button class="key special wide" data-key="SPACE">Space</button>
+      <button class="key wide" data-key="BACKSPACE">⌫</button>
+      <button class="key wide" data-key="DELETE">Del</button>
+    </div>
+    <div class="keyboard-row">
+      <div class="arrow-keys">
+        <button class="key nav up" data-key="UP">▲</button>
+        <button class="key nav left" data-key="LEFT">◀</button>
+        <button class="key nav down" data-key="DOWN">▼</button>
+        <button class="key nav right" data-key="RIGHT">▶</button>
+      </div>
+      <button class="key nav wider" data-key="HOME">Home</button>
+      <button class="key nav wider" data-key="END">End</button>
+      <button class="key nav wider" data-key="PGUP">PgUp</button>
+      <button class="key nav wider" data-key="PGDN">PgDn</button>
+    </div>
+  </div>
+
+  <script>
+    // Key codes for terminal
+    const KEYS = {
+      // Control keys
+      CTRL_C: '\x03',
+      CTRL_D: '\x04',
+      CTRL_Z: '\x1a',
+      CTRL_L: '\x0c',
+      CTRL_R: '\x12',
+      CTRL_A: '\x01',
+      CTRL_E: '\x05',
+      // Special keys
+      TAB: '\t',
+      ESC: '\x1b',
+      ENTER: '\r',
+      SPACE: ' ',
+      BACKSPACE: '\x7f',
+      DELETE: '\x1b[3~',
+      // Arrow keys
+      UP: '\x1b[A',
+      DOWN: '\x1b[B',
+      LEFT: '\x1b[D',
+      RIGHT: '\x1b[C',
+      // Navigation
+      HOME: '\x1b[H',
+      END: '\x1b[F',
+      PGUP: '\x1b[5~',
+      PGDN: '\x1b[6~',
+    };
+
+    let ws = null;
+    let reconnectTimeout = null;
+    const statusEl = document.getElementById('status');
+
+    function updateStatus(connected) {
+      statusEl.textContent = connected ? 'Connected' : 'Disconnected';
+      statusEl.className = 'status ' + (connected ? 'connected' : 'disconnected');
+    }
+
+    function connect() {
+      if (ws && ws.readyState === WebSocket.OPEN) return;
+
+      // ttyd WebSocket URL
+      const wsUrl = 'ws://localhost:4444/ws';
+
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = () => {
+          console.log('WebSocket connected');
+          updateStatus(true);
+
+          // Clear any pending reconnect
+          if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+          }
+        };
+
+        ws.onclose = () => {
+          console.log('WebSocket disconnected');
+          updateStatus(false);
+          ws = null;
+
+          // Attempt to reconnect after 2 seconds
+          reconnectTimeout = setTimeout(connect, 2000);
+        };
+
+        ws.onerror = (err) => {
+          console.error('WebSocket error:', err);
+          updateStatus(false);
+        };
+
+        ws.onmessage = (event) => {
+          // We don't need to handle messages - the iframe displays everything
+          // This WebSocket is only for sending input
+        };
+      } catch (err) {
+        console.error('Failed to connect:', err);
+        updateStatus(false);
+        reconnectTimeout = setTimeout(connect, 2000);
+      }
+    }
+
+    function sendKey(key) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.warn('WebSocket not connected');
+        return;
+      }
+
+      const keyCode = KEYS[key];
+      if (!keyCode) {
+        console.warn('Unknown key:', key);
+        return;
+      }
+
+      // ttyd protocol: first byte is message type (0 = input), rest is data
+      const data = new Uint8Array(keyCode.length + 1);
+      data[0] = 0; // Input message type
+      for (let i = 0; i < keyCode.length; i++) {
+        data[i + 1] = keyCode.charCodeAt(i);
+      }
+
+      ws.send(data.buffer);
+      console.log('Sent key:', key);
+    }
+
+    // Set up button click handlers
+    document.querySelectorAll('.key').forEach(button => {
+      const key = button.dataset.key;
+      if (key) {
+        // Use both click and touch events for better mobile support
+        button.addEventListener('click', (e) => {
+          e.preventDefault();
+          sendKey(key);
+        });
+
+        button.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          sendKey(key);
+        });
+      }
+    });
+
+    // Connect on page load
+    connect();
+
+    // Handle visibility change - reconnect when page becomes visible
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && (!ws || ws.readyState !== WebSocket.OPEN)) {
+        connect();
+      }
+    });
+  </script>
+</body>
+</html>
