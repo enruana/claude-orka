@@ -333,3 +333,30 @@ sessionsRouter.post('/:sessionId/select-branch', async (req, res) => {
     res.status(500).json({ error: error.message })
   }
 })
+
+/**
+ * GET /api/sessions/:sessionId/active-branch?project=<base64-path>
+ * Get the currently active branch in the tmux session
+ */
+sessionsRouter.get('/:sessionId/active-branch', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const encodedPath = req.query.project as string
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    const activeBranch = await orka.getActiveBranch(sessionId)
+
+    res.json({ activeBranch })
+  } catch (error: any) {
+    logger.error('Failed to get active branch:', error)
+    res.status(500).json({ error: error.message })
+  }
+})

@@ -167,4 +167,11 @@ export const api = {
     })
     if (!res.ok) throw new Error(await res.text())
   },
+
+  async getActiveBranch(projectPath: string, sessionId: string): Promise<string | null> {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/active-branch?project=${encodeProjectPath(projectPath)}`)
+    if (!res.ok) throw new Error(await res.text())
+    const data = await res.json()
+    return data.activeBranch
+  },
 }

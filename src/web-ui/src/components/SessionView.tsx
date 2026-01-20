@@ -48,11 +48,37 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
     }
   }, [project.path, session.id])
 
+  // Sync selected branch with tmux active pane
+  const syncActiveBranch = useCallback(async () => {
+    try {
+      const activeBranch = await api.getActiveBranch(project.path, session.id)
+      if (activeBranch && activeBranch !== selectedNode) {
+        // Only update if the branch exists and is clickable
+        if (activeBranch === 'main') {
+          setSelectedNode(activeBranch)
+        } else {
+          const fork = session.forks.find((f) => f.id === activeBranch)
+          if (fork && (fork.status === 'active' || fork.status === 'saved')) {
+            setSelectedNode(activeBranch)
+          }
+        }
+      }
+    } catch (err: any) {
+      // Silently ignore - this is just for sync
+    }
+  }, [project.path, session.id, session.forks, selectedNode])
+
   // Auto-refresh every 3 seconds
   useEffect(() => {
     const interval = setInterval(refreshSession, 3000)
     return () => clearInterval(interval)
   }, [refreshSession])
+
+  // Sync active branch every second (faster for responsiveness)
+  useEffect(() => {
+    const interval = setInterval(syncActiveBranch, 1000)
+    return () => clearInterval(interval)
+  }, [syncActiveBranch])
 
   const handleNodeClick = async (nodeId: string) => {
     const fork = session.forks.find((f) => f.id === nodeId)

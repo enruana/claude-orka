@@ -338,6 +338,25 @@ export class TmuxCommands {
   }
 
   /**
+   * Obtener el pane activo de una sesión
+   * @param sessionName Nombre de la sesión tmux
+   * @returns ID del pane activo
+   */
+  static async getActivePane(sessionName: string): Promise<string | null> {
+    try {
+      const { stdout } = await execa('tmux', [
+        'display-message',
+        '-t', sessionName,
+        '-p', '#{pane_id}'
+      ])
+      return stdout.trim() || null
+    } catch (error: any) {
+      logger.warn(`Failed to get active pane for session ${sessionName}: ${error.message}`)
+      return null
+    }
+  }
+
+  /**
    * Enviar texto a un pane (SIN Enter)
    * IMPORTANTE: No envía Enter, debe llamarse a sendEnter() por separado
    */

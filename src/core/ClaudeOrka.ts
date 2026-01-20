@@ -360,4 +360,13 @@ export class ClaudeOrka {
   async selectBranch(sessionId: string, branchId: string): Promise<void> {
     await this.sessionManager.selectBranch(sessionId, branchId)
   }
+
+  /**
+   * Get the currently active branch in the tmux session
+   * @param sessionId Session ID
+   * @returns Branch ID ('main' or fork id) or null if not found
+   */
+  async getActiveBranch(sessionId: string): Promise<string | null> {
+    return await this.sessionManager.getActiveBranch(sessionId)
+  }
 }

@@ -498,7 +498,12 @@ export class SessionManager {
 
     // Matar el pane de tmux si existe (Claude session persiste)
     if (fork.tmuxPaneId) {
-      await TmuxCommands.killPane(fork.tmuxPaneId)
+      try {
+        await TmuxCommands.killPane(fork.tmuxPaneId)
+      } catch (error) {
+        // Pane may already be dead, that's fine
+        logger.debug(`Pane ${fork.tmuxPaneId} may already be dead: ${error}`)
+      }
     }
 
     // Actualizar estado
@@ -763,7 +768,12 @@ Analyze the content and help me integrate the changes and learnings from the for
 
     // Close fork pane if active
     if (fork.tmuxPaneId) {
-      await TmuxCommands.killPane(fork.tmuxPaneId)
+      try {
+        await TmuxCommands.killPane(fork.tmuxPaneId)
+      } catch (error) {
+        // Pane may already be dead, that's fine
+        logger.debug(`Pane ${fork.tmuxPaneId} may already be dead: ${error}`)
+      }
       fork.tmuxPaneId = undefined
     }
 
@@ -841,6 +851,37 @@ Analyze the content and help me integrate the changes and learnings from the for
 
     await TmuxCommands.selectPane(paneId)
     logger.debug(`Branch selected: ${branchId} (pane: ${paneId})`)
+  }
+
+  /**
+   * Get the currently active branch in the tmux session
+   * @param sessionId Session ID
+   * @returns Branch ID ('main' or fork id) or null if not found
+   */
+  async getActiveBranch(sessionId: string): Promise<string | null> {
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
+    }
+
+    // Get the active pane in tmux
+    const activePaneId = await TmuxCommands.getActivePane(session.tmuxSessionId)
+    if (!activePaneId) {
+      return null
+    }
+
+    // Check if it's the main pane
+    if (session.main.tmuxPaneId === activePaneId) {
+      return 'main'
+    }
+
+    // Check forks
+    const fork = session.forks.find((f) => f.tmuxPaneId === activePaneId)
+    if (fork) {
+      return fork.id
+    }
+
+    return null
   }
 
   // ==========================================
