@@ -110,6 +110,13 @@ export const api = {
     return res.json()
   },
 
+  async detachSession(projectPath: string, sessionId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/detach?project=${encodeProjectPath(projectPath)}`, {
+      method: 'POST',
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
   async closeSession(projectPath: string, sessionId: string): Promise<void> {
     const res = await fetch(`${API_BASE}/sessions/${sessionId}/close?project=${encodeProjectPath(projectPath)}`, {
       method: 'POST',

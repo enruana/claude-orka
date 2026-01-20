@@ -33,6 +33,8 @@ try {
 
   saveAndClose: () => ipcRenderer.invoke('save-and-close'),
 
+  detachSession: () => ipcRenderer.invoke('detach-session'),
+
   minimizeToTaskbar: () => ipcRenderer.invoke('minimize-to-taskbar'),
 
   restoreFromTaskbar: () => ipcRenderer.invoke('restore-from-taskbar'),

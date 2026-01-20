@@ -238,7 +238,19 @@ export function App() {
 
   const forks = session.forks || []
 
-  const handleSaveAndClose = async () => {
+  const handleDetach = async () => {
+    const confirm = window.confirm(
+      'Detach this session? The tmux session will keep running in the background.'
+    )
+    if (!confirm) return
+    await window.electronAPI.detachSession()
+  }
+
+  const handleClose = async () => {
+    const confirm = window.confirm(
+      'Close this session? This will kill the tmux session and all processes.'
+    )
+    if (!confirm) return
     await window.electronAPI.saveAndClose()
   }
 
@@ -256,8 +268,11 @@ export function App() {
           <button className="titlebar-button minimize" onClick={handleMinimize}>
             Minimize
           </button>
-          <button className="titlebar-button save-close" onClick={handleSaveAndClose}>
-            Save & Close
+          <button className="titlebar-button detach" onClick={handleDetach}>
+            Detach
+          </button>
+          <button className="titlebar-button close" onClick={handleClose}>
+            Close
           </button>
         </div>
       </div>

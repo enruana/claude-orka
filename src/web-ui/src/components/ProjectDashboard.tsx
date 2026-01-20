@@ -18,6 +18,7 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
   const [showNewSession, setShowNewSession] = useState(false)
   const [newSessionName, setNewSessionName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  const [resumingSessionId, setResumingSessionId] = useState<string | null>(null)
 
   const loadProjects = useCallback(async () => {
     try {
@@ -113,11 +114,16 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
 
   const handleResumeSession = async (session: Session) => {
     if (!selectedProject) return
+    setResumingSessionId(session.id)
     try {
       const resumed = await api.resumeSession(selectedProject.path, session.id)
+      // Refresh session list to get updated state
+      await loadSessions()
       onSelectSession(selectedProject, resumed)
     } catch (err: any) {
       setError(err.message)
+    } finally {
+      setResumingSessionId(null)
     }
   }
 
@@ -239,42 +245,59 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
                 </div>
               ) : (
                 <div className="sessions-list">
-                  {sessions.map((session) => (
-                    <div
-                      key={session.id}
-                      className={`session-row ${session.status}`}
-                      onClick={() => {
-                        if (session.status === 'active') {
-                          onSelectSession(selectedProject, session)
-                        } else {
-                          handleResumeSession(session)
-                        }
-                      }}
-                    >
-                      <div className="session-row-status">
-                        <span className={`status-indicator ${session.status}`}></span>
+                  {sessions.map((session) => {
+                    const isResuming = resumingSessionId === session.id
+                    return (
+                      <div
+                        key={session.id}
+                        className={`session-row ${session.status} ${isResuming ? 'resuming' : ''}`}
+                        onClick={() => {
+                          if (isResuming) return
+                          if (session.status === 'active') {
+                            onSelectSession(selectedProject, session)
+                          } else {
+                            handleResumeSession(session)
+                          }
+                        }}
+                      >
+                        <div className="session-row-status">
+                          {isResuming ? (
+                            <span className="spinner-small"></span>
+                          ) : (
+                            <span className={`status-indicator ${session.status}`}></span>
+                          )}
+                        </div>
+                        <div className="session-row-info">
+                          <span className="session-row-name">{session.name || session.id}</span>
+                          <span className="session-row-meta">
+                            {isResuming ? (
+                              'Resuming session...'
+                            ) : (
+                              <>
+                                {session.forks.length} {session.forks.length === 1 ? 'fork' : 'forks'}
+                                <span className="separator">·</span>
+                                {new Date(session.lastActivity || session.createdAt).toLocaleDateString()}
+                              </>
+                            )}
+                          </span>
+                        </div>
+                        <div className="session-row-actions">
+                          <span className={`status-label ${session.status}`}>
+                            {isResuming ? 'resuming' : session.status}
+                          </span>
+                          <button
+                            className="session-row-delete"
+                            onClick={(e) => handleDeleteSession(e, session.id)}
+                            title="Delete session"
+                            disabled={isResuming}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                          <ChevronRight size={16} className="session-row-chevron" />
+                        </div>
                       </div>
-                      <div className="session-row-info">
-                        <span className="session-row-name">{session.name || session.id}</span>
-                        <span className="session-row-meta">
-                          {session.forks.length} {session.forks.length === 1 ? 'fork' : 'forks'}
-                          <span className="separator">·</span>
-                          {new Date(session.lastActivity || session.createdAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <div className="session-row-actions">
-                        <span className={`status-label ${session.status}`}>{session.status}</span>
-                        <button
-                          className="session-row-delete"
-                          onClick={(e) => handleDeleteSession(e, session.id)}
-                          title="Delete session"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                        <ChevronRight size={16} className="session-row-chevron" />
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>

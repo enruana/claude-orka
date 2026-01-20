@@ -9,6 +9,8 @@ import {
   FileText,
   RefreshCw,
   ExternalLink,
+  LogOut,
+  Power,
 } from 'lucide-react'
 
 interface SessionViewProps {
@@ -185,8 +187,18 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
     }
   }
 
+  const handleDetachSession = async () => {
+    if (!confirm('Detach this session? The tmux session will keep running in the background.')) return
+    try {
+      await api.detachSession(project.path, session.id)
+      onBack()
+    } catch (err: any) {
+      alert(`Failed to detach: ${err.message}`)
+    }
+  }
+
   const handleCloseSession = async () => {
-    if (!confirm('Close this session? The tmux session will stay alive.')) return
+    if (!confirm('Close this session? This will kill the tmux session and all processes.')) return
     try {
       await api.closeSession(project.path, session.id)
       onBack()
@@ -305,8 +317,13 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
           <button className="icon-button" onClick={refreshSession} title="Refresh">
             <RefreshCw size={18} />
           </button>
-          <button className="close-button" onClick={handleCloseSession}>
-            Save & Close
+          <button className="detach-button" onClick={handleDetachSession} title="Detach (keep tmux running)">
+            <LogOut size={16} />
+            Detach
+          </button>
+          <button className="close-button" onClick={handleCloseSession} title="Close (kill tmux)">
+            <Power size={16} />
+            Close
           </button>
         </div>
       </div>

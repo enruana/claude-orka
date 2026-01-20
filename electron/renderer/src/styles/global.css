@@ -70,14 +70,24 @@ body {
   color: #89b4fa;
 }
 
-.titlebar-button.save-close {
-  background: rgba(148, 226, 213, 0.15);
-  color: #94e2d5;
+.titlebar-button.detach {
+  background: rgba(249, 226, 175, 0.15);
+  color: #f9e2af;
 }
 
-.titlebar-button.save-close:hover {
-  background: rgba(148, 226, 213, 0.25);
-  color: #94e2d5;
+.titlebar-button.detach:hover {
+  background: rgba(249, 226, 175, 0.25);
+  color: #f9e2af;
+}
+
+.titlebar-button.close {
+  background: rgba(243, 139, 168, 0.15);
+  color: #f38ba8;
+}
+
+.titlebar-button.close:hover {
+  background: rgba(243, 139, 168, 0.25);
+  color: #f38ba8;
 }
 
 /* Session Info */

@@ -11,6 +11,7 @@ export interface ElectronAPI {
   openProjectFolder: () => Promise<void>
   focusTerminal: () => Promise<void>
   saveAndClose: () => Promise<void>
+  detachSession: () => Promise<void>
   minimizeToTaskbar: () => Promise<void>
   restoreFromTaskbar: () => Promise<void>
   resizeTaskbar: (height: number) => Promise<void>

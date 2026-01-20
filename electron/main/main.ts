@@ -623,6 +623,24 @@ ipcMain.handle('save-and-close', async () => {
   app.quit()
 })
 
+ipcMain.handle('detach-session', async () => {
+  if (currentSessionId && currentProjectPath) {
+    try {
+      const orka = new ClaudeOrka(currentProjectPath)
+      await orka.initialize()
+
+      console.log('Detach: detaching session (keeping tmux running):', currentSessionId)
+      await orka.detachSession(currentSessionId)
+      console.log('Session detached successfully (tmux still running)')
+    } catch (error) {
+      console.error('Error in detach-session:', error)
+    }
+  }
+
+  // Quit the Electron app
+  app.quit()
+})
+
 ipcMain.on('close-window', async (event) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   window?.close()

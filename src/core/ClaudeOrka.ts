@@ -78,7 +78,17 @@ export class ClaudeOrka {
   }
 
   /**
-   * Close a session
+   * Detach a session (keep tmux running)
+   * Processes continue in background, can be reattached with resume
+   * @param sessionId Session ID
+   */
+  async detachSession(sessionId: string): Promise<void> {
+    await this.sessionManager.detachSession(sessionId)
+  }
+
+  /**
+   * Close a session (kill tmux and all processes)
+   * Session remains in state for recovery from Claude sessions
    * @param sessionId Session ID
    */
   async closeSession(sessionId: string): Promise<void> {

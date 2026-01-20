@@ -137,8 +137,35 @@ sessionsRouter.post('/:sessionId/resume', async (req, res) => {
 })
 
 /**
+ * POST /api/sessions/:sessionId/detach?project=<base64-path>
+ * Detach a session (keeps tmux running in background)
+ */
+sessionsRouter.post('/:sessionId/detach', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const encodedPath = req.query.project as string
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    await orka.detachSession(sessionId)
+
+    res.json({ success: true })
+  } catch (error: any) {
+    logger.error('Failed to detach session:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * POST /api/sessions/:sessionId/close?project=<base64-path>
- * Close a session (keeps tmux alive)
+ * Close a session (kills tmux and all processes)
  */
 sessionsRouter.post('/:sessionId/close', async (req, res) => {
   try {

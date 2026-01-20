@@ -172,7 +172,6 @@ export class SessionManager {
       // Session exists in tmux, just reconnect
       if (openTerminal) {
         await TmuxCommands.openTerminalWindow(tmuxSessionId)
-        await this.launchUI(sessionId)
       }
 
       // Start ttyd if not already running
@@ -193,7 +192,28 @@ export class SessionManager {
         session.lastActivity = new Date().toISOString()
       }
 
+      // Check and restore active/saved forks that are missing their pane
+      const forks = session.forks || []
+      const forksToRestore = forks.filter((f) =>
+        (f.status === 'active' || f.status === 'saved') && !f.tmuxPaneId
+      )
+      if (forksToRestore.length > 0) {
+        logger.info(`Restoring ${forksToRestore.length} fork pane(s)...`)
+        for (const fork of forksToRestore) {
+          try {
+            await this.resumeFork(sessionId, fork.id)
+          } catch (error) {
+            logger.warn(`Failed to restore fork ${fork.name}: ${error}`)
+          }
+        }
+      }
+
       await this.stateManager.replaceSession(session)
+
+      // Launch UI after everything is ready
+      if (openTerminal) {
+        await this.launchUI(sessionId)
+      }
 
       return session
     }
@@ -261,7 +281,47 @@ export class SessionManager {
   }
 
   /**
-   * Close a session (save and kill tmux)
+   * Detach a session (save state, keep tmux running)
+   * Processes continue running in background, can be reattached with resume
+   */
+  async detachSession(sessionId: string): Promise<void> {
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
+    }
+
+    logger.info(`Detaching session: ${session.name}`)
+
+    // 1. Stop ttyd web terminal
+    if (session.ttydPid || session.ttydPort) {
+      await this.stopTtyd(session.ttydPid || 0, session.ttydPort)
+    }
+
+    // 2. Keep tmux session alive (processes continue running)
+    // Just clear pane IDs but don't kill anything
+
+    // 3. Update state - mark as saved but keep tmux running
+    session.main.status = 'saved'
+    session.main.tmuxPaneId = undefined
+    session.status = 'saved'
+    session.lastActivity = new Date().toISOString()
+    session.ttydPort = undefined
+    session.ttydPid = undefined
+
+    // Clear fork pane IDs but don't close them
+    for (const fork of session.forks) {
+      if (fork.status === 'active') {
+        fork.tmuxPaneId = undefined
+      }
+    }
+
+    await this.stateManager.replaceSession(session)
+    logger.info(`Session detached: ${session.name} (tmux still running)`)
+  }
+
+  /**
+   * Close a session (stop everything, kill tmux)
+   * All processes are terminated but session remains in state for recovery
    */
   async closeSession(sessionId: string): Promise<void> {
     const session = await this.getSession(sessionId)
@@ -271,28 +331,36 @@ export class SessionManager {
 
     logger.info(`Closing session: ${session.name}`)
 
-    // 1. Close all active forks
-    const activeForks = session.forks.filter((f) => f.status === 'active')
-    for (const fork of activeForks) {
-      await this.closeFork(sessionId, fork.id)
-    }
-
-    // 2. Stop ttyd web terminal
+    // 1. Stop ttyd web terminal
     if (session.ttydPid || session.ttydPort) {
       await this.stopTtyd(session.ttydPid || 0, session.ttydPort)
     }
 
-    // 3. Keep tmux session alive (processes continue running)
-    // tmux session will be reattached on resume
-    // Only deleteSession() will kill the tmux session
+    // 2. Kill tmux session (this kills all panes and processes)
+    if (session.tmuxSessionId) {
+      try {
+        await TmuxCommands.killSession(session.tmuxSessionId)
+        logger.info(`Killed tmux session: ${session.tmuxSessionId}`)
+      } catch (error) {
+        logger.debug(`Tmux session may already be dead: ${error}`)
+      }
+    }
 
-    // 4. Update state
+    // 3. Update state - mark as saved, clear all pane IDs
     session.main.status = 'saved'
     session.main.tmuxPaneId = undefined
     session.status = 'saved'
     session.lastActivity = new Date().toISOString()
     session.ttydPort = undefined
     session.ttydPid = undefined
+
+    // Mark active forks as saved and clear pane IDs
+    for (const fork of session.forks) {
+      if (fork.status === 'active') {
+        fork.status = 'saved'
+        fork.tmuxPaneId = undefined
+      }
+    }
 
     await this.stateManager.replaceSession(session)
     logger.info(`Session closed: ${session.name}`)
