@@ -284,10 +284,9 @@ export class SessionManager {
       await this.stopTtyd(session.ttydPid || 0, session.ttydPort || TTYD_DEFAULT_PORT)
     }
 
-    // 3. Kill tmux session (Claude session persists automatically)
-    if (session.tmuxSessionId) {
-      await TmuxCommands.killSession(session.tmuxSessionId)
-    }
+    // 3. Keep tmux session alive (processes continue running)
+    // tmux session will be reattached on resume
+    // Only deleteSession() will kill the tmux session
 
     // 4. Update state
     session.main.status = 'saved'
@@ -312,9 +311,19 @@ export class SessionManager {
 
     logger.info(`Deleting session: ${session.name}`)
 
-    // Cerrar si está activa
+    // Cerrar si está activa (stops ttyd, closes forks)
     if (session.status === 'active') {
       await this.closeSession(sessionId)
+    }
+
+    // Kill tmux session permanently
+    if (session.tmuxSessionId) {
+      try {
+        await TmuxCommands.killSession(session.tmuxSessionId)
+        logger.info(`Killed tmux session: ${session.tmuxSessionId}`)
+      } catch (error) {
+        logger.debug(`Tmux session may already be dead: ${error}`)
+      }
     }
 
     // Eliminar del state
