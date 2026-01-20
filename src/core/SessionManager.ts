@@ -280,8 +280,8 @@ export class SessionManager {
     }
 
     // 2. Stop ttyd web terminal
-    if (session.ttydPid) {
-      await this.stopTtyd(session.ttydPid)
+    if (session.ttydPid || session.ttydPort) {
+      await this.stopTtyd(session.ttydPid || 0, session.ttydPort || TTYD_DEFAULT_PORT)
     }
 
     // 3. Kill tmux session (Claude session persists automatically)
@@ -867,13 +867,32 @@ Analyze the content and help me integrate the changes and learnings from the for
   /**
    * Stop ttyd web terminal by PID
    */
-  private async stopTtyd(pid: number): Promise<void> {
+  private async stopTtyd(pid: number, port: number = TTYD_DEFAULT_PORT): Promise<void> {
+    logger.info(`Stopping ttyd (PID: ${pid}, port: ${port})...`)
+
+    // Try to kill by PID using system kill command (more reliable for detached processes)
     try {
-      process.kill(pid, 'SIGTERM')
-      logger.info(`Stopped ttyd (PID: ${pid})`)
+      await execa('kill', ['-TERM', pid.toString()])
+      logger.info(`Stopped ttyd via kill command (PID: ${pid})`)
+      return
     } catch (error) {
-      // Process may already be dead
-      logger.debug(`Could not kill ttyd (PID: ${pid}): ${error}`)
+      logger.debug(`Could not kill ttyd by PID ${pid}: ${error}`)
+    }
+
+    // Fallback: kill by port using lsof
+    try {
+      const { stdout } = await execa('lsof', ['-t', `-i:${port}`])
+      const pids = stdout.trim().split('\n').filter(p => p)
+      for (const p of pids) {
+        try {
+          await execa('kill', ['-TERM', p])
+          logger.info(`Stopped ttyd via port lookup (PID: ${p})`)
+        } catch (e) {
+          // Continue trying other PIDs
+        }
+      }
+    } catch (error) {
+      logger.debug(`Could not find ttyd process on port ${port}: ${error}`)
     }
   }
 
