@@ -578,20 +578,9 @@ ipcMain.handle('save-and-close', async () => {
 
       const session = await orka.getSession(currentSessionId)
       if (session?.tmuxSessionId) {
-        console.log('Save and close: detaching from tmux session:', session.tmuxSessionId)
+        console.log('Save and close: closing session:', session.tmuxSessionId)
 
-        // Detach from tmux (but keep session alive)
-        try {
-          await execa('tmux', ['detach-client', '-s', session.tmuxSessionId])
-          console.log('Detached from tmux session (session remains alive)')
-        } catch (error) {
-          console.log('Error detaching from tmux:', error)
-        }
-
-        // Wait a moment for detach
-        await new Promise((resolve) => setTimeout(resolve, 300))
-
-        // Try to close the specific terminal window using AppleScript
+        // Try to close the specific terminal window using AppleScript first
         try {
           await execa('osascript', [
             '-e',
@@ -620,6 +609,10 @@ ipcMain.handle('save-and-close', async () => {
             console.log('Could not determine Terminal window count:', countError)
           }
         }
+
+        // Close the session properly (stops ttyd, kills tmux, updates state)
+        await orka.closeSession(currentSessionId)
+        console.log('Session closed successfully (ttyd stopped, tmux killed)')
       }
     } catch (error) {
       console.error('Error in save-and-close:', error)
