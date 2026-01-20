@@ -55,9 +55,6 @@ export function prepareCommand(program: Command) {
         // Install ttyd
         await installTtyd(system)
 
-        // Install Electron
-        await installElectron()
-
         // Check Claude CLI
         await checkClaudeCLI()
 
@@ -223,36 +220,6 @@ async function installTtyd(system: SystemInfo) {
     console.log(chalk.cyan('  macOS: brew install ttyd'))
     console.log(chalk.cyan('  Ubuntu: sudo apt-get install ttyd'))
     console.log(chalk.cyan('  Other: https://github.com/tsl0922/ttyd#installation'))
-  }
-}
-
-async function installElectron() {
-  console.log(chalk.bold('\n⚡ Installing Electron...\n'))
-
-  // Check if already installed
-  try {
-    await execa('electron', ['--version'])
-    Output.success('Electron is already installed')
-    return
-  } catch {
-    // Not installed, continue
-  }
-
-  const spinner = ora('Installing Electron globally...').start()
-
-  try {
-    await execa('npm', ['install', '-g', 'electron'], {
-      stdio: 'ignore',
-    })
-    spinner.succeed('Electron installed globally')
-  } catch (error: any) {
-    spinner.fail('Failed to install Electron')
-    console.log(chalk.red(`\nError: ${error.message}`))
-    console.log(chalk.yellow('\nPlease install Electron manually:'))
-    console.log(chalk.cyan('  npm install -g electron'))
-    console.log(
-      chalk.gray('\nNote: Electron is required for the visual UI interface.')
-    )
   }
 }
 

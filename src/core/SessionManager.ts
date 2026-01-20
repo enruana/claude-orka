@@ -4,13 +4,9 @@ import { Session, Fork, SessionFilters } from '../models'
 import { TmuxCommands, logger } from '../utils'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
-import { fileURLToPath } from 'url'
-import { dirname } from 'path'
 import fs from 'fs-extra'
 import { spawn } from 'child_process'
 import execa from 'execa'
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -142,11 +138,6 @@ export class SessionManager {
     await this.stateManager.addSession(session)
     logger.info(`Session created: ${sessionName} (${sessionId})`)
 
-    // Launch UI
-    if (openTerminal) {
-      await this.launchUI(sessionId)
-    }
-
     return session
   }
 
@@ -210,11 +201,6 @@ export class SessionManager {
 
       await this.stateManager.replaceSession(session)
 
-      // Launch UI after everything is ready
-      if (openTerminal) {
-        await this.launchUI(sessionId)
-      }
-
       return session
     }
 
@@ -271,11 +257,6 @@ export class SessionManager {
     }
 
     logger.info(`Session resumed: ${session.name}`)
-
-    // Launch UI
-    if (openTerminal) {
-      await this.launchUI(sessionId)
-    }
 
     return session
   }
@@ -1092,89 +1073,5 @@ Analyze the content and help me integrate the changes and learnings from the for
 
     // 3. Esperar a que Claude inicie (reducido porque ya no detectamos session ID)
     await sleep(2000) // 2 segundos para que Claude inicie
-  }
-
-  /**
-   * Launch Electron UI for a session
-   */
-  private async launchUI(sessionId: string): Promise<void> {
-    try {
-      // Try to find electron executable (same method as orka doctor)
-      let electronPath: string
-      try {
-        const result = await execa('which', ['electron'])
-        electronPath = result.stdout.trim()
-        if (!electronPath) {
-          throw new Error('Electron path is empty')
-        }
-      } catch (error) {
-        logger.warn('Electron not found in PATH, skipping UI launch')
-        logger.warn('Install Electron with: npm install -g electron')
-        return
-      }
-
-      // Get the path to the compiled main.js
-      // The __dirname varies depending on how the code is executed:
-      //
-      // 1. Via CLI (bundled with esbuild):
-      //    __dirname = /path/to/node_modules/@enruana/claude-orka/dist
-      //    We need:    /path/to/node_modules/@enruana/claude-orka/dist/electron/main/main.js
-      //    Relative:   ./electron/main/main.js
-      //
-      // 2. Via SDK (not bundled, TypeScript compiled):
-      //    __dirname = /path/to/node_modules/@enruana/claude-orka/dist/src/core
-      //    We need:    /path/to/node_modules/@enruana/claude-orka/dist/electron/main/main.js
-      //    Relative:   ../../electron/main/main.js
-      //
-      // 3. Development (from source):
-      //    __dirname = /path/to/claude-orka/src/core
-      //    We need:    /path/to/claude-orka/dist/electron/main/main.js
-      //    Relative:   ../../dist/electron/main/main.js
-
-      const possiblePaths = [
-        // Via CLI (bundled): dist -> ./electron/main/main.js
-        path.join(__dirname, './electron/main/main.js'),
-        // Via SDK: dist/src/core -> ../../electron/main/main.js
-        path.join(__dirname, '../../electron/main/main.js'),
-        // Development: src/core -> ../../dist/electron/main/main.js
-        path.join(__dirname, '../../dist/electron/main/main.js'),
-      ]
-
-      let mainPath: string | null = null
-      for (const p of possiblePaths) {
-        const resolvedPath = path.resolve(p)
-        if (fs.existsSync(resolvedPath)) {
-          mainPath = resolvedPath
-          logger.debug(`Found Electron main.js at: ${resolvedPath}`)
-          break
-        }
-      }
-
-      // Check if the main.js exists
-      if (!mainPath) {
-        const resolvedPaths = possiblePaths.map(p => path.resolve(p))
-        logger.warn(`Electron main.js not found. Tried paths: ${resolvedPaths.join(', ')}`)
-        logger.warn(`Current __dirname: ${__dirname}`)
-        logger.warn('Skipping UI launch')
-        return
-      }
-
-      // Launch Electron detached
-      const electronProcess = spawn(
-        electronPath,
-        [mainPath, '--session-id', sessionId, '--project-path', this.projectPath],
-        {
-          detached: true,
-          stdio: 'ignore',
-        }
-      )
-
-      electronProcess.unref()
-
-      logger.info(`Launched UI for session ${sessionId}`)
-    } catch (error) {
-      logger.warn(`Failed to launch UI: ${error}`)
-      // Don't throw - UI is optional
-    }
   }
 }

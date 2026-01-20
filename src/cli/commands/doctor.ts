@@ -34,9 +34,6 @@ export function doctorCommand(program: Command) {
         // Check Claude CLI
         results.push(await checkClaude())
 
-        // Check Electron
-        results.push(await checkElectron())
-
         // Check ttyd
         results.push(await checkTtyd())
 
@@ -130,29 +127,6 @@ async function checkClaude(): Promise<CheckResult> {
       message: 'Not found',
       details: 'Claude CLI is required for AI sessions',
       fix: 'Install Claude CLI from https://claude.ai/download',
-    }
-  }
-}
-
-async function checkElectron(): Promise<CheckResult> {
-  try {
-    // Check if electron is available by trying to run it
-    const { stdout } = await execa('electron', ['--version'])
-    const version = stdout.trim()
-
-    return {
-      name: 'Electron',
-      status: 'pass',
-      message: version.startsWith('v') ? version : `v${version}`,
-      details: 'Required for visual UI',
-    }
-  } catch (error) {
-    return {
-      name: 'Electron',
-      status: 'warn',
-      message: 'Not found',
-      details: 'Electron is required for the visual UI (optional)',
-      fix: 'Install Electron: npm install -g electron',
     }
   }
 }
