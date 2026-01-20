@@ -1,35 +1,22 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { ProjectDashboard } from './components/ProjectDashboard'
 import { SessionView } from './components/SessionView'
-import { api, RegisteredProject, Session } from './api/client'
+import { RegisteredProject, Session } from './api/client'
 
 type View =
-  | { type: 'projects' }
-  | { type: 'project'; project: RegisteredProject }
+  | { type: 'dashboard' }
   | { type: 'session'; project: RegisteredProject; session: Session }
 
 export function App() {
-  const [view, setView] = useState<View>({ type: 'projects' })
+  const [view, setView] = useState<View>({ type: 'dashboard' })
   const [error, setError] = useState<string | null>(null)
-
-  const handleSelectProject = (project: RegisteredProject) => {
-    setView({ type: 'project', project })
-  }
 
   const handleSelectSession = (project: RegisteredProject, session: Session) => {
     setView({ type: 'session', project, session })
   }
 
-  const handleBack = () => {
-    if (view.type === 'session') {
-      setView({ type: 'project', project: view.project })
-    } else {
-      setView({ type: 'projects' })
-    }
-  }
-
-  const handleGoHome = () => {
-    setView({ type: 'projects' })
+  const handleBackToDashboard = () => {
+    setView({ type: 'dashboard' })
   }
 
   if (error) {
@@ -46,26 +33,15 @@ export function App() {
 
   return (
     <div className="app">
-      {view.type === 'projects' && (
-        <ProjectDashboard
-          onSelectProject={handleSelectProject}
-          onSelectSession={handleSelectSession}
-        />
-      )}
-      {view.type === 'project' && (
-        <ProjectDashboard
-          selectedProject={view.project}
-          onSelectProject={handleSelectProject}
-          onSelectSession={handleSelectSession}
-          onBack={handleBack}
-        />
+      {view.type === 'dashboard' && (
+        <ProjectDashboard onSelectSession={handleSelectSession} />
       )}
       {view.type === 'session' && (
         <SessionView
           project={view.project}
           session={view.session}
-          onBack={handleBack}
-          onGoHome={handleGoHome}
+          onBack={handleBackToDashboard}
+          onGoHome={handleBackToDashboard}
         />
       )}
     </div>

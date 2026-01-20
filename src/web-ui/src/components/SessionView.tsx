@@ -317,11 +317,26 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
           </div>
           <div className="terminal-wrapper">
             {session.ttydPort ? (
-              <iframe
-                src={getTerminalUrl()}
-                title="Terminal"
-                className="terminal-iframe"
-              />
+              <>
+                {/* Desktop: show iframe */}
+                <iframe
+                  src={getTerminalUrl()}
+                  title="Terminal"
+                  className="terminal-iframe desktop-only"
+                />
+                {/* Mobile: show message and button */}
+                <div className="terminal-mobile-message mobile-only">
+                  <p>Terminal not available in mobile view</p>
+                  <p className="hint">Open in a dedicated window for the best experience</p>
+                  <button
+                    className="action-btn-full primary"
+                    onClick={handleOpenTerminalInNewTab}
+                  >
+                    <ExternalLink size={16} />
+                    Open Terminal
+                  </button>
+                </div>
+              </>
             ) : (
               <div className="terminal-placeholder">
                 <p>Terminal not available</p>
