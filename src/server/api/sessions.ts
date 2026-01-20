@@ -299,3 +299,37 @@ sessionsRouter.post('/:sessionId/forks/:forkId/merge', async (req, res) => {
     res.status(500).json({ error: error.message })
   }
 })
+
+/**
+ * POST /api/sessions/:sessionId/select-branch?project=<base64-path>
+ * Select/focus a branch in the tmux session
+ * Body: { branchId: string }
+ */
+sessionsRouter.post('/:sessionId/select-branch', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const encodedPath = req.query.project as string
+    const { branchId } = req.body
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+
+    if (!branchId) {
+      res.status(400).json({ error: 'branchId is required in body' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    await orka.selectBranch(sessionId, branchId)
+
+    res.json({ success: true })
+  } catch (error: any) {
+    logger.error('Failed to select branch:', error)
+    res.status(500).json({ error: error.message })
+  }
+})

@@ -809,6 +809,40 @@ Analyze the content and help me integrate the changes and learnings from the for
     logger.debug(`Node position saved: ${nodeId} -> (${position.x}, ${position.y})`)
   }
 
+  /**
+   * Select/focus a branch in the tmux session
+   * This activates the corresponding pane in tmux
+   * @param sessionId Session ID
+   * @param branchId Branch ID ('main' or fork id)
+   */
+  async selectBranch(sessionId: string, branchId: string): Promise<void> {
+    const session = await this.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`)
+    }
+
+    let paneId: string | undefined
+
+    if (branchId === 'main') {
+      paneId = session.main.tmuxPaneId
+      if (!paneId) {
+        throw new Error(`Main branch does not have an active pane`)
+      }
+    } else {
+      const fork = session.forks.find((f) => f.id === branchId)
+      if (!fork) {
+        throw new Error(`Fork ${branchId} not found in session ${sessionId}`)
+      }
+      if (!fork.tmuxPaneId) {
+        throw new Error(`Fork ${branchId} does not have an active pane`)
+      }
+      paneId = fork.tmuxPaneId
+    }
+
+    await TmuxCommands.selectPane(paneId)
+    logger.debug(`Branch selected: ${branchId} (pane: ${paneId})`)
+  }
+
   // ==========================================
   // TTYD WEB TERMINAL
   // ==========================================

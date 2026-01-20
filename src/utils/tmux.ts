@@ -321,6 +321,23 @@ export class TmuxCommands {
   }
 
   /**
+   * Seleccionar (enfocar) un pane específico
+   */
+  static async selectPane(paneId: string): Promise<void> {
+    try {
+      logger.debug(`Selecting pane: ${paneId}`)
+      await execa('tmux', ['select-pane', '-t', paneId])
+      logger.info(`Pane selected: ${paneId}`)
+    } catch (error: any) {
+      throw new TmuxError(
+        `Failed to select pane: ${paneId}`,
+        `tmux select-pane -t ${paneId}`,
+        error
+      )
+    }
+  }
+
+  /**
    * Enviar texto a un pane (SIN Enter)
    * IMPORTANTE: No envía Enter, debe llamarse a sendEnter() por separado
    */

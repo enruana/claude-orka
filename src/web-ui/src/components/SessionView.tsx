@@ -9,7 +9,6 @@ import {
   FileText,
   RefreshCw,
   ExternalLink,
-  X,
 } from 'lucide-react'
 
 interface SessionViewProps {
@@ -17,6 +16,15 @@ interface SessionViewProps {
   session: Session
   onBack: () => void
   onGoHome: () => void
+}
+
+interface TreeNode {
+  id: string
+  name: string
+  status: string
+  isMain: boolean
+  children: TreeNode[]
+  isClickable: boolean
 }
 
 export function SessionView({ project, session: initialSession, onBack, onGoHome }: SessionViewProps) {
@@ -46,12 +54,19 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
     return () => clearInterval(interval)
   }, [refreshSession])
 
-  const handleNodeClick = (nodeId: string) => {
+  const handleNodeClick = async (nodeId: string) => {
     const fork = session.forks.find((f) => f.id === nodeId)
     if (fork && (fork.status === 'closed' || fork.status === 'merged')) {
       return
     }
     setSelectedNode(nodeId)
+
+    // Select the pane in tmux
+    try {
+      await api.selectBranch(project.path, session.id, nodeId)
+    } catch (err: any) {
+      console.error('Failed to select branch:', err)
+    }
   }
 
   const handleCreateFork = () => {
@@ -170,33 +185,78 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
   const canCreateFork =
     session.forks.filter((f) => f.parentId === selectedNode && f.status === 'active').length === 0
 
-  // Build tree structure
-  const renderBranchTree = () => {
-    const renderNode = (nodeId: string, depth: number = 0): JSX.Element[] => {
-      const isMain = nodeId === 'main'
-      const fork = isMain ? null : session.forks.find((f) => f.id === nodeId)
-      const status = isMain ? session.status : fork?.status || 'active'
-      const name = isMain ? 'MAIN' : fork?.name || nodeId
-      const children = session.forks.filter((f) => f.parentId === nodeId)
-      const isSelected = selectedNode === nodeId
-      const isClickable = isMain || (fork && (fork.status === 'active' || fork.status === 'saved'))
+  // Build tree data structure
+  const buildTree = (nodeId: string): TreeNode => {
+    const isMain = nodeId === 'main'
+    const fork = isMain ? null : session.forks.find((f) => f.id === nodeId)
+    const status = isMain ? session.status : fork?.status || 'active'
+    const name = isMain ? 'main' : fork?.name || nodeId
+    const children = session.forks
+      .filter((f) => f.parentId === nodeId)
+      .map((child) => buildTree(child.id))
+    const isClickable = isMain || (fork !== null && (fork.status === 'active' || fork.status === 'saved'))
 
-      return [
-        <div
-          key={nodeId}
-          className={`branch-node ${status} ${isSelected ? 'selected' : ''} ${isClickable ? 'clickable' : ''}`}
-          style={{ paddingLeft: `${depth * 20 + 12}px` }}
-          onClick={() => isClickable && handleNodeClick(nodeId)}
-        >
-          <span className={`status-dot ${status}`}></span>
-          <span className="branch-name">{name}</span>
-          {children.length > 0 && <span className="child-count">({children.length})</span>}
-        </div>,
-        ...children.flatMap((child) => renderNode(child.id, depth + 1)),
-      ]
+    return { id: nodeId, name, status, isMain, children, isClickable }
+  }
+
+  // Render the git-style tree
+  const renderGitTree = () => {
+    const tree = buildTree('main')
+
+    const renderNode = (
+      node: TreeNode,
+      depth: number = 0,
+      isLast: boolean = true,
+      parentLines: boolean[] = []
+    ): JSX.Element => {
+      const isSelected = selectedNode === node.id
+      const hasChildren = node.children.length > 0
+
+      return (
+        <div key={node.id} className="git-tree-node-wrapper">
+          <div
+            className={`git-tree-node ${node.status} ${isSelected ? 'selected' : ''} ${node.isClickable ? 'clickable' : ''}`}
+            onClick={() => node.isClickable && handleNodeClick(node.id)}
+          >
+            {/* Tree lines */}
+            <div className="git-tree-lines">
+              {parentLines.map((showLine, index) => (
+                <span key={index} className={`tree-line vertical ${showLine ? 'visible' : ''}`} />
+              ))}
+              {depth > 0 && (
+                <>
+                  <span className={`tree-line corner ${isLast ? 'last' : ''}`} />
+                </>
+              )}
+            </div>
+
+            {/* Node content */}
+            <div className="git-tree-node-content">
+              <span className={`git-node-dot ${node.status}`}>
+                <span className="dot-inner" />
+              </span>
+              <span className="git-node-name">{node.name}</span>
+              {hasChildren && (
+                <span className="git-node-children-count">{node.children.length}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Render children */}
+          {hasChildren && (
+            <div className="git-tree-children">
+              {node.children.map((child, index) => {
+                const isLastChild = index === node.children.length - 1
+                const newParentLines = [...parentLines, !isLast]
+                return renderNode(child, depth + 1, isLastChild, newParentLines)
+              })}
+            </div>
+          )}
+        </div>
+      )
     }
 
-    return <div className="branch-tree">{renderNode('main')}</div>
+    return <div className="git-tree">{renderNode(tree)}</div>
   }
 
   return (
@@ -240,17 +300,26 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
             <div className="panel-header">
               <h2>Branches</h2>
             </div>
-            {renderBranchTree()}
+            {renderGitTree()}
           </div>
 
           {/* Selected branch info */}
           <div className="panel-section selected-info">
             <div className="panel-header">
-              <h2>Selected: {selectedNode === 'main' ? 'MAIN' : selectedFork?.name || selectedNode}</h2>
+              <h2>Selected</h2>
             </div>
-            <div className="branch-status">
-              <span className={`status-dot large ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}></span>
-              <span>{selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}</span>
+            <div className="selected-branch-card">
+              <span className={`git-node-dot large ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}>
+                <span className="dot-inner" />
+              </span>
+              <div className="selected-branch-info">
+                <span className="selected-branch-name">
+                  {selectedNode === 'main' ? 'main' : selectedFork?.name || selectedNode}
+                </span>
+                <span className={`selected-branch-status ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}>
+                  {selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -353,7 +422,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Create New Fork</h3>
             <p className="modal-subtitle">
-              From: <strong>{selectedNode === 'main' ? 'MAIN' : selectedFork?.name || selectedNode}</strong>
+              From: <strong>{selectedNode === 'main' ? 'main' : selectedFork?.name || selectedNode}</strong>
             </p>
             <input
               type="text"

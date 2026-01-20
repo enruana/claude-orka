@@ -157,4 +157,14 @@ export const api = {
     })
     if (!res.ok) throw new Error(await res.text())
   },
+
+  // Branch selection
+  async selectBranch(projectPath: string, sessionId: string, branchId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/select-branch?project=${encodeProjectPath(projectPath)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branchId }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
 }

@@ -749,74 +749,271 @@ body {
   letter-spacing: 0.04em;
 }
 
-/* Branch Tree */
-.branch-tree {
+/* Git-style Branch Tree */
+.git-tree {
+  display: flex;
+  flex-direction: column;
+  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+}
+
+.git-tree-node-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.git-tree-node {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+  transition: all var(--transition-fast);
+  border-radius: var(--radius-md);
+  margin: 1px 0;
+}
+
+.git-tree-node.clickable {
+  cursor: pointer;
+}
+
+.git-tree-node.clickable:hover {
+  background: var(--bg-hover);
+}
+
+.git-tree-node.clickable:hover .git-node-name {
+  color: var(--text-primary);
+}
+
+.git-tree-node.selected {
+  background: rgba(10, 132, 255, 0.12);
+}
+
+.git-tree-node.selected .git-node-name {
+  color: var(--accent-blue);
+}
+
+.git-tree-node:not(.clickable) {
+  opacity: 0.5;
+}
+
+/* Tree lines container */
+.git-tree-lines {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding-left: var(--space-sm);
+}
+
+.tree-line {
+  display: inline-block;
+  width: 16px;
+  height: 32px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Vertical line through parent levels */
+.tree-line.vertical::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+
+.tree-line.vertical.visible::before {
+  background: var(--border-primary);
+}
+
+/* Corner line connecting to parent */
+.tree-line.corner {
+  position: relative;
+}
+
+.tree-line.corner::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 0;
+  width: 2px;
+  height: 50%;
+  background: var(--border-primary);
+}
+
+.tree-line.corner::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  background: var(--border-primary);
+  transform: translateY(-50%);
+}
+
+/* Last child - no line continuing down */
+.tree-line.corner.last::before {
+  height: 50%;
+}
+
+/* Non-last child - line continues down */
+.tree-line.corner:not(.last)::before {
+  height: 100%;
+}
+
+/* Node content */
+.git-tree-node-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-right: var(--space-md);
+}
+
+/* Git node dot - styled like a commit node */
+.git-node-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.git-node-dot .dot-inner {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: all var(--transition-fast);
+}
+
+.git-node-dot.active {
+  background: rgba(48, 209, 88, 0.2);
+}
+
+.git-node-dot.active .dot-inner {
+  background: var(--accent-green);
+  box-shadow: 0 0 8px rgba(48, 209, 88, 0.6);
+}
+
+.git-node-dot.saved {
+  background: rgba(255, 214, 10, 0.2);
+}
+
+.git-node-dot.saved .dot-inner {
+  background: var(--accent-yellow);
+}
+
+.git-node-dot.merged {
+  background: rgba(100, 210, 255, 0.2);
+}
+
+.git-node-dot.merged .dot-inner {
+  background: var(--accent-teal);
+}
+
+.git-node-dot.closed {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.git-node-dot.closed .dot-inner {
+  background: var(--text-tertiary);
+}
+
+/* Large dot for selected branch card */
+.git-node-dot.large {
+  width: 20px;
+  height: 20px;
+}
+
+.git-node-dot.large .dot-inner {
+  width: 12px;
+  height: 12px;
+}
+
+.git-node-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.git-node-children-count {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: var(--space-xs);
+}
+
+.git-tree-children {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Selected branch card */
+.selected-branch-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+}
+
+.selected-branch-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.branch-node {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  transition: all var(--transition-fast);
-  border: 1px solid transparent;
-}
-
-.branch-node.clickable {
-  cursor: pointer;
-}
-
-.branch-node.clickable:hover {
-  background: var(--bg-hover);
-}
-
-.branch-node.selected {
-  background: rgba(10, 132, 255, 0.12);
-  border-color: rgba(10, 132, 255, 0.3);
-}
-
-.branch-node:not(.clickable) {
-  opacity: 0.45;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.status-dot.active {
-  background: var(--accent-green);
-  box-shadow: 0 0 6px rgba(48, 209, 88, 0.5);
-}
-
-.status-dot.saved {
-  background: var(--accent-yellow);
-}
-
-.status-dot.merged {
-  background: var(--accent-teal);
-}
-
-.status-dot.closed {
-  background: var(--text-tertiary);
-}
-
-.branch-name {
-  font-weight: 500;
+.selected-branch-name {
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
+  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
 }
 
-.child-count {
+.selected-branch-status {
   font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.selected-branch-status.active {
+  color: var(--accent-green);
+}
+
+.selected-branch-status.saved {
+  color: var(--accent-yellow);
+}
+
+.selected-branch-status.merged {
+  color: var(--accent-teal);
+}
+
+.selected-branch-status.closed {
   color: var(--text-tertiary);
-  margin-left: auto;
+}
+
+/* Pulse animation for active nodes */
+@keyframes dotPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+.git-node-dot.active .dot-inner {
+  animation: dotPulse 2s ease-in-out infinite;
 }
 
 /* Selected Info */

@@ -350,4 +350,14 @@ export class ClaudeOrka {
   async saveNodePosition(sessionId: string, nodeId: string, position: { x: number; y: number }): Promise<void> {
     await this.sessionManager.saveNodePosition(sessionId, nodeId, position)
   }
+
+  /**
+   * Select/focus a branch in the tmux session
+   * This activates the corresponding pane in tmux
+   * @param sessionId Session ID
+   * @param branchId Branch ID ('main' or fork id)
+   */
+  async selectBranch(sessionId: string, branchId: string): Promise<void> {
+    await this.sessionManager.selectBranch(sessionId, branchId)
+  }
 }
