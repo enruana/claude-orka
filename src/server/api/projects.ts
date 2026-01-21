@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
 import { ClaudeOrka } from '../../core/ClaudeOrka'
+import { StateManager, getOrkaVersion } from '../../core/StateManager'
 import { logger } from '../../utils'
 import fs from 'fs-extra'
 import path from 'path'
@@ -88,6 +89,75 @@ projectsRouter.post('/', async (req, res) => {
   }
 })
 
+// ============================================================
+// IMPORTANT: More specific routes MUST come BEFORE /:encodedPath
+// Otherwise Express will match /:encodedPath for everything
+// ============================================================
+
+/**
+ * GET /api/projects/:encodedPath/version
+ * Check if project version is outdated
+ */
+projectsRouter.get('/:encodedPath/version', async (req, res) => {
+  try {
+    const projectPath = Buffer.from(req.params.encodedPath, 'base64').toString('utf-8')
+
+    const stateManager = new StateManager(projectPath)
+    const versionInfo = await stateManager.checkVersion()
+
+    res.json(versionInfo)
+  } catch (error: any) {
+    logger.error('Failed to check project version:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/projects/:encodedPath/reinitialize
+ * Reinitialize a project (update version, refresh configs)
+ */
+projectsRouter.post('/:encodedPath/reinitialize', async (req, res) => {
+  try {
+    const projectPath = Buffer.from(req.params.encodedPath, 'base64').toString('utf-8')
+
+    const stateManager = new StateManager(projectPath)
+    await stateManager.reinitialize()
+
+    const currentVersion = await getOrkaVersion()
+
+    res.json({
+      success: true,
+      version: currentVersion,
+      message: `Project reinitialized to Orka v${currentVersion}`,
+    })
+  } catch (error: any) {
+    logger.error('Failed to reinitialize project:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/projects/:encodedPath/initialize
+ * Initialize .claude-orka directory in a project
+ */
+projectsRouter.post('/:encodedPath/initialize', async (req, res) => {
+  try {
+    const projectPath = Buffer.from(req.params.encodedPath, 'base64').toString('utf-8')
+
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    res.json({ success: true, path: path.join(projectPath, '.claude-orka') })
+  } catch (error: any) {
+    logger.error('Failed to initialize project:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// ============================================================
+// Less specific routes come AFTER the more specific ones
+// ============================================================
+
 /**
  * GET /api/projects/:encodedPath
  * Get a specific project by its path (base64 encoded)
@@ -145,24 +215,6 @@ projectsRouter.delete('/:encodedPath', async (req, res) => {
     res.json({ success: true })
   } catch (error: any) {
     logger.error('Failed to unregister project:', error)
-    res.status(500).json({ error: error.message })
-  }
-})
-
-/**
- * POST /api/projects/:encodedPath/initialize
- * Initialize .claude-orka directory in a project
- */
-projectsRouter.post('/:encodedPath/initialize', async (req, res) => {
-  try {
-    const projectPath = Buffer.from(req.params.encodedPath, 'base64').toString('utf-8')
-
-    const orka = new ClaudeOrka(projectPath)
-    await orka.initialize()
-
-    res.json({ success: true, path: path.join(projectPath, '.claude-orka') })
-  } catch (error: any) {
-    logger.error('Failed to initialize project:', error)
     res.status(500).json({ error: error.message })
   }
 })

@@ -305,7 +305,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
           <button className="icon-button" onClick={onBack} title="Back to project">
             <ArrowLeft size={18} />
           </button>
-          <button className="icon-button" onClick={onGoHome} title="Go home">
+          <button className="icon-button desktop-only" onClick={onGoHome} title="Go home">
             <Home size={18} />
           </button>
           <div className="session-title">
@@ -314,16 +314,25 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
           </div>
         </div>
         <div className="header-right">
+          {session.ttydPort && (
+            <button
+              className="icon-button terminal-btn mobile-only"
+              onClick={handleOpenTerminalInNewTab}
+              title="Open Terminal"
+            >
+              <ExternalLink size={18} />
+            </button>
+          )}
           <button className="icon-button" onClick={refreshSession} title="Refresh">
             <RefreshCw size={18} />
           </button>
           <button className="detach-button" onClick={handleDetachSession} title="Detach (keep tmux running)">
             <LogOut size={16} />
-            Detach
+            <span className="btn-text">Detach</span>
           </button>
           <button className="close-button" onClick={handleCloseSession} title="Close (kill tmux)">
             <Power size={16} />
-            Close
+            <span className="btn-text">Close</span>
           </button>
         </div>
       </div>

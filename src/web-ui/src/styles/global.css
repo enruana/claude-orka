@@ -177,6 +177,69 @@ body {
   opacity: 1;
 }
 
+/* Version Badge */
+.content-header-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.version-badge.synced {
+  background: rgba(48, 209, 88, 0.15);
+  color: var(--accent-green);
+}
+
+.version-badge.outdated {
+  background: rgba(255, 214, 10, 0.15);
+  color: var(--accent-yellow);
+  gap: var(--space-sm);
+}
+
+.sync-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 214, 10, 0.2);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--accent-yellow);
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-left: var(--space-xs);
+}
+
+.sync-btn:hover:not(:disabled) {
+  background: rgba(255, 214, 10, 0.35);
+}
+
+.sync-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sync-btn .spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Dashboard */
 .dashboard {
   height: 100vh;
@@ -1925,6 +1988,56 @@ body {
 
 /* Mobile Responsive */
 @media (max-width: 900px) {
+  /* Session Header - Mobile */
+  .session-header {
+    padding: var(--space-sm) var(--space-md);
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+
+  .header-left {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .session-title {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .session-title h1 {
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+  }
+
+  .header-right {
+    gap: var(--space-xs);
+  }
+
+  /* Hide button text on mobile, show only icons */
+  .detach-button .btn-text,
+  .close-button .btn-text {
+    display: none;
+  }
+
+  .detach-button,
+  .close-button {
+    padding: var(--space-sm);
+  }
+
+  /* Terminal button in header */
+  .terminal-btn {
+    background: rgba(10, 132, 255, 0.12);
+    color: var(--accent-blue);
+  }
+
+  .terminal-btn:hover {
+    background: rgba(10, 132, 255, 0.2);
+  }
+
   /* Session View panels */
   .session-panels {
     flex-direction: column;

@@ -1,6 +1,7 @@
 import path from 'path'
 import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
+import { createRequire } from 'module'
 import { ProjectState, Session, Fork, SessionFilters } from '../models'
 import { logger } from '../utils'
 
@@ -8,24 +9,67 @@ import { logger } from '../utils'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+// Create require for reading package.json
+const require = createRequire(import.meta.url)
+
+// Cached version to avoid repeated file reads
+let cachedVersion: string | null = null
+
 // Get version from package.json
-async function getOrkaVersion(): Promise<string> {
+export async function getOrkaVersion(): Promise<string> {
+  if (cachedVersion) {
+    return cachedVersion
+  }
+
+  // Try multiple methods to get the version
   const possiblePaths = [
-    path.join(__dirname, '../../package.json'),     // From dist/core
-    path.join(__dirname, '../../../package.json'),  // Alternative
+    // Method 1: From __dirname (various build scenarios)
+    path.join(__dirname, './package.json'),
+    path.join(__dirname, '../package.json'),
+    path.join(__dirname, '../../package.json'),
+    path.join(__dirname, '../../../package.json'),
+    // Method 2: From process.cwd() (when running from project root)
+    path.join(process.cwd(), 'package.json'),
+    // Method 3: Look for node_modules installation
+    path.join(__dirname, '../node_modules/@enruana/claude-orka/package.json'),
+    path.join(__dirname, '../../node_modules/@enruana/claude-orka/package.json'),
   ]
 
   for (const pkgPath of possiblePaths) {
     try {
-      if (await fs.pathExists(pkgPath)) {
-        const pkg = await fs.readJson(pkgPath)
-        return pkg.version || '0.0.0'
+      const resolvedPath = path.resolve(pkgPath)
+      if (await fs.pathExists(resolvedPath)) {
+        const pkg = await fs.readJson(resolvedPath)
+        // Verify it's the claude-orka package
+        if (pkg.name === '@enruana/claude-orka' && pkg.version) {
+          cachedVersion = pkg.version
+          return pkg.version
+        }
       }
     } catch {
       // Continue to next path
     }
   }
+
+  // Fallback: try to use require with the package name
+  try {
+    const pkg = require('@enruana/claude-orka/package.json')
+    if (pkg.version) {
+      cachedVersion = pkg.version
+      return pkg.version
+    }
+  } catch {
+    // Not installed as dependency
+  }
+
+  logger.warn('Could not find package.json to get version')
   return '0.0.0'
+}
+
+export interface VersionCheckResult {
+  isOutdated: boolean
+  currentVersion: string
+  projectVersion: string
 }
 
 /**
@@ -67,6 +111,72 @@ export class StateManager {
     }
 
     logger.info('StateManager initialized')
+  }
+
+  /**
+   * Check if the project state version is outdated compared to current Orka version
+   */
+  async checkVersion(): Promise<VersionCheckResult> {
+    const currentVersion = await getOrkaVersion()
+
+    try {
+      const state = await this.read()
+      const projectVersion = state.version || '0.0.0'
+
+      // Compare major.minor versions (ignore patch)
+      const [currentMajor, currentMinor] = currentVersion.split('.').map(Number)
+      const [projectMajor, projectMinor] = projectVersion.split('.').map(Number)
+
+      const isOutdated = currentMajor > projectMajor ||
+        (currentMajor === projectMajor && currentMinor > projectMinor)
+
+      return {
+        isOutdated,
+        currentVersion,
+        projectVersion,
+      }
+    } catch {
+      // If we can't read state, consider it outdated
+      return {
+        isOutdated: true,
+        currentVersion,
+        projectVersion: '0.0.0',
+      }
+    }
+  }
+
+  /**
+   * Reinitialize the project state
+   * Updates version and theme config while preserving sessions
+   */
+  async reinitialize(): Promise<void> {
+    const currentVersion = await getOrkaVersion()
+    logger.info(`Reinitializing project to Orka v${currentVersion}`)
+
+    // Ensure directories exist
+    await this.ensureDirectories()
+
+    // Update theme config
+    await this.copyThemeConfig()
+
+    // Update state version while preserving sessions
+    try {
+      const state = await this.read()
+      state.version = currentVersion
+      state.lastUpdated = new Date().toISOString()
+      await this.save(state)
+      logger.info(`Project reinitialized to v${currentVersion}`)
+    } catch {
+      // If state doesn't exist, create fresh
+      const initialState: ProjectState = {
+        version: currentVersion,
+        projectPath: this.projectPath,
+        sessions: [],
+        lastUpdated: new Date().toISOString(),
+      }
+      await this.save(initialState)
+      logger.info(`Project initialized fresh at v${currentVersion}`)
+    }
   }
 
   /**

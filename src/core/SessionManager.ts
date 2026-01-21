@@ -165,8 +165,19 @@ export class SessionManager {
         await TmuxCommands.openTerminalWindow(tmuxSessionId)
       }
 
-      // Start ttyd if not already running
-      if (!session.ttydPid) {
+      // Start ttyd if not already running or if process is dead
+      let needsNewTtyd = !session.ttydPid
+      if (session.ttydPid) {
+        // Check if the process is actually running
+        try {
+          process.kill(session.ttydPid, 0) // Signal 0 just checks if process exists
+        } catch {
+          // Process is not running
+          logger.info(`Previous ttyd process (PID: ${session.ttydPid}) is no longer running`)
+          needsNewTtyd = true
+        }
+      }
+      if (needsNewTtyd) {
         const ttydResult = await this.startTtyd(tmuxSessionId)
         if (ttydResult) {
           session.ttydPort = ttydResult.port

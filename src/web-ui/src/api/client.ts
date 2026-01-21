@@ -79,6 +79,28 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
   },
 
+  async checkProjectVersion(path: string): Promise<{
+    isOutdated: boolean
+    currentVersion: string
+    projectVersion: string
+  }> {
+    const res = await fetch(`${API_BASE}/projects/${encodeProjectPath(path)}/version`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async reinitializeProject(path: string): Promise<{
+    success: boolean
+    version: string
+    message: string
+  }> {
+    const res = await fetch(`${API_BASE}/projects/${encodeProjectPath(path)}/reinitialize`, {
+      method: 'POST',
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   // Sessions
   async listSessions(projectPath: string): Promise<Session[]> {
     const res = await fetch(`${API_BASE}/sessions?project=${encodeProjectPath(projectPath)}`)

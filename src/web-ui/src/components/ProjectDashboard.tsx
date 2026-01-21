@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api, RegisteredProject, Session } from '../api/client'
-import { FolderOpen, Plus, Trash2, Play, RefreshCw, Settings, ChevronRight } from 'lucide-react'
+import { FolderOpen, Plus, Trash2, Play, RefreshCw, Settings, ChevronRight, AlertTriangle, Check, RotateCw } from 'lucide-react'
 import { FolderBrowser } from './FolderBrowser'
+
+interface VersionInfo {
+  isOutdated: boolean
+  currentVersion: string
+  projectVersion: string
+}
 
 interface ProjectDashboardProps {
   onSelectSession: (project: RegisteredProject, session: Session) => void
@@ -19,6 +25,8 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
   const [newSessionName, setNewSessionName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [resumingSessionId, setResumingSessionId] = useState<string | null>(null)
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null)
+  const [isReinitializing, setIsReinitializing] = useState(false)
 
   const loadProjects = useCallback(async () => {
     try {
@@ -66,6 +74,40 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
     const interval = setInterval(loadSessions, 5000)
     return () => clearInterval(interval)
   }, [selectedProject, loadSessions])
+
+  // Check version when project is selected
+  useEffect(() => {
+    if (!selectedProject) {
+      setVersionInfo(null)
+      return
+    }
+    const checkVersion = async () => {
+      try {
+        const info = await api.checkProjectVersion(selectedProject.path)
+        setVersionInfo(info)
+      } catch {
+        // Ignore errors - version check is not critical
+        setVersionInfo(null)
+      }
+    }
+    checkVersion()
+  }, [selectedProject])
+
+  const handleReinitialize = async () => {
+    if (!selectedProject) return
+    setIsReinitializing(true)
+    try {
+      await api.reinitializeProject(selectedProject.path)
+      // Refresh version info
+      const info = await api.checkProjectVersion(selectedProject.path)
+      setVersionInfo(info)
+      await loadSessions()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsReinitializing(false)
+    }
+  }
 
   const handleAddProject = async (projectPath: string) => {
     if (!projectPath.trim()) return
@@ -212,7 +254,32 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
           <>
             <div className="content-header">
               <div className="content-header-info">
-                <h2>{selectedProject.name}</h2>
+                <div className="content-header-title">
+                  <h2>{selectedProject.name}</h2>
+                  {/* Version Badge */}
+                  {versionInfo && (
+                    versionInfo.isOutdated ? (
+                      <div className="version-badge outdated">
+                        <AlertTriangle size={12} />
+                        <span>v{versionInfo.projectVersion}</span>
+                        <button
+                          className="sync-btn"
+                          onClick={handleReinitialize}
+                          disabled={isReinitializing}
+                          title={`Sync to v${versionInfo.currentVersion}`}
+                        >
+                          <RotateCw size={12} className={isReinitializing ? 'spinning' : ''} />
+                          {isReinitializing ? 'Syncing...' : 'Sync'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="version-badge synced">
+                        <Check size={12} />
+                        <span>v{versionInfo.currentVersion}</span>
+                      </div>
+                    )
+                  )}
+                </div>
                 <span className="content-header-path">{selectedProject.path}</span>
               </div>
               <div className="content-header-actions">
@@ -253,11 +320,8 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
                         className={`session-row ${session.status} ${isResuming ? 'resuming' : ''}`}
                         onClick={() => {
                           if (isResuming) return
-                          if (session.status === 'active') {
-                            onSelectSession(selectedProject, session)
-                          } else {
-                            handleResumeSession(session)
-                          }
+                          // Always call resume to ensure ttyd is running
+                          handleResumeSession(session)
                         }}
                       >
                         <div className="session-row-status">
