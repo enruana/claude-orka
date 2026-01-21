@@ -461,6 +461,99 @@ gitRouter.get('/show', async (req, res) => {
 })
 
 /**
+ * POST /api/git/generate-commit-message?project=<base64>
+ * Generate a commit message using Claude Code (headless)
+ */
+gitRouter.post('/generate-commit-message', async (req, res) => {
+  try {
+    const projectEncoded = req.query.project as string
+
+    if (!projectEncoded) {
+      res.status(400).json({ error: 'Project path required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(projectEncoded)
+
+    if (!await isGitRepo(projectPath)) {
+      res.status(400).json({ error: 'Not a git repository' })
+      return
+    }
+
+    // Check if there are staged changes and get summary
+    const { stdout: diffStat } = await execa('git', ['diff', '--cached', '--stat'], { cwd: projectPath })
+    if (!diffStat.trim()) {
+      res.status(400).json({ error: 'No staged changes to commit' })
+      return
+    }
+
+    // Get a compact diff (limited context lines)
+    const { stdout: diff } = await execa('git', ['diff', '--cached', '-U2'], { cwd: projectPath })
+
+    // Get recent commit messages for style reference
+    let recentCommits = ''
+    try {
+      const { stdout } = await execa('git', ['log', '--oneline', '-3'], { cwd: projectPath })
+      recentCommits = stdout
+    } catch {
+      // Repo might not have commits yet
+    }
+
+    // Build a concise prompt - pass diff via stdin to avoid shell escaping issues
+    const prompt = `Generate a git commit message for these changes. Rules:
+- Start with a verb (Add, Fix, Update, Remove, Refactor)
+- Max 72 characters
+- Be specific but concise
+- Output ONLY the commit message, nothing else
+
+${recentCommits ? `Style reference:\n${recentCommits}\n\n` : ''}Summary:\n${diffStat}`
+
+    // Call Claude headless with stdin for the diff
+    // Limit diff to 4000 chars to keep it fast
+    const truncatedDiff = diff.length > 4000
+      ? diff.slice(0, 4000) + '\n... (truncated)'
+      : diff
+
+    const { stdout: commitMessage } = await execa('claude', [
+      '-p', prompt,
+      '--model', 'haiku',  // Use faster model
+      '--max-turns', '1',  // Single turn only
+    ], {
+      cwd: projectPath,
+      input: `\nDiff:\n${truncatedDiff}`,
+      timeout: 30000, // 30 second timeout
+      env: {
+        ...process.env,
+        CI: 'true',
+      },
+    })
+
+    // Clean up the response - remove any markdown formatting
+    let cleanedMessage = commitMessage.trim()
+    // Remove markdown code blocks if present
+    cleanedMessage = cleanedMessage.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '')
+    // Remove quotes if wrapped
+    cleanedMessage = cleanedMessage.replace(/^["']|["']$/g, '')
+
+    res.json({ message: cleanedMessage.trim() })
+  } catch (error: any) {
+    console.error('Error generating commit message:', error)
+
+    // Handle specific errors
+    if (error.code === 'ENOENT') {
+      res.status(500).json({ error: 'Claude CLI not found. Make sure claude is installed and in PATH.' })
+      return
+    }
+    if (error.timedOut) {
+      res.status(500).json({ error: 'Request timed out. Try with fewer staged changes.' })
+      return
+    }
+
+    res.status(500).json({ error: error.message || 'Failed to generate commit message' })
+  }
+})
+
+/**
  * GET /api/git/branches?project=<base64>
  * Get list of branches
  */

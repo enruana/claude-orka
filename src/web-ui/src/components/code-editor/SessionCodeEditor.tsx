@@ -207,6 +207,11 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
     }
   }
 
+  // Generate commit message with AI
+  const handleGenerateMessage = async () => {
+    return await api.generateCommitMessage(encodedPath)
+  }
+
   const activeTabData = openTabs.find(t => t.path === activeTab)
 
   if (loading) {
@@ -343,6 +348,7 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
               onCommit={handleCommit}
               onViewDiff={handleViewDiff}
               onRefresh={loadGitStatus}
+              onGenerateMessage={handleGenerateMessage}
             />
           </div>
         )}

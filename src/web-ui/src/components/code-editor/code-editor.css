@@ -586,6 +586,54 @@
   cursor: not-allowed;
 }
 
+/* Git Commit Input Wrapper */
+.git-commit-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.git-commit-input-wrapper .git-commit-input {
+  padding-right: 36px;
+}
+
+.git-generate-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.git-generate-btn:hover:not(:disabled) {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: white;
+}
+
+.git-generate-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.git-generate-btn.generating {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: white;
+}
+
+.git-generate-btn svg.spinning {
+  animation: spin 1s linear infinite;
+}
+
 .git-clean-status {
   display: flex;
   align-items: center;

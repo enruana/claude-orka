@@ -13,6 +13,7 @@ import {
   FileEdit,
   Eye,
   History,
+  Sparkles,
 } from 'lucide-react'
 import { GitStatus, GitFileChange } from '../../api/client'
 import { CommitHistory } from './CommitHistory'
@@ -24,6 +25,7 @@ interface GitPanelProps {
   onCommit: (message: string) => Promise<void>
   onViewDiff: (path: string, staged: boolean) => void
   onRefresh: () => Promise<void>
+  onGenerateMessage: () => Promise<string>
 }
 
 interface ChangeItemProps {
@@ -111,9 +113,11 @@ export function GitPanel({
   onCommit,
   onViewDiff,
   onRefresh,
+  onGenerateMessage,
 }: GitPanelProps) {
   const [commitMessage, setCommitMessage] = useState('')
   const [isCommitting, setIsCommitting] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
   const [showStaged, setShowStaged] = useState(true)
   const [showUnstaged, setShowUnstaged] = useState(true)
   const [showHistory, setShowHistory] = useState(false)
@@ -138,6 +142,20 @@ export function GitPanel({
     setRefreshing(true)
     await onRefresh()
     setRefreshing(false)
+  }
+
+  const handleGenerateMessage = async () => {
+    if (stagedChanges.length === 0) return
+
+    setIsGenerating(true)
+    try {
+      const message = await onGenerateMessage()
+      setCommitMessage(message)
+    } catch (error: any) {
+      alert(`Failed to generate message: ${error.message}`)
+    } finally {
+      setIsGenerating(false)
+    }
   }
 
   const handleStageAll = () => {
@@ -264,13 +282,23 @@ export function GitPanel({
 
           {/* Commit Section */}
           <div className="git-commit-section">
-            <textarea
-              className="git-commit-input"
-              placeholder="Commit message"
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              rows={3}
-            />
+            <div className="git-commit-input-wrapper">
+              <textarea
+                className="git-commit-input"
+                placeholder="Commit message"
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                rows={3}
+              />
+              <button
+                className={`git-generate-btn ${isGenerating ? 'generating' : ''}`}
+                onClick={handleGenerateMessage}
+                disabled={stagedChanges.length === 0 || isGenerating}
+                title="Generate commit message with AI"
+              >
+                <Sparkles size={14} className={isGenerating ? 'spinning' : ''} />
+              </button>
+            </div>
             <button
               className="git-commit-btn"
               onClick={handleCommit}

@@ -210,6 +210,11 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
     }
   }
 
+  // Generate commit message with AI
+  const handleGenerateMessage = async () => {
+    return await api.generateCommitMessage(encodedPath)
+  }
+
   const activeTabData = openTabs.find(t => t.path === activeTab)
   const projectName = projectPath.split('/').pop() || projectPath
 
@@ -352,6 +357,7 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
               onCommit={handleCommit}
               onViewDiff={handleViewDiff}
               onRefresh={loadGitStatus}
+              onGenerateMessage={handleGenerateMessage}
             />
           </aside>
         )}

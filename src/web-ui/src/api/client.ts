@@ -322,4 +322,17 @@ export const api = {
     const data = await res.json()
     return data.commits
   },
+
+  async generateCommitMessage(projectEncoded: string): Promise<string> {
+    const res = await fetch(`${API_BASE}/git/generate-commit-message?project=${projectEncoded}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    if (!res.ok) {
+      const error = await res.json()
+      throw new Error(error.error || 'Failed to generate commit message')
+    }
+    const data = await res.json()
+    return data.message
+  },
 }
