@@ -490,17 +490,9 @@ gitRouter.post('/generate-commit-message', async (req, res) => {
     // Get a compact diff (limited context lines)
     const { stdout: diff } = await execa('git', ['diff', '--cached', '-U2'], { cwd: projectPath })
 
-    // Get recent commit messages for style reference
-    let recentCommits = ''
-    try {
-      const { stdout } = await execa('git', ['log', '--oneline', '-3'], { cwd: projectPath })
-      recentCommits = stdout
-    } catch {
-      // Repo might not have commits yet
-    }
-
     // Build prompt for a complete commit message
-    const prompt = `Generate a complete git commit message for these changes.
+    // Note: The diff content is piped via stdin
+    const prompt = `Generate a git commit message for the diff piped below.
 
 Format:
 <title line: verb + what changed, max 72 chars>
@@ -509,12 +501,11 @@ Format:
 
 Rules:
 - Title: Start with verb (Add, Fix, Update, Remove, Refactor, Improve)
-- Title: Be specific about what changed (not just "Update files")
-- Body: Use bullet points with "-" prefix
-- Body: Explain WHAT changed and WHY if relevant
-- Output ONLY the commit message, no markdown, no quotes
+- Title: Be specific about what changed
+- Body: Use "-" bullet points
+- Output ONLY the commit message, no markdown, no code blocks, no quotes
 
-${recentCommits ? `Recent commits for style:\n${recentCommits}\n\n` : ''}Files changed:\n${diffStat}`
+Files changed:\n${diffStat}`
 
     // Limit diff to 2000 chars to keep it fast
     const truncatedDiff = diff.length > 2000
