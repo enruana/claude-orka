@@ -204,6 +204,7 @@
         this.ctrlPressed = false;
         this.altPressed = false;
         this.authToken = '';
+        this.retryTimeout = null;
 
         this.init();
       }
@@ -312,6 +313,25 @@
       }
 
       connectWebSocket() {
+        // Cancel any pending retry timeout
+        if (this.retryTimeout) {
+          clearTimeout(this.retryTimeout);
+          this.retryTimeout = null;
+        }
+
+        // Clean up any existing socket before creating new one
+        if (this.socket) {
+          this.socket.onclose = null; // Prevent recursive retry
+          this.socket.onerror = null;
+          this.socket.onmessage = null;
+          this.socket.onopen = null;
+          if (this.socket.readyState === WebSocket.OPEN ||
+              this.socket.readyState === WebSocket.CONNECTING) {
+            this.socket.close();
+          }
+          this.socket = null;
+        }
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${this.ttydHost}:${this.ttydPort}/ws`;
 
@@ -329,16 +349,35 @@
 
         this.socket.onopen = () => {
           this.retryCount = 0; // Reset on successful connection
-          // Send JSON_DATA with auth token and window size
-          const { cols, rows } = this.term;
-          const authData = JSON.stringify({
-            AuthToken: this.authToken,
-            columns: cols,
-            rows: rows
-          });
 
-          this.socket.send(Command.JSON_DATA + authData);
-          this.updateStatus('Connected', true);
+          // Clear terminal on reconnect to avoid duplicate content
+          // ttyd will resend the screen contents
+          this.term.clear();
+
+          // Re-fit terminal to ensure correct dimensions after reconnect
+          this.fitAddon.fit();
+
+          // Small delay to let fit complete, then send auth and dimensions
+          setTimeout(() => {
+            // Double-check socket is still open after delay
+            if (this.socket?.readyState !== WebSocket.OPEN) {
+              return;
+            }
+
+            const { cols, rows } = this.term;
+            const authData = JSON.stringify({
+              AuthToken: this.authToken,
+              columns: cols,
+              rows: rows
+            });
+
+            this.socket.send(Command.JSON_DATA + authData);
+
+            // Also send explicit resize command to sync dimensions
+            this.sendResize();
+
+            this.updateStatus('Connected', true);
+          }, 50);
         };
 
         this.socket.onmessage = (event) => {
@@ -388,7 +427,8 @@
 
         this.updateStatus(`Reconnecting in ${delay/1000}s...`, false);
 
-        setTimeout(() => {
+        this.retryTimeout = setTimeout(() => {
+          this.retryTimeout = null;
           this.connectWebSocket();
         }, delay);
       }

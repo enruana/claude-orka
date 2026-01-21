@@ -70,7 +70,7 @@ function ChangeItem({ change, onStage, onUnstage, onViewDiff }: ChangeItemProps)
   const filename = change.path.split('/').pop() || change.path
 
   return (
-    <div className="git-change-item">
+    <div className="git-change-item" onClick={onViewDiff}>
       <span className="change-icon">{getStatusIcon(change.status)}</span>
       <span className="change-filename" title={change.path}>{filename}</span>
       <span className={`change-status status-${change.status}`}>
@@ -79,7 +79,10 @@ function ChangeItem({ change, onStage, onUnstage, onViewDiff }: ChangeItemProps)
       <div className="change-actions">
         <button
           className="change-action-btn"
-          onClick={onViewDiff}
+          onClick={(e) => {
+            e.stopPropagation()
+            onViewDiff()
+          }}
           title="View diff"
         >
           <Eye size={14} />
@@ -87,7 +90,10 @@ function ChangeItem({ change, onStage, onUnstage, onViewDiff }: ChangeItemProps)
         {change.staged ? (
           <button
             className="change-action-btn"
-            onClick={onUnstage}
+            onClick={(e) => {
+              e.stopPropagation()
+              onUnstage()
+            }}
             title="Unstage"
           >
             <Minus size={14} />
@@ -95,7 +101,10 @@ function ChangeItem({ change, onStage, onUnstage, onViewDiff }: ChangeItemProps)
         ) : (
           <button
             className="change-action-btn"
-            onClick={onStage}
+            onClick={(e) => {
+              e.stopPropagation()
+              onStage()
+            }}
             title="Stage"
           >
             <Plus size={14} />

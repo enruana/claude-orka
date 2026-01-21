@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2 } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronUp, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2 } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
 import { GitPanel } from './GitPanel'
@@ -23,11 +23,33 @@ interface OpenTab {
 
 type ViewMode = 'editor' | 'diff'
 
+// Detect mobile device
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobileQuery = window.matchMedia('(max-width: 768px)')
+      const touchQuery = window.matchMedia('(pointer: coarse)')
+      setIsMobile(mobileQuery.matches || touchQuery.matches)
+    }
+
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
+  return isMobile
+}
+
 export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorViewProps) {
+  const isMobile = useIsMobile()
   const [fileTree, setFileTree] = useState<FileTreeNode[]>([])
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [showGitPanel, setShowGitPanel] = useState(true)
+  const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false)
+  const [gitPanelCollapsed, setGitPanelCollapsed] = useState(false)
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -299,19 +321,31 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
       {/* Main Content */}
       <div className="code-editor-content">
         {/* File Tree */}
-        <aside className="file-tree-panel">
-          <FileTree
-            tree={fileTree}
-            selectedFile={activeTab}
-            onFileSelect={handleFileSelect}
-            gitStatus={gitStatus}
-            onExpandDirectory={async (dirPath) => {
-              // Lazy load directory children
-              const children = await api.expandFileTree(encodedPath, dirPath)
-              // Update tree with new children
-              setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
-            }}
-          />
+        <aside className={`file-tree-panel ${isMobile && fileTreeCollapsed ? 'collapsed' : ''}`}>
+          {isMobile && (
+            <div
+              className="collapsible-header"
+              onClick={() => setFileTreeCollapsed(!fileTreeCollapsed)}
+            >
+              <FolderOpen size={14} />
+              <span>Files</span>
+              {fileTreeCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            </div>
+          )}
+          {(!isMobile || !fileTreeCollapsed) && (
+            <FileTree
+              tree={fileTree}
+              selectedFile={activeTab}
+              onFileSelect={handleFileSelect}
+              gitStatus={gitStatus}
+              onExpandDirectory={async (dirPath) => {
+                // Lazy load directory children
+                const children = await api.expandFileTree(encodedPath, dirPath)
+                // Update tree with new children
+                setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
+              }}
+            />
+          )}
         </aside>
 
         {/* Editor Area */}
@@ -374,16 +408,31 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
 
         {/* Git Panel */}
         {showGitPanel && gitStatus && (
-          <aside className="git-panel">
-            <GitPanel
-              status={gitStatus}
-              onStage={handleStage}
-              onUnstage={handleUnstage}
-              onCommit={handleCommit}
-              onViewDiff={handleViewDiff}
-              onRefresh={loadGitStatus}
-              onGenerateMessage={handleGenerateMessage}
-            />
+          <aside className={`git-panel ${isMobile && gitPanelCollapsed ? 'collapsed' : ''}`}>
+            {isMobile && (
+              <div
+                className="collapsible-header"
+                onClick={() => setGitPanelCollapsed(!gitPanelCollapsed)}
+              >
+                <GitBranch size={14} />
+                <span>Git</span>
+                <span className="collapsible-badge">
+                  {(gitStatus.staged?.length || 0) + (gitStatus.unstaged?.length || 0)}
+                </span>
+                {gitPanelCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              </div>
+            )}
+            {(!isMobile || !gitPanelCollapsed) && (
+              <GitPanel
+                status={gitStatus}
+                onStage={handleStage}
+                onUnstage={handleUnstage}
+                onCommit={handleCommit}
+                onViewDiff={handleViewDiff}
+                onRefresh={loadGitStatus}
+                onGenerateMessage={handleGenerateMessage}
+              />
+            )}
           </aside>
         )}
       </div>

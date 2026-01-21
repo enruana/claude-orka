@@ -346,6 +346,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
             <Home size={18} />
           </button>
           <div className="session-title">
+            <span className="project-name mobile-only">{project.name}</span>
             <h1>{session.name || session.id}</h1>
             <span className={`status-badge ${session.status}`}>{session.status}</span>
           </div>

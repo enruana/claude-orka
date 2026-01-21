@@ -136,7 +136,7 @@ export function EditorPane({ content, filePath, onChange, readOnly = false }: Ed
         theme="vs-dark"
         options={{
           readOnly,
-          fontSize: isMobile ? 10 : 13,
+          fontSize: isMobile ? 8 : 13,
           fontFamily: "'SF Mono', Monaco, 'Courier New', monospace",
           fontLigatures: true,
           minimap: { enabled: !isMobile, scale: 0.8 },

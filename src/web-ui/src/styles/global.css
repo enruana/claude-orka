@@ -765,12 +765,22 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  flex-wrap: wrap;
 }
 
 .session-title h1 {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+.session-title .project-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  width: 100%;
+  order: -1;
+  margin-bottom: -4px;
 }
 
 .detach-button {
@@ -2131,6 +2141,11 @@ body {
 
   .mobile-only.mobile-session-view {
     display: flex !important;
+  }
+
+  /* Inline elements need block display */
+  span.mobile-only {
+    display: block !important;
   }
 
   .desktop-only {

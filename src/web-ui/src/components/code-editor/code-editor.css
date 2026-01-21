@@ -441,10 +441,15 @@
   gap: var(--space-sm);
   padding: 4px var(--space-md) 4px var(--space-xl);
   transition: background var(--transition-fast);
+  cursor: pointer;
 }
 
 .git-change-item:hover {
   background: var(--bg-hover);
+}
+
+.git-change-item:active {
+  background: var(--bg-active);
 }
 
 .change-icon {
@@ -837,6 +842,49 @@
   gap: 4px;
 }
 
+/* Collapsible Panel Header (Mobile) */
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-secondary);
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background var(--transition-fast);
+}
+
+.collapsible-header:hover {
+  background: var(--bg-hover);
+}
+
+.collapsible-header:active {
+  background: var(--bg-active);
+}
+
+.collapsible-header span:first-of-type {
+  flex: 1;
+}
+
+.collapsible-header svg:last-child {
+  color: var(--text-tertiary);
+}
+
+.collapsible-badge {
+  background: var(--accent-blue);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .code-editor-container {
@@ -853,34 +901,61 @@
   .file-tree-panel {
     width: 100%;
     max-width: none;
-    max-height: 150px;
-    min-height: 100px;
+    max-height: 200px;
+    min-height: auto;
     border-right: none;
     border-bottom: 1px solid var(--border-secondary);
     flex-shrink: 0;
+    transition: max-height var(--transition-normal);
+  }
+
+  .file-tree-panel.collapsed {
+    max-height: 40px;
+    min-height: 40px;
+    overflow: hidden;
+  }
+
+  .file-tree-panel.collapsed .collapsible-header {
+    border-bottom: none;
   }
 
   .editor-main {
-    min-height: 300px;
+    min-height: 200px;
     flex: 1;
   }
 
   .editor-view {
-    min-height: 250px;
+    min-height: 150px;
   }
 
   .editor-pane {
-    min-height: 250px;
+    min-height: 150px;
   }
 
   .git-panel {
     width: 100%;
     max-width: none;
-    min-height: 200px;
-    max-height: none;
+    min-height: auto;
+    max-height: 300px;
     border-left: none;
     border-top: 1px solid var(--border-secondary);
     flex-shrink: 0;
+    transition: max-height var(--transition-normal);
+    overflow-y: auto;
+  }
+
+  .git-panel.collapsed {
+    max-height: 40px;
+    min-height: 40px;
+    overflow: hidden;
+  }
+
+  .git-panel .git-panel-container {
+    min-height: min-content;
+  }
+
+  .git-panel.collapsed .collapsible-header {
+    border-bottom: none;
   }
 
   .editor-tabs {

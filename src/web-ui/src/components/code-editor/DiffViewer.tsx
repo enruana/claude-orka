@@ -1,11 +1,31 @@
 import { DiffEditor } from '@monaco-editor/react'
 import { X } from 'lucide-react'
+import { useState, useEffect } from 'react'
 
 interface DiffViewerProps {
   original: string
   modified: string
   filePath: string
   onClose: () => void
+}
+
+// Detect mobile device
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobileQuery = window.matchMedia('(max-width: 768px)')
+      const touchQuery = window.matchMedia('(pointer: coarse)')
+      setIsMobile(mobileQuery.matches || touchQuery.matches)
+    }
+
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
+  return isMobile
 }
 
 // Map file extensions to Monaco language IDs
@@ -41,6 +61,7 @@ function getLanguageFromPath(filePath: string): string {
 export function DiffViewer({ original, modified, filePath, onClose }: DiffViewerProps) {
   const filename = filePath.split('/').pop() || filePath
   const language = getLanguageFromPath(filePath)
+  const isMobile = useIsMobile()
 
   return (
     <div className="diff-viewer">
@@ -60,15 +81,17 @@ export function DiffViewer({ original, modified, filePath, onClose }: DiffViewer
           theme="vs-dark"
           options={{
             readOnly: true,
-            fontSize: 13,
+            fontSize: isMobile ? 8 : 13,
             fontFamily: "'SF Mono', Monaco, 'Courier New', monospace",
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
-            renderSideBySide: true,
+            renderSideBySide: !isMobile,
             automaticLayout: true,
             originalEditable: false,
             renderOverviewRuler: false,
             padding: { top: 8, bottom: 8 },
+            lineNumbers: isMobile ? 'off' : 'on',
+            wordWrap: isMobile ? 'on' : 'off',
           }}
         />
       </div>
