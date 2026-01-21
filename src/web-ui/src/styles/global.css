@@ -1321,11 +1321,20 @@ body {
 
 /* Desktop/Mobile Visibility */
 .mobile-only {
-  display: none;
+  display: none !important;
 }
 
 .desktop-only {
-  display: block;
+  /* Don't override display - elements keep their natural display value */
+}
+
+/* Specific flex containers that need desktop-only */
+.session-panels.desktop-only {
+  display: flex;
+}
+
+.header-right.desktop-only {
+  display: flex;
 }
 
 /* Animations */
@@ -2117,11 +2126,23 @@ body {
   }
 
   .mobile-only {
-    display: flex;
+    display: flex !important;
+  }
+
+  .mobile-only.mobile-session-view {
+    display: flex !important;
   }
 
   .desktop-only {
-    display: none;
+    display: none !important;
+  }
+
+  .session-panels.desktop-only {
+    display: none !important;
+  }
+
+  .header-right.desktop-only {
+    display: none !important;
   }
 
   /* Settings Layout - Sidebar becomes top drawer on mobile */

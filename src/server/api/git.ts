@@ -516,24 +516,20 @@ Rules:
 
 ${recentCommits ? `Recent commits for style:\n${recentCommits}\n\n` : ''}Files changed:\n${diffStat}`
 
-    // Call Claude headless with stdin for the diff
-    // Limit diff to 4000 chars to keep it fast
-    const truncatedDiff = diff.length > 4000
-      ? diff.slice(0, 4000) + '\n... (truncated)'
+    // Limit diff to 2000 chars to keep it fast
+    const truncatedDiff = diff.length > 2000
+      ? diff.slice(0, 2000) + '\n... (diff truncated)'
       : diff
 
+    // Pipe the diff to Claude via stdin (as shown in docs: gh pr diff | claude -p "...")
     const { stdout: commitMessage } = await execa('claude', [
       '-p', prompt,
-      '--model', 'haiku',  // Use faster model
-      '--max-turns', '1',  // Single turn only
+      '--model', 'haiku',
+      '--no-session-persistence',
     ], {
       cwd: projectPath,
-      input: `\nDiff:\n${truncatedDiff}`,
-      timeout: 30000, // 30 second timeout
-      env: {
-        ...process.env,
-        CI: 'true',
-      },
+      timeout: 60000,
+      input: truncatedDiff,  // Pipe diff via stdin
     })
 
     // Clean up the response - remove any markdown formatting

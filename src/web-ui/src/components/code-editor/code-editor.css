@@ -839,24 +839,68 @@
 
 /* Responsive */
 @media (max-width: 900px) {
+  .code-editor-container {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
   .code-editor-content {
     flex-direction: column;
+    min-height: 0;
+    overflow: visible;
   }
 
   .file-tree-panel {
     width: 100%;
     max-width: none;
-    max-height: 200px;
+    max-height: 150px;
+    min-height: 100px;
     border-right: none;
     border-bottom: 1px solid var(--border-secondary);
+    flex-shrink: 0;
+  }
+
+  .editor-main {
+    min-height: 300px;
+    flex: 1;
+  }
+
+  .editor-view {
+    min-height: 250px;
+  }
+
+  .editor-pane {
+    min-height: 250px;
   }
 
   .git-panel {
     width: 100%;
     max-width: none;
-    max-height: 250px;
+    min-height: 200px;
+    max-height: none;
     border-left: none;
     border-top: 1px solid var(--border-secondary);
+    flex-shrink: 0;
+  }
+
+  .editor-tabs {
+    min-height: 32px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .editor-tab {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: 11px;
+  }
+
+  /* Hide git panel header actions on mobile */
+  .git-panel-actions {
+    gap: 2px;
+  }
+
+  .icon-button-small {
+    padding: 2px;
   }
 }
 

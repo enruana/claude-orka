@@ -1,5 +1,5 @@
 import Editor from '@monaco-editor/react'
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useState, useEffect } from 'react'
 import type { editor } from 'monaco-editor'
 
 interface EditorPaneProps {
@@ -7,6 +7,25 @@ interface EditorPaneProps {
   filePath: string
   onChange: (content: string) => void
   readOnly?: boolean
+}
+
+// Detect mobile device
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobileQuery = window.matchMedia('(max-width: 768px)')
+      const touchQuery = window.matchMedia('(pointer: coarse)')
+      setIsMobile(mobileQuery.matches || touchQuery.matches)
+    }
+
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
+  return isMobile
 }
 
 // Map file extensions to Monaco language IDs
@@ -87,13 +106,16 @@ function getLanguageFromPath(filePath: string): string {
 
 export function EditorPane({ content, filePath, onChange, readOnly = false }: EditorPaneProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+  const isMobile = useIsMobile()
 
   const handleEditorMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
     editorRef.current = editor
 
-    // Focus editor when mounted
-    editor.focus()
-  }, [])
+    // Focus editor when mounted (only on desktop)
+    if (!isMobile) {
+      editor.focus()
+    }
+  }, [isMobile])
 
   const handleEditorChange = useCallback((value: string | undefined) => {
     if (value !== undefined) {
@@ -114,13 +136,13 @@ export function EditorPane({ content, filePath, onChange, readOnly = false }: Ed
         theme="vs-dark"
         options={{
           readOnly,
-          fontSize: 13,
+          fontSize: isMobile ? 10 : 13,
           fontFamily: "'SF Mono', Monaco, 'Courier New', monospace",
           fontLigatures: true,
-          minimap: { enabled: true, scale: 0.8 },
+          minimap: { enabled: !isMobile, scale: 0.8 },
           scrollBeyondLastLine: false,
-          wordWrap: 'off',
-          lineNumbers: 'on',
+          wordWrap: isMobile ? 'on' : 'off',
+          lineNumbers: isMobile ? 'off' : 'on',
           renderWhitespace: 'selection',
           tabSize: 2,
           insertSpaces: true,
@@ -130,16 +152,19 @@ export function EditorPane({ content, filePath, onChange, readOnly = false }: Ed
           cursorBlinking: 'smooth',
           cursorSmoothCaretAnimation: 'on',
           padding: { top: 8, bottom: 8 },
-          folding: true,
+          folding: !isMobile,
           foldingStrategy: 'indentation',
           showFoldingControls: 'mouseover',
           links: true,
-          contextmenu: true,
-          quickSuggestions: true,
-          suggestOnTriggerCharacters: true,
+          contextmenu: !isMobile,
+          quickSuggestions: !isMobile,
+          suggestOnTriggerCharacters: !isMobile,
           acceptSuggestionOnEnter: 'smart',
           formatOnPaste: true,
           formatOnType: false,
+          glyphMargin: !isMobile,
+          lineDecorationsWidth: isMobile ? 0 : 10,
+          lineNumbersMinChars: isMobile ? 2 : 3,
         }}
       />
     </div>
