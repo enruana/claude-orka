@@ -3,15 +3,19 @@ import { api, RegisteredProject, Session, Fork } from '../api/client'
 import {
   ArrowLeft,
   Home,
-  GitBranch,
-  GitMerge,
+  MessageSquarePlus,
+  MessagesSquare,
   Square,
   FileText,
   RefreshCw,
   ExternalLink,
   LogOut,
   Power,
+  Terminal,
+  Code,
 } from 'lucide-react'
+import { SessionCodeEditor } from './code-editor'
+import { encodeProjectPath } from './ProjectDashboard'
 
 interface SessionViewProps {
   project: RegisteredProject
@@ -29,6 +33,8 @@ interface TreeNode {
   isClickable: boolean
 }
 
+type RightPanelTab = 'terminal' | 'code'
+
 export function SessionView({ project, session: initialSession, onBack, onGoHome }: SessionViewProps) {
   const [session, setSession] = useState<Session>(initialSession)
   const [selectedNode, setSelectedNode] = useState<string>('main')
@@ -39,6 +45,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
   const [isExporting, setIsExporting] = useState(false)
   const [isMerging, setIsMerging] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('terminal')
 
   // Refresh session data
   const refreshSession = useCallback(async () => {
@@ -108,7 +115,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
           ? 'MAIN'
           : session.forks.find((f) => f.id === selectedNode)?.name || selectedNode
       alert(
-        `Claude Code limitation: Only one active fork can exist from each branch.\n\nThe branch "${nodeName}" already has an active fork. Close or merge the existing fork first.`
+        `Claude Code limitation: Only one active thread can branch from each conversation.\n\nThe thread "${nodeName}" already has an active branch. Close or merge the existing thread first.`
       )
       return
     }
@@ -118,7 +125,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
 
   const handleForkDialogSubmit = async () => {
     if (!forkNameInput.trim()) {
-      alert('Please enter a fork name')
+      alert('Please enter a thread name')
       return
     }
 
@@ -219,6 +226,12 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
     }
   }
 
+  const encodedPath = encodeProjectPath(project.path)
+
+  const handleOpenCodeInNewTab = () => {
+    window.open(`/projects/${encodedPath}/code`, '_blank')
+  }
+
   const selectedFork = session.forks.find((f) => f.id === selectedNode)
   const canCreateFork =
     session.forks.filter((f) => f.parentId === selectedNode && f.status === 'active').length === 0
@@ -237,8 +250,8 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
     return { id: nodeId, name, status, isMain, children, isClickable }
   }
 
-  // Render the git-style tree
-  const renderGitTree = () => {
+  // Render the conversation threads tree
+  const renderThreadTree = () => {
     const tree = buildTree('main')
 
     const renderNode = (
@@ -251,13 +264,13 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
       const hasChildren = node.children.length > 0
 
       return (
-        <div key={node.id} className="git-tree-node-wrapper">
+        <div key={node.id} className="thread-tree-node-wrapper">
           <div
-            className={`git-tree-node ${node.status} ${isSelected ? 'selected' : ''} ${node.isClickable ? 'clickable' : ''}`}
+            className={`thread-tree-node ${node.status} ${isSelected ? 'selected' : ''} ${node.isClickable ? 'clickable' : ''}`}
             onClick={() => node.isClickable && handleNodeClick(node.id)}
           >
             {/* Tree lines */}
-            <div className="git-tree-lines">
+            <div className="thread-tree-lines">
               {parentLines.map((showLine, index) => (
                 <span key={index} className={`tree-line vertical ${showLine ? 'visible' : ''}`} />
               ))}
@@ -269,20 +282,20 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
             </div>
 
             {/* Node content */}
-            <div className="git-tree-node-content">
-              <span className={`git-node-dot ${node.status}`}>
+            <div className="thread-tree-node-content">
+              <span className={`thread-node-dot ${node.status}`}>
                 <span className="dot-inner" />
               </span>
-              <span className="git-node-name">{node.name}</span>
+              <span className="thread-node-name">{node.name}</span>
               {hasChildren && (
-                <span className="git-node-children-count">{node.children.length}</span>
+                <span className="thread-node-children-count">{node.children.length}</span>
               )}
             </div>
           </div>
 
           {/* Render children */}
           {hasChildren && (
-            <div className="git-tree-children">
+            <div className="thread-tree-children">
               {node.children.map((child, index) => {
                 const isLastChild = index === node.children.length - 1
                 const newParentLines = [...parentLines, !isLast]
@@ -294,7 +307,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
       )
     }
 
-    return <div className="git-tree">{renderNode(tree)}</div>
+    return <div className="thread-tree">{renderNode(tree)}</div>
   }
 
   return (
@@ -346,29 +359,29 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
 
       {/* Two-panel layout */}
       <div className="session-panels">
-        {/* Left Panel - Branch Tree & Actions */}
+        {/* Left Panel - Thread Tree & Actions */}
         <div className="left-panel">
           <div className="panel-section">
             <div className="panel-header">
-              <h2>Branches</h2>
+              <h2>Threads</h2>
             </div>
-            {renderGitTree()}
+            {renderThreadTree()}
           </div>
 
-          {/* Selected branch info */}
+          {/* Selected thread info */}
           <div className="panel-section selected-info">
             <div className="panel-header">
-              <h2>Selected</h2>
+              <h2>Active Thread</h2>
             </div>
-            <div className="selected-branch-card">
-              <span className={`git-node-dot large ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}>
+            <div className="selected-thread-card">
+              <span className={`thread-node-dot large ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}>
                 <span className="dot-inner" />
               </span>
-              <div className="selected-branch-info">
-                <span className="selected-branch-name">
+              <div className="selected-thread-info">
+                <span className="selected-thread-name">
                   {selectedNode === 'main' ? 'main' : selectedFork?.name || selectedNode}
                 </span>
-                <span className={`selected-branch-status ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}>
+                <span className={`selected-thread-status ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}>
                   {selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}
                 </span>
               </div>
@@ -386,8 +399,8 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
                 onClick={handleCreateFork}
                 disabled={!canCreateFork || isCreatingFork}
               >
-                <GitBranch size={16} />
-                {isCreatingFork ? 'Creating...' : 'New Fork'}
+                <MessageSquarePlus size={16} />
+                {isCreatingFork ? 'Creating...' : 'New Thread'}
               </button>
 
               {selectedNode !== 'main' && (
@@ -398,15 +411,15 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
                     disabled={isExporting}
                   >
                     <FileText size={16} />
-                    {isExporting ? 'Exporting...' : 'Export'}
+                    {isExporting ? 'Summarizing...' : 'Summarize'}
                   </button>
                   <button
                     className="action-btn-full"
                     onClick={handleMergeFork}
                     disabled={isMerging}
                   >
-                    <GitMerge size={16} />
-                    {isMerging ? 'Merging...' : 'Merge to Parent'}
+                    <MessagesSquare size={16} />
+                    {isMerging ? 'Merging...' : 'Merge to Main'}
                   </button>
                   <button
                     className="action-btn-full danger"
@@ -414,7 +427,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
                     disabled={isClosing}
                   >
                     <Square size={16} />
-                    {isClosing ? 'Closing...' : 'Close Fork'}
+                    {isClosing ? 'Closing...' : 'Close Thread'}
                   </button>
                 </>
               )}
@@ -422,65 +435,118 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
           </div>
         </div>
 
-        {/* Right Panel - Terminal */}
+        {/* Right Panel - Terminal/Code */}
         <div className="right-panel">
-          <div className="terminal-header">
-            <span>Terminal</span>
-            {session.ttydPort && (
+          {/* Panel Tabs */}
+          <div className="right-panel-tabs">
+            <button
+              className={`panel-tab ${rightPanelTab === 'terminal' ? 'active' : ''}`}
+              onClick={() => setRightPanelTab('terminal')}
+            >
+              <Terminal size={14} />
+              <span>Terminal</span>
+            </button>
+            <button
+              className={`panel-tab ${rightPanelTab === 'code' ? 'active' : ''}`}
+              onClick={() => setRightPanelTab('code')}
+            >
+              <Code size={14} />
+              <span>Code</span>
+            </button>
+            <div className="panel-tab-spacer" />
+            {rightPanelTab === 'terminal' && session.ttydPort && (
               <button
                 className="icon-button"
                 onClick={handleOpenTerminalInNewTab}
-                title="Open in new tab"
+                title="Open Terminal in new tab"
               >
-                <ExternalLink size={16} />
+                <ExternalLink size={14} />
+              </button>
+            )}
+            {rightPanelTab === 'code' && (
+              <button
+                className="icon-button"
+                onClick={handleOpenCodeInNewTab}
+                title="Open Code in new tab"
+              >
+                <ExternalLink size={14} />
               </button>
             )}
           </div>
-          <div className="terminal-wrapper">
-            {session.ttydPort ? (
+
+          {/* Panel Content */}
+          <div className="right-panel-content">
+            {rightPanelTab === 'terminal' ? (
+              <div className="terminal-wrapper">
+                {session.ttydPort ? (
+                  <>
+                    {/* Desktop: show iframe */}
+                    <iframe
+                      src={getTerminalUrl()}
+                      title="Terminal"
+                      className="terminal-iframe desktop-only"
+                    />
+                    {/* Mobile: show message and button */}
+                    <div className="terminal-mobile-message mobile-only">
+                      <p>Terminal not available in mobile view</p>
+                      <p className="hint">Open in a dedicated window for the best experience</p>
+                      <button
+                        className="action-btn-full primary"
+                        onClick={handleOpenTerminalInNewTab}
+                      >
+                        <ExternalLink size={16} />
+                        Open Terminal
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="terminal-placeholder">
+                    <p>Terminal not available</p>
+                    <p className="hint">Session may need to be resumed</p>
+                  </div>
+                )}
+              </div>
+            ) : (
               <>
-                {/* Desktop: show iframe */}
-                <iframe
-                  src={getTerminalUrl()}
-                  title="Terminal"
-                  className="terminal-iframe desktop-only"
-                />
+                {/* Desktop: show code editor inline */}
+                <div className="code-editor-wrapper desktop-only">
+                  <SessionCodeEditor
+                    projectPath={project.path}
+                    encodedPath={encodedPath}
+                    onOpenInNewTab={handleOpenCodeInNewTab}
+                  />
+                </div>
                 {/* Mobile: show message and button */}
                 <div className="terminal-mobile-message mobile-only">
-                  <p>Terminal not available in mobile view</p>
+                  <p>Code Editor not available in mobile view</p>
                   <p className="hint">Open in a dedicated window for the best experience</p>
                   <button
                     className="action-btn-full primary"
-                    onClick={handleOpenTerminalInNewTab}
+                    onClick={handleOpenCodeInNewTab}
                   >
                     <ExternalLink size={16} />
-                    Open Terminal
+                    Open Code Editor
                   </button>
                 </div>
               </>
-            ) : (
-              <div className="terminal-placeholder">
-                <p>Terminal not available</p>
-                <p className="hint">Session may need to be resumed</p>
-              </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Fork Dialog */}
+      {/* New Thread Dialog */}
       {showForkDialog && (
         <div className="modal-overlay" onClick={() => setShowForkDialog(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Create New Fork</h3>
+            <h3>New Conversation Thread</h3>
             <p className="modal-subtitle">
-              From: <strong>{selectedNode === 'main' ? 'main' : selectedFork?.name || selectedNode}</strong>
+              Branching from: <strong>{selectedNode === 'main' ? 'main' : selectedFork?.name || selectedNode}</strong>
             </p>
             <input
               type="text"
               value={forkNameInput}
               onChange={(e) => setForkNameInput(e.target.value)}
-              placeholder="Fork name"
+              placeholder="Thread name (e.g. 'explore auth options')"
               autoFocus
               onKeyPress={(e) => e.key === 'Enter' && handleForkDialogSubmit()}
             />
@@ -493,7 +559,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
                 onClick={handleForkDialogSubmit}
                 disabled={isCreatingFork}
               >
-                {isCreatingFork ? 'Creating...' : 'Create Fork'}
+                {isCreatingFork ? 'Creating...' : 'Create Thread'}
               </button>
             </div>
           </div>

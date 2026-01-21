@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ProjectDashboard } from './components/ProjectDashboard'
 import { SessionPage } from './components/SessionPage'
+import { CodeEditorPage } from './components/code-editor'
 
 export function App() {
   return (
@@ -18,6 +19,9 @@ export function App() {
 
           {/* Session view - shows a specific session */}
           <Route path="/projects/:encodedPath/sessions/:sessionId" element={<SessionPage />} />
+
+          {/* Code editor view */}
+          <Route path="/projects/:encodedPath/code" element={<CodeEditorPage />} />
 
           {/* Fallback - redirect unknown routes to dashboard */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -42,6 +42,47 @@ export interface Fork {
   closedAt?: string
 }
 
+// File tree types
+export interface FileTreeNode {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  children?: FileTreeNode[]
+}
+
+// Git types
+export interface GitFileChange {
+  path: string
+  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked'
+  staged: boolean
+  oldPath?: string
+}
+
+export interface GitStatus {
+  branch: string
+  changes: GitFileChange[]
+  stagedCount: number
+  unstagedCount: number
+  isClean: boolean
+}
+
+export interface GitDiff {
+  diff: string
+  original: string
+  modified: string
+  path: string
+  staged: boolean
+}
+
+export interface GitCommitLog {
+  hash: string
+  shortHash: string
+  message: string
+  author: string
+  date: string
+  relativeDate: string
+}
+
 const API_BASE = '/api'
 
 function encodeProjectPath(path: string): string {
@@ -202,5 +243,83 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
     const data = await res.json()
     return data.activeBranch
+  },
+
+  // File operations
+  async getFileTree(projectEncoded: string): Promise<FileTreeNode[]> {
+    const res = await fetch(`${API_BASE}/files/tree?project=${projectEncoded}`)
+    if (!res.ok) throw new Error(await res.text())
+    const data = await res.json()
+    return data.tree
+  },
+
+  async expandFileTree(projectEncoded: string, dirPath: string): Promise<FileTreeNode[]> {
+    const res = await fetch(`${API_BASE}/files/tree-expand?project=${projectEncoded}&path=${encodeURIComponent(dirPath)}`)
+    if (!res.ok) throw new Error(await res.text())
+    const data = await res.json()
+    return data.children
+  },
+
+  async getFileContent(projectEncoded: string, filePath: string): Promise<{ content: string; path: string; size: number }> {
+    const res = await fetch(`${API_BASE}/files/content?project=${projectEncoded}&path=${encodeURIComponent(filePath)}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async saveFileContent(projectEncoded: string, filePath: string, content: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/files/content?project=${projectEncoded}&path=${encodeURIComponent(filePath)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  // Git operations
+  async getGitStatus(projectEncoded: string): Promise<GitStatus> {
+    const res = await fetch(`${API_BASE}/git/status?project=${projectEncoded}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async getGitDiff(projectEncoded: string, filePath: string, staged: boolean): Promise<GitDiff> {
+    const res = await fetch(`${API_BASE}/git/diff?project=${projectEncoded}&path=${encodeURIComponent(filePath)}&staged=${staged}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async gitStage(projectEncoded: string, paths: string[]): Promise<void> {
+    const res = await fetch(`${API_BASE}/git/stage?project=${projectEncoded}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  async gitUnstage(projectEncoded: string, paths: string[]): Promise<void> {
+    const res = await fetch(`${API_BASE}/git/unstage?project=${projectEncoded}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  async gitCommit(projectEncoded: string, message: string): Promise<{ hash: string }> {
+    const res = await fetch(`${API_BASE}/git/commit?project=${projectEncoded}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async getGitLog(projectEncoded: string, limit: number = 50): Promise<GitCommitLog[]> {
+    const res = await fetch(`${API_BASE}/git/log?project=${projectEncoded}&limit=${limit}`)
+    if (!res.ok) throw new Error(await res.text())
+    const data = await res.json()
+    return data.commits
   },
 }

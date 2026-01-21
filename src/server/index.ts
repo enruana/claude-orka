@@ -6,6 +6,8 @@ import { getGlobalStateManager } from '../core/GlobalStateManager'
 import { projectsRouter } from './api/projects'
 import { sessionsRouter } from './api/sessions'
 import { browseRouter } from './api/browse'
+import { filesRouter } from './api/files'
+import { gitRouter } from './api/git'
 import { logger } from '../utils'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -32,6 +34,8 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/projects', projectsRouter)
   app.use('/api/sessions', sessionsRouter)
   app.use('/api/browse', browseRouter)
+  app.use('/api/files', filesRouter)
+  app.use('/api/git', gitRouter)
 
   // Health check
   app.get('/api/health', (_req, res) => {
