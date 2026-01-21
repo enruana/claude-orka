@@ -231,9 +231,18 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
     return `http://${host}:${session.ttydPort}`
   }
 
+  // Get mobile terminal URL - uses our custom wrapper with virtual keyboard
+  const getMobileTerminalUrl = () => {
+    return `/terminal/${session.ttydPort}/`
+  }
+
   const handleOpenTerminalInNewTab = () => {
     if (session.ttydPort) {
-      window.open(getTerminalUrl(), '_blank')
+      // Check if mobile (same logic as CSS media query)
+      const isMobile = window.matchMedia('(max-width: 768px)').matches ||
+                       window.matchMedia('(pointer: coarse)').matches
+      const url = isMobile ? getMobileTerminalUrl() : getTerminalUrl()
+      window.open(url, '_blank')
     }
   }
 
@@ -507,7 +516,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
                       <p className="hint">Open in a dedicated window for the best experience</p>
                       <button
                         className="action-btn-full primary"
-                        onClick={handleOpenTerminalInNewTab}
+                        onClick={() => window.open(getMobileTerminalUrl(), '_blank')}
                       >
                         <ExternalLink size={16} />
                         Open Terminal

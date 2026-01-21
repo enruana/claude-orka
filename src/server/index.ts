@@ -42,6 +42,27 @@ export async function createServer(options: ServerOptions = {}) {
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   })
 
+  // Mobile terminal route - serve custom HTML with virtual keyboard
+  app.get('/terminal/:port', async (_req, res) => {
+    const fs = await import('fs-extra')
+
+    // Look for terminal-mobile.html in possible locations
+    const possiblePaths = [
+      path.join(__dirname, 'terminal-mobile.html'),           // Built CLI: dist/terminal-mobile.html
+      path.join(__dirname, '../server/terminal-mobile.html'), // Built SDK: dist/src/server
+      path.join(__dirname, '../../src/server/terminal-mobile.html'), // Source: src/server
+    ]
+
+    for (const htmlPath of possiblePaths) {
+      if (await fs.default.pathExists(htmlPath)) {
+        logger.info(`Serving mobile terminal from: ${htmlPath}`)
+        return res.sendFile(htmlPath)
+      }
+    }
+
+    res.status(404).send('Mobile terminal HTML not found')
+  })
+
   // Serve static files for the UI
   // Look for built UI files - check for assets directory (only exists in built output)
   const possibleUIPaths = [
@@ -73,7 +94,8 @@ export async function createServer(options: ServerOptions = {}) {
     // SPA fallback - serve index.html for all non-API routes
     // Express 5 requires named parameters for wildcards
     app.use((req, res, next) => {
-      if (req.path.startsWith('/api') || req.method !== 'GET') {
+      // Exclude API routes, terminal routes, and non-GET requests
+      if (req.path.startsWith('/api') || req.path.startsWith('/terminal') || req.method !== 'GET') {
         return next()
       }
       res.sendFile(path.join(uiPath!, 'index.html'))

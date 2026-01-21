@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Orka Terminal</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background: #1e1e2e;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      width: 100%;
+    }
+
+    #terminal-container {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #terminal-container .xterm {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+
+    #terminal-container .xterm-viewport {
+      overflow-y: auto !important;
+    }
+
+    /* Virtual Keyboard */
+    #virtual-keyboard {
+      display: none;
+      background: #181825;
+      border-top: 1px solid #313244;
+      padding: 6px 8px;
+    }
+
+    .keyboard-row {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+    }
+
+    .key-btn {
+      background: #313244;
+      color: #cdd6f4;
+      border: 1px solid #45475a;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      touch-action: manipulation;
+      min-width: 38px;
+      text-align: center;
+      /* Prevent focus and native keyboard */
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+
+    .key-btn:focus {
+      outline: none;
+    }
+
+    .key-btn:active {
+      background: #45475a;
+    }
+
+    .key-btn.enter {
+      background: #89b4fa;
+      color: #1e1e2e;
+      border-color: #89b4fa;
+    }
+
+    /* Status bar */
+    #status-bar {
+      background: #11111b;
+      color: #6c7086;
+      padding: 4px 8px;
+      font-size: 11px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    #status-bar .connected {
+      color: #a6e3a1;
+    }
+
+    #status-bar .disconnected {
+      color: #f38ba8;
+    }
+
+    #status-bar.retry {
+      background: #f38ba8;
+      color: #1e1e2e;
+    }
+
+    /* Show keyboard on mobile */
+    @media (max-width: 768px), (pointer: coarse) {
+      #virtual-keyboard {
+        display: flex;
+        flex-direction: column;
+      }
+    }
+
+    /* Loading state */
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #cdd6f4;
+      font-size: 14px;
+    }
+
+    #loading.hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="terminal-container">
+      <div id="loading">Connecting...</div>
+    </div>
+
+    <div id="virtual-keyboard">
+      <div class="keyboard-row">
+        <button class="key-btn" data-key="esc">ESC</button>
+        <button class="key-btn" data-key="tab">TAB</button>
+        <button class="key-btn" data-key="left">◀</button>
+        <button class="key-btn" data-key="up">▲</button>
+        <button class="key-btn" data-key="down">▼</button>
+        <button class="key-btn" data-key="right">▶</button>
+        <button class="key-btn enter" data-key="enter">⏎</button>
+      </div>
+    </div>
+
+    <div id="status-bar">
+      <span id="status">Connecting...</span>
+      <span id="dimensions"></span>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.min.js"></script>
+  <script>
+    // ttyd protocol commands
+    const Command = {
+      // Client -> Server
+      INPUT: '0',
+      RESIZE_TERMINAL: '1',
+      PAUSE: '2',
+      RESUME: '3',
+      JSON_DATA: '{',
+      // Server -> Client
+      OUTPUT: '0',
+      SET_WINDOW_TITLE: '1',
+      SET_PREFERENCES: '2'
+    };
+
+    // Key sequences
+    const KeySequences = {
+      'esc': '\x1b',
+      'tab': '\t',
+      'enter': '\r',
+      'up': '\x1b[A',
+      'down': '\x1b[B',
+      'right': '\x1b[C',
+      'left': '\x1b[D'
+    };
+
+    class OrkaTerminal {
+      constructor() {
+        this.term = null;
+        this.fitAddon = null;
+        this.socket = null;
+        this.textEncoder = new TextEncoder();
+        this.textDecoder = new TextDecoder();
+        this.ctrlPressed = false;
+        this.altPressed = false;
+        this.authToken = '';
+
+        this.init();
+      }
+
+      async init() {
+        // Get ttyd port from URL path: /terminal/:port
+        const pathParts = window.location.pathname.split('/');
+        const port = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2];
+
+        if (!port || isNaN(parseInt(port))) {
+          this.showError('Invalid terminal port');
+          return;
+        }
+
+        this.ttydPort = port;
+        this.ttydHost = window.location.hostname;
+
+        // First, get auth token from ttyd
+        try {
+          const tokenResponse = await fetch(`http://${this.ttydHost}:${this.ttydPort}/token`);
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json();
+            this.authToken = tokenData.token || '';
+          }
+        } catch (e) {
+          console.log('No auth token required or token endpoint not available');
+        }
+
+        this.createTerminal();
+        this.connectWebSocket();
+        this.setupKeyboard();
+        this.setupResize();
+        this.setupStatusBar();
+      }
+
+      createTerminal() {
+        const container = document.getElementById('terminal-container');
+
+        this.term = new Terminal({
+          cursorBlink: true,
+          cursorStyle: 'block',
+          fontSize: 6,
+          fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+          theme: {
+            background: '#1e1e2e',
+            foreground: '#cdd6f4',
+            cursor: '#f5e0dc',
+            cursorAccent: '#1e1e2e',
+            selectionBackground: '#585b70',
+            black: '#45475a',
+            red: '#f38ba8',
+            green: '#a6e3a1',
+            yellow: '#f9e2af',
+            blue: '#89b4fa',
+            magenta: '#f5c2e7',
+            cyan: '#94e2d5',
+            white: '#bac2de',
+            brightBlack: '#585b70',
+            brightRed: '#f38ba8',
+            brightGreen: '#a6e3a1',
+            brightYellow: '#f9e2af',
+            brightBlue: '#89b4fa',
+            brightMagenta: '#f5c2e7',
+            brightCyan: '#94e2d5',
+            brightWhite: '#a6adc8'
+          },
+          allowProposedApi: true,
+          scrollback: 5000
+        });
+
+        this.fitAddon = new FitAddon.FitAddon();
+        this.term.loadAddon(this.fitAddon);
+
+        // Try WebGL renderer
+        try {
+          const webglAddon = new WebglAddon.WebglAddon();
+          this.term.loadAddon(webglAddon);
+        } catch (e) {
+          console.log('WebGL not available, using canvas renderer');
+        }
+
+        this.term.open(container);
+
+        // Fit after layout is ready
+        requestAnimationFrame(() => {
+          this.fitAddon.fit();
+          // Fit again after a short delay to ensure correct size
+          setTimeout(() => {
+            this.fitAddon.fit();
+            this.sendResize();
+          }, 100);
+        });
+
+        document.getElementById('loading').classList.add('hidden');
+
+        // Handle terminal input
+        this.term.onData((data) => {
+          this.sendInput(data);
+        });
+      }
+
+      connectWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${this.ttydHost}:${this.ttydPort}/ws`;
+
+        this.updateStatus('Connecting...', false);
+
+        this.socket = new WebSocket(wsUrl, ['tty']);
+        this.socket.binaryType = 'arraybuffer';
+
+        this.socket.onopen = () => {
+          // Send JSON_DATA with auth token and window size
+          const { cols, rows } = this.term;
+          const authData = JSON.stringify({
+            AuthToken: this.authToken,
+            columns: cols,
+            rows: rows
+          });
+
+          this.socket.send(Command.JSON_DATA + authData);
+          this.updateStatus('Connected', true);
+          this.term.focus();
+        };
+
+        this.socket.onmessage = (event) => {
+          const data = event.data;
+
+          if (typeof data === 'string') {
+            const cmd = data[0];
+            const payload = data.slice(1);
+
+            if (cmd === Command.OUTPUT) {
+              this.term.write(payload);
+            } else if (cmd === Command.SET_WINDOW_TITLE) {
+              document.title = payload || 'Orka Terminal';
+            }
+          } else if (data instanceof ArrayBuffer) {
+            const view = new Uint8Array(data);
+            const cmd = String.fromCharCode(view[0]);
+            const payload = view.slice(1);
+
+            if (cmd === Command.OUTPUT) {
+              this.term.write(payload);
+            } else {
+              this.term.write(view);
+            }
+          }
+        };
+
+        this.socket.onerror = () => {
+          this.updateStatus('Error - tap to retry', false);
+        };
+
+        this.socket.onclose = () => {
+          this.updateStatus('Disconnected - tap to retry', false);
+        };
+      }
+
+      sendInput(data) {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+          console.log('Socket not ready, state:', this.socket?.readyState);
+          return;
+        }
+
+        // Apply modifiers
+        if (this.ctrlPressed && data.length === 1) {
+          const char = data.toLowerCase();
+          const code = char.charCodeAt(0) - 96; // a=1, b=2, etc.
+          if (code >= 1 && code <= 26) {
+            data = String.fromCharCode(code);
+          }
+          this.toggleModifier('ctrl', false);
+        }
+
+        if (this.altPressed && data.length === 1) {
+          data = '\x1b' + data;
+          this.toggleModifier('alt', false);
+        }
+
+        // Send INPUT command - must be binary with command byte first
+        const dataBytes = this.textEncoder.encode(data);
+        const payload = new Uint8Array(dataBytes.length + 1);
+        payload[0] = Command.INPUT.charCodeAt(0); // '0' = 48
+        payload.set(dataBytes, 1);
+        this.socket.send(payload);
+        console.log('Sent input:', data, 'bytes:', payload);
+      }
+
+      sendKey(key) {
+        const sequence = KeySequences[key];
+        if (sequence) {
+          this.sendInput(sequence);
+          // Don't focus terminal - it triggers native keyboard on mobile
+        }
+      }
+
+      toggleModifier(modifier, state) {
+        if (modifier === 'ctrl') {
+          this.ctrlPressed = state !== undefined ? state : !this.ctrlPressed;
+          document.getElementById('ctrl-btn').classList.toggle('active', this.ctrlPressed);
+        } else if (modifier === 'alt') {
+          this.altPressed = state !== undefined ? state : !this.altPressed;
+          document.getElementById('alt-btn').classList.toggle('active', this.altPressed);
+        }
+      }
+
+      setupKeyboard() {
+        const keyboard = document.getElementById('virtual-keyboard');
+
+        // Handle both touch and click
+        const handleKey = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          const btn = e.target.closest('.key-btn');
+          if (!btn) return;
+
+          const key = btn.dataset.key;
+          this.sendKey(key);
+
+          // Blur any focused element to prevent native keyboard
+          if (document.activeElement && document.activeElement !== document.body) {
+            document.activeElement.blur();
+          }
+        };
+
+        // Use pointerup for unified touch/mouse handling
+        keyboard.addEventListener('pointerup', handleKey);
+
+        // Prevent default touch behaviors and focus
+        keyboard.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+        }, { passive: false });
+
+        // Prevent focus on buttons
+        keyboard.addEventListener('focus', (e) => {
+          e.target.blur();
+        }, true);
+      }
+
+      setupResize() {
+        const resizeObserver = new ResizeObserver(() => {
+          this.fitAddon.fit();
+          this.sendResize();
+        });
+
+        resizeObserver.observe(document.getElementById('terminal-container'));
+
+        window.addEventListener('resize', () => {
+          this.fitAddon.fit();
+          this.sendResize();
+        });
+      }
+
+      sendResize() {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
+
+        const { cols, rows } = this.term;
+        const msg = Command.RESIZE_TERMINAL + JSON.stringify({ columns: cols, rows: rows });
+        this.socket.send(msg);
+
+        document.getElementById('dimensions').textContent = `${cols}x${rows}`;
+      }
+
+      updateStatus(text, connected) {
+        const status = document.getElementById('status');
+        const statusBar = document.getElementById('status-bar');
+        status.textContent = text;
+        status.className = connected ? 'connected' : 'disconnected';
+
+        // Show retry style when disconnected
+        const needsRetry = text.includes('tap to retry');
+        statusBar.classList.toggle('retry', needsRetry);
+      }
+
+      setupStatusBar() {
+        const statusBar = document.getElementById('status-bar');
+        statusBar.addEventListener('click', () => {
+          if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            this.connectWebSocket();
+          }
+        });
+      }
+
+      showError(message) {
+        document.getElementById('loading').textContent = message;
+        this.updateStatus(message, false);
+      }
+    }
+
+    // Initialize when DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      new OrkaTerminal();
+    });
+  </script>
+</body>
+</html>
