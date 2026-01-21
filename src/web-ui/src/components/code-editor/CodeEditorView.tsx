@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, Save, GitBranch, RefreshCw, X, FolderOpen } from 'lucide-react'
+import { ChevronLeft, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2 } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
 import { GitPanel } from './GitPanel'
@@ -163,6 +163,23 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
     }
   }
 
+  // Discard changes
+  const handleDiscard = () => {
+    if (!activeTab) return
+
+    const tab = openTabs.find(t => t.path === activeTab)
+    if (!tab || !tab.isDirty) return
+
+    if (!confirm('Discard all changes to this file?')) return
+
+    setOpenTabs(prev => prev.map(t => {
+      if (t.path === activeTab) {
+        return { ...t, content: t.originalContent, isDirty: false }
+      }
+      return t
+    }))
+  }
+
   // Refresh everything
   const handleRefresh = async () => {
     setLoading(true)
@@ -242,6 +259,14 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
         </div>
 
         <div className="header-right">
+          <button
+            className="icon-button"
+            onClick={handleDiscard}
+            disabled={!activeTabData?.isDirty}
+            title="Discard changes"
+          >
+            <Undo2 size={18} />
+          </button>
           <button
             className="icon-button"
             onClick={handleSave}

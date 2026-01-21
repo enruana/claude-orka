@@ -209,9 +209,9 @@
       }
 
       async init() {
-        // Get ttyd port from URL path: /terminal/:port
-        const pathParts = window.location.pathname.split('/');
-        const port = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2];
+        // Get ttyd port from URL path: /terminal/:port or /terminal/:port/
+        const pathParts = window.location.pathname.split('/').filter(p => p.trim());
+        const port = pathParts[pathParts.length - 1];
 
         if (!port || isNaN(parseInt(port))) {
           this.showError('Invalid terminal port');
@@ -220,6 +220,8 @@
 
         this.ttydPort = port;
         this.ttydHost = window.location.hostname;
+        this.retryCount = 0;
+        this.maxRetries = 5;
 
         // First, get auth token from ttyd
         try {
@@ -242,10 +244,14 @@
       createTerminal() {
         const container = document.getElementById('terminal-container');
 
+        // Use smaller font on mobile
+        const isMobile = window.matchMedia('(max-width: 768px)').matches ||
+                         window.matchMedia('(pointer: coarse)').matches;
+
         this.term = new Terminal({
           cursorBlink: true,
           cursorStyle: 'block',
-          fontSize: 6,
+          fontSize: isMobile ? 6 : 14,
           fontFamily: 'Menlo, Monaco, "Courier New", monospace',
           theme: {
             background: '#1e1e2e',
@@ -309,12 +315,20 @@
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${this.ttydHost}:${this.ttydPort}/ws`;
 
-        this.updateStatus('Connecting...', false);
+        const retryMsg = this.retryCount > 0 ? ` (retry ${this.retryCount})` : '';
+        this.updateStatus('Connecting...' + retryMsg, false);
 
-        this.socket = new WebSocket(wsUrl, ['tty']);
+        try {
+          this.socket = new WebSocket(wsUrl, ['tty']);
+        } catch (e) {
+          console.error('WebSocket creation failed:', e);
+          this.scheduleRetry();
+          return;
+        }
         this.socket.binaryType = 'arraybuffer';
 
         this.socket.onopen = () => {
+          this.retryCount = 0; // Reset on successful connection
           // Send JSON_DATA with auth token and window size
           const { cols, rows } = this.term;
           const authData = JSON.stringify({
@@ -325,7 +339,6 @@
 
           this.socket.send(Command.JSON_DATA + authData);
           this.updateStatus('Connected', true);
-          this.term.focus();
         };
 
         this.socket.onmessage = (event) => {
@@ -353,13 +366,31 @@
           }
         };
 
-        this.socket.onerror = () => {
-          this.updateStatus('Error - tap to retry', false);
+        this.socket.onerror = (e) => {
+          console.error('WebSocket error:', e);
+          this.updateStatus('Connection error', false);
         };
 
-        this.socket.onclose = () => {
-          this.updateStatus('Disconnected - tap to retry', false);
+        this.socket.onclose = (e) => {
+          console.log('WebSocket closed:', e.code, e.reason);
+          this.scheduleRetry();
         };
+      }
+
+      scheduleRetry() {
+        if (this.retryCount >= this.maxRetries) {
+          this.updateStatus('Failed to connect - tap to retry', false);
+          return;
+        }
+
+        this.retryCount++;
+        const delay = Math.min(1000 * this.retryCount, 5000); // 1s, 2s, 3s, 4s, 5s
+
+        this.updateStatus(`Reconnecting in ${delay/1000}s...`, false);
+
+        setTimeout(() => {
+          this.connectWebSocket();
+        }, delay);
       }
 
       sendInput(data) {
@@ -485,6 +516,7 @@
         const statusBar = document.getElementById('status-bar');
         statusBar.addEventListener('click', () => {
           if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            this.retryCount = 0; // Reset on manual retry
             this.connectWebSocket();
           }
         });

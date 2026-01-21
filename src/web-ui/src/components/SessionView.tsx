@@ -13,6 +13,9 @@ import {
   Power,
   Terminal,
   Code,
+  ChevronDown,
+  ChevronUp,
+  GitBranch,
 } from 'lucide-react'
 import { SessionCodeEditor } from './code-editor'
 import { encodeProjectPath } from './ProjectDashboard'
@@ -46,6 +49,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
   const [isMerging, setIsMerging] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('terminal')
+  const [showThreadsOnMobile, setShowThreadsOnMobile] = useState(false)
   const terminalIframeRef = useRef<HTMLIFrameElement>(null)
 
   // Focus terminal iframe when switching to terminal tab
@@ -346,16 +350,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
             <span className={`status-badge ${session.status}`}>{session.status}</span>
           </div>
         </div>
-        <div className="header-right">
-          {session.ttydPort && (
-            <button
-              className="icon-button terminal-btn mobile-only"
-              onClick={handleOpenTerminalInNewTab}
-              title="Open Terminal"
-            >
-              <ExternalLink size={18} />
-            </button>
-          )}
+        <div className="header-right desktop-only">
           <button className="icon-button" onClick={refreshSession} title="Refresh">
             <RefreshCw size={18} />
           </button>
@@ -368,6 +363,11 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
             <span className="btn-text">Close</span>
           </button>
         </div>
+        <div className="header-right mobile-only">
+          <button className="icon-button" onClick={refreshSession} title="Refresh">
+            <RefreshCw size={18} />
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -377,8 +377,89 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
         </div>
       )}
 
-      {/* Two-panel layout */}
-      <div className="session-panels">
+      {/* Mobile Layout */}
+      <div className="mobile-session-view mobile-only">
+        {/* Quick Actions */}
+        <div className="mobile-quick-actions">
+          <button
+            className="mobile-action-card terminal"
+            onClick={() => window.open(getMobileTerminalUrl(), '_blank')}
+            disabled={!session.ttydPort}
+          >
+            <Terminal size={28} />
+            <span>Terminal</span>
+          </button>
+          <button
+            className="mobile-action-card code"
+            onClick={handleOpenCodeInNewTab}
+          >
+            <Code size={28} />
+            <span>Code</span>
+          </button>
+        </div>
+
+        {/* Thread Info Card */}
+        <div className="mobile-info-card">
+          <div className="mobile-info-header" onClick={() => setShowThreadsOnMobile(!showThreadsOnMobile)}>
+            <div className="mobile-info-title">
+              <GitBranch size={16} />
+              <span>Active: {selectedNode === 'main' ? 'main' : selectedFork?.name || selectedNode}</span>
+              <span className={`status-dot ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`} />
+            </div>
+            <div className="mobile-info-toggle">
+              <span className="thread-count">{session.forks.length} threads</span>
+              {showThreadsOnMobile ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </div>
+          </div>
+
+          {showThreadsOnMobile && (
+            <div className="mobile-threads-expanded">
+              {renderThreadTree()}
+              <div className="mobile-thread-actions">
+                <button
+                  className="action-btn-full primary"
+                  onClick={handleCreateFork}
+                  disabled={!canCreateFork || isCreatingFork}
+                >
+                  <MessageSquarePlus size={16} />
+                  {isCreatingFork ? 'Creating...' : 'New Thread'}
+                </button>
+                {selectedNode !== 'main' && (
+                  <>
+                    <button className="action-btn-full" onClick={handleExportFork} disabled={isExporting}>
+                      <FileText size={16} />
+                      {isExporting ? 'Summarizing...' : 'Summarize'}
+                    </button>
+                    <button className="action-btn-full" onClick={handleMergeFork} disabled={isMerging}>
+                      <MessagesSquare size={16} />
+                      {isMerging ? 'Merging...' : 'Merge to Main'}
+                    </button>
+                    <button className="action-btn-full danger" onClick={handleCloseFork} disabled={isClosing}>
+                      <Square size={16} />
+                      {isClosing ? 'Closing...' : 'Close Thread'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Session Controls */}
+        <div className="mobile-session-controls">
+          <button className="mobile-control-btn detach" onClick={handleDetachSession}>
+            <LogOut size={18} />
+            <span>Detach Session</span>
+          </button>
+          <button className="mobile-control-btn close" onClick={handleCloseSession}>
+            <Power size={18} />
+            <span>Close Session</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Desktop Two-panel layout */}
+      <div className="session-panels desktop-only">
         {/* Left Panel - Thread Tree & Actions */}
         <div className="left-panel">
           <div className="panel-section">
@@ -499,30 +580,15 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
             {rightPanelTab === 'terminal' ? (
               <div className="terminal-wrapper">
                 {session.ttydPort ? (
-                  <>
-                    {/* Desktop: show iframe */}
-                    <iframe
-                      ref={terminalIframeRef}
-                      src={getTerminalUrl()}
-                      title="Terminal"
-                      className="terminal-iframe desktop-only"
-                      allow="clipboard-read; clipboard-write"
-                      tabIndex={0}
-                      onLoad={() => terminalIframeRef.current?.focus()}
-                    />
-                    {/* Mobile: show message and button */}
-                    <div className="terminal-mobile-message mobile-only">
-                      <p>Terminal not available in mobile view</p>
-                      <p className="hint">Open in a dedicated window for the best experience</p>
-                      <button
-                        className="action-btn-full primary"
-                        onClick={() => window.open(getMobileTerminalUrl(), '_blank')}
-                      >
-                        <ExternalLink size={16} />
-                        Open Terminal
-                      </button>
-                    </div>
-                  </>
+                  <iframe
+                    ref={terminalIframeRef}
+                    src={getTerminalUrl()}
+                    title="Terminal"
+                    className="terminal-iframe"
+                    allow="clipboard-read; clipboard-write"
+                    tabIndex={0}
+                    onLoad={() => terminalIframeRef.current?.focus()}
+                  />
                 ) : (
                   <div className="terminal-placeholder">
                     <p>Terminal not available</p>
@@ -531,28 +597,13 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
                 )}
               </div>
             ) : (
-              <>
-                {/* Desktop: show code editor inline */}
-                <div className="code-editor-wrapper desktop-only">
-                  <SessionCodeEditor
-                    projectPath={project.path}
-                    encodedPath={encodedPath}
-                    onOpenInNewTab={handleOpenCodeInNewTab}
-                  />
-                </div>
-                {/* Mobile: show message and button */}
-                <div className="terminal-mobile-message mobile-only">
-                  <p>Code Editor not available in mobile view</p>
-                  <p className="hint">Open in a dedicated window for the best experience</p>
-                  <button
-                    className="action-btn-full primary"
-                    onClick={handleOpenCodeInNewTab}
-                  >
-                    <ExternalLink size={16} />
-                    Open Code Editor
-                  </button>
-                </div>
-              </>
+              <div className="code-editor-wrapper">
+                <SessionCodeEditor
+                  projectPath={project.path}
+                  encodedPath={encodedPath}
+                  onOpenInNewTab={handleOpenCodeInNewTab}
+                />
+              </div>
             )}
           </div>
         </div>
