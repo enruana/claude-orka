@@ -968,17 +968,19 @@ Analyze the content and help me integrate the changes and learnings from the for
       const port = await globalState.getNextTtydPort()
 
       // Start ttyd in background
+      // Note: ttyd -t option format is "key=value"
       const ttydProcess = spawn(
         'ttyd',
         [
           '-W',  // Writable (allow input)
           '-p', port.toString(),
-          '-t', 'rightClickSelectsWord=false',  // Don't select word on right-click
-          '-t', 'fontSize=14',
-          '-t', 'fontFamily=Menlo, Monaco, "Courier New", monospace',
+          // Terminal appearance (small font for mobile)
+          '-t', 'fontSize=10',
+          '-t', 'fontFamily=monospace',
           '-t', 'cursorBlink=true',
-          '-t', 'cursorStyle=block',
-          '-t', 'theme={"background": "#1e1e2e", "foreground": "#cdd6f4", "cursor": "#f5e0dc", "selectionBackground": "#585b70"}',
+          // Keyboard handling
+          '-t', 'macOptionIsMeta=true',
+          '-t', 'scrollOnUserInput=true',
           'tmux', 'attach', '-t', tmuxSessionId
         ],
         {

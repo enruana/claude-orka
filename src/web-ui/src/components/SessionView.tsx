@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api, RegisteredProject, Session, Fork } from '../api/client'
 import {
   ArrowLeft,
@@ -46,6 +46,17 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
   const [isMerging, setIsMerging] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('terminal')
+  const terminalIframeRef = useRef<HTMLIFrameElement>(null)
+
+  // Focus terminal iframe when switching to terminal tab
+  useEffect(() => {
+    if (rightPanelTab === 'terminal' && terminalIframeRef.current) {
+      // Small delay to ensure iframe is visible
+      setTimeout(() => {
+        terminalIframeRef.current?.focus()
+      }, 100)
+    }
+  }, [rightPanelTab])
 
   // Refresh session data
   const refreshSession = useCallback(async () => {
@@ -482,9 +493,13 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
                   <>
                     {/* Desktop: show iframe */}
                     <iframe
+                      ref={terminalIframeRef}
                       src={getTerminalUrl()}
                       title="Terminal"
                       className="terminal-iframe desktop-only"
+                      allow="clipboard-read; clipboard-write"
+                      tabIndex={0}
+                      onLoad={() => terminalIframeRef.current?.focus()}
                     />
                     {/* Mobile: show message and button */}
                     <div className="terminal-mobile-message mobile-only">
