@@ -492,7 +492,7 @@ gitRouter.post('/generate-commit-message', async (req, res) => {
 
     // Build prompt for a complete commit message
     // Note: The diff content is piped via stdin
-    const prompt = `Generate a git commit message for the diff piped below.
+    const prompt = `You are a commit message generator. Output ONLY the commit message, nothing else. No introduction, no explanation, no "here's the commit message", just the raw commit message text.
 
 Format:
 <title line: verb + what changed, max 72 chars>
@@ -500,10 +500,11 @@ Format:
 <body: 2-4 bullet points explaining the key changes>
 
 Rules:
+- Start IMMEDIATELY with the title line (the verb)
 - Title: Start with verb (Add, Fix, Update, Remove, Refactor, Improve)
 - Title: Be specific about what changed
 - Body: Use "-" bullet points
-- Output ONLY the commit message, no markdown, no code blocks, no quotes
+- NO preamble like "Based on..." or "Here's..."
 
 Files changed:\n${diffStat}`
 
