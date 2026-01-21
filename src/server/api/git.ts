@@ -499,14 +499,22 @@ gitRouter.post('/generate-commit-message', async (req, res) => {
       // Repo might not have commits yet
     }
 
-    // Build a concise prompt - pass diff via stdin to avoid shell escaping issues
-    const prompt = `Generate a git commit message for these changes. Rules:
-- Start with a verb (Add, Fix, Update, Remove, Refactor)
-- Max 72 characters
-- Be specific but concise
-- Output ONLY the commit message, nothing else
+    // Build prompt for a complete commit message
+    const prompt = `Generate a complete git commit message for these changes.
 
-${recentCommits ? `Style reference:\n${recentCommits}\n\n` : ''}Summary:\n${diffStat}`
+Format:
+<title line: verb + what changed, max 72 chars>
+
+<body: 2-4 bullet points explaining the key changes>
+
+Rules:
+- Title: Start with verb (Add, Fix, Update, Remove, Refactor, Improve)
+- Title: Be specific about what changed (not just "Update files")
+- Body: Use bullet points with "-" prefix
+- Body: Explain WHAT changed and WHY if relevant
+- Output ONLY the commit message, no markdown, no quotes
+
+${recentCommits ? `Recent commits for style:\n${recentCommits}\n\n` : ''}Files changed:\n${diffStat}`
 
     // Call Claude headless with stdin for the diff
     // Limit diff to 4000 chars to keep it fast
