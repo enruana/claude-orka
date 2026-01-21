@@ -4,7 +4,7 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
+  base: '/',
   root: __dirname,
   build: {
     outDir: '../../dist/web-ui',

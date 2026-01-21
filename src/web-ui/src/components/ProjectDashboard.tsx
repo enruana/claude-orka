@@ -1,7 +1,20 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { api, RegisteredProject, Session } from '../api/client'
-import { FolderOpen, Plus, Trash2, Play, RefreshCw, Settings, ChevronRight, AlertTriangle, Check, RotateCw } from 'lucide-react'
+import { FolderOpen, Plus, Trash2, RefreshCw, Settings, ChevronRight, AlertTriangle, Check, RotateCw } from 'lucide-react'
 import { FolderBrowser } from './FolderBrowser'
+
+// Helper to encode/decode project paths for URLs
+export function encodeProjectPath(path: string): string {
+  return btoa(path).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export function decodeProjectPath(encoded: string): string {
+  // Add back padding
+  let padded = encoded.replace(/-/g, '+').replace(/_/g, '/')
+  while (padded.length % 4) padded += '='
+  return atob(padded)
+}
 
 interface VersionInfo {
   isOutdated: boolean
@@ -9,11 +22,10 @@ interface VersionInfo {
   projectVersion: string
 }
 
-interface ProjectDashboardProps {
-  onSelectSession: (project: RegisteredProject, session: Session) => void
-}
+export function ProjectDashboard() {
+  const navigate = useNavigate()
+  const { encodedPath } = useParams<{ encodedPath?: string }>()
 
-export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
   const [projects, setProjects] = useState<RegisteredProject[]>([])
   const [selectedProject, setSelectedProject] = useState<RegisteredProject | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
@@ -32,14 +44,12 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
     try {
       const data = await api.listProjects()
       setProjects(data)
-      // Auto-select first project if none selected
-      if (data.length > 0 && !selectedProject) {
-        setSelectedProject(data[0])
-      }
+      return data
     } catch (err: any) {
       setError(err.message)
+      return []
     }
-  }, [selectedProject])
+  }, [])
 
   const loadSessions = useCallback(async () => {
     if (!selectedProject) {
@@ -57,10 +67,43 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
     }
   }, [selectedProject])
 
+  // Initial load and URL-based project selection
   useEffect(() => {
     setLoading(true)
-    loadProjects().finally(() => setLoading(false))
+    loadProjects().then((projectList) => {
+      // If we have a project path in the URL, select that project
+      if (encodedPath) {
+        try {
+          const projectPath = decodeProjectPath(encodedPath)
+          const project = projectList.find(p => p.path === projectPath)
+          if (project) {
+            setSelectedProject(project)
+          } else {
+            // Project not found, redirect to dashboard
+            navigate('/dashboard', { replace: true })
+          }
+        } catch {
+          // Invalid encoded path
+          navigate('/dashboard', { replace: true })
+        }
+      } else if (projectList.length > 0 && !selectedProject) {
+        // Auto-select first project if none selected
+        setSelectedProject(projectList[0])
+      }
+      setLoading(false)
+    })
   }, [])
+
+  // Update URL when selected project changes
+  useEffect(() => {
+    if (selectedProject) {
+      const encoded = encodeProjectPath(selectedProject.path)
+      const currentPath = `/projects/${encoded}`
+      if (window.location.pathname !== currentPath) {
+        navigate(currentPath, { replace: true })
+      }
+    }
+  }, [selectedProject, navigate])
 
   useEffect(() => {
     if (selectedProject) {
@@ -86,7 +129,6 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
         const info = await api.checkProjectVersion(selectedProject.path)
         setVersionInfo(info)
       } catch {
-        // Ignore errors - version check is not critical
         setVersionInfo(null)
       }
     }
@@ -98,7 +140,6 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
     setIsReinitializing(true)
     try {
       await api.reinitializeProject(selectedProject.path)
-      // Refresh version info
       const info = await api.checkProjectVersion(selectedProject.path)
       setVersionInfo(info)
       await loadSessions()
@@ -107,6 +148,10 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
     } finally {
       setIsReinitializing(false)
     }
+  }
+
+  const handleSelectProject = (project: RegisteredProject) => {
+    setSelectedProject(project)
   }
 
   const handleAddProject = async (projectPath: string) => {
@@ -131,6 +176,7 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
       await api.unregisterProject(path)
       if (selectedProject?.path === path) {
         setSelectedProject(null)
+        navigate('/dashboard', { replace: true })
       }
       await loadProjects()
     } catch (err: any) {
@@ -146,7 +192,9 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
       setNewSessionName('')
       setShowNewSession(false)
       await loadSessions()
-      onSelectSession(selectedProject, session)
+      // Navigate to session view
+      const encoded = encodeProjectPath(selectedProject.path)
+      navigate(`/projects/${encoded}/sessions/${session.id}`)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -158,10 +206,11 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
     if (!selectedProject) return
     setResumingSessionId(session.id)
     try {
-      const resumed = await api.resumeSession(selectedProject.path, session.id)
-      // Refresh session list to get updated state
+      await api.resumeSession(selectedProject.path, session.id)
       await loadSessions()
-      onSelectSession(selectedProject, resumed)
+      // Navigate to session view
+      const encoded = encodeProjectPath(selectedProject.path)
+      navigate(`/projects/${encoded}/sessions/${session.id}`)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -216,7 +265,7 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
                 <div
                   key={project.path}
                   className={`sidebar-item ${selectedProject?.path === project.path ? 'selected' : ''}`}
-                  onClick={() => setSelectedProject(project)}
+                  onClick={() => handleSelectProject(project)}
                 >
                   <div className="sidebar-item-icon">
                     <FolderOpen size={18} />
@@ -320,7 +369,6 @@ export function ProjectDashboard({ onSelectSession }: ProjectDashboardProps) {
                         className={`session-row ${session.status} ${isResuming ? 'resuming' : ''}`}
                         onClick={() => {
                           if (isResuming) return
-                          // Always call resume to ensure ttyd is running
                           handleResumeSession(session)
                         }}
                       >
