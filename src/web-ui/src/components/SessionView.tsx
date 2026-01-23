@@ -76,6 +76,17 @@ export function SessionView({
     }
   }, [rightPanelTab])
 
+  // Update browser tab title with project name
+  useEffect(() => {
+    const projectName = project.path.split('/').pop() || project.path
+    document.title = `${projectName} - Orka`
+
+    // Restore default title when leaving
+    return () => {
+      document.title = 'Claude Orka'
+    }
+  }, [project.path])
+
   // Refresh session data
   const refreshSession = useCallback(async () => {
     try {
