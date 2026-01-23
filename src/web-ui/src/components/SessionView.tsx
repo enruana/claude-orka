@@ -16,8 +16,9 @@ import {
   ChevronDown,
   ChevronUp,
   GitBranch,
+  FolderOpen,
 } from 'lucide-react'
-import { SessionCodeEditor } from './code-editor'
+import { SessionCodeEditor, FileExplorer } from './code-editor'
 import { encodeProjectPath } from './ProjectDashboard'
 
 interface SessionViewProps {
@@ -36,7 +37,7 @@ interface TreeNode {
   isClickable: boolean
 }
 
-type RightPanelTab = 'terminal' | 'code'
+type RightPanelTab = 'terminal' | 'code' | 'files'
 
 export function SessionView({ project, session: initialSession, onBack, onGoHome }: SessionViewProps) {
   const [session, setSession] = useState<Session>(initialSession)
@@ -397,6 +398,13 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
             <Code size={28} />
             <span>Code</span>
           </button>
+          <button
+            className="mobile-action-card files"
+            onClick={() => window.open(`/projects/${encodedPath}/files`, '_blank')}
+          >
+            <FolderOpen size={28} />
+            <span>Files</span>
+          </button>
         </div>
 
         {/* Thread Info Card */}
@@ -555,6 +563,13 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
               <Code size={14} />
               <span>Code</span>
             </button>
+            <button
+              className={`panel-tab ${rightPanelTab === 'files' ? 'active' : ''}`}
+              onClick={() => setRightPanelTab('files')}
+            >
+              <FolderOpen size={14} />
+              <span>Files</span>
+            </button>
             <div className="panel-tab-spacer" />
             {rightPanelTab === 'terminal' && session.ttydPort && (
               <button
@@ -578,7 +593,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
 
           {/* Panel Content */}
           <div className="right-panel-content">
-            {rightPanelTab === 'terminal' ? (
+            {rightPanelTab === 'terminal' && (
               <div className="terminal-wrapper">
                 {session.ttydPort ? (
                   <iframe
@@ -597,12 +612,21 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
                   </div>
                 )}
               </div>
-            ) : (
+            )}
+            {rightPanelTab === 'code' && (
               <div className="code-editor-wrapper">
                 <SessionCodeEditor
                   projectPath={project.path}
                   encodedPath={encodedPath}
                   onOpenInNewTab={handleOpenCodeInNewTab}
+                />
+              </div>
+            )}
+            {rightPanelTab === 'files' && (
+              <div className="file-explorer-wrapper">
+                <FileExplorer
+                  projectPath={project.path}
+                  encodedPath={encodedPath}
                 />
               </div>
             )}

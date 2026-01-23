@@ -4,6 +4,18 @@ import path from 'path'
 
 export const filesRouter = Router()
 
+// MIME types for images
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+  webp: 'image/webp',
+  ico: 'image/x-icon',
+  bmp: 'image/bmp',
+}
+
 interface FileTreeNode {
   name: string
   path: string
@@ -323,6 +335,66 @@ filesRouter.delete('/', async (req, res) => {
 
     await fs.remove(targetPath)
     res.json({ success: true })
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * GET /api/files/image?project=<base64>&path=<relative>
+ * Serves an image file as binary
+ */
+filesRouter.get('/image', async (req, res) => {
+  try {
+    const projectEncoded = req.query.project as string
+    const relativePath = req.query.path as string
+
+    if (!projectEncoded || !relativePath) {
+      res.status(400).json({ error: 'Project and path required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(projectEncoded)
+
+    if (!isPathSafe(projectPath, relativePath)) {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
+    const filePath = path.join(projectPath, relativePath)
+
+    if (!await fs.pathExists(filePath)) {
+      res.status(404).json({ error: 'File not found' })
+      return
+    }
+
+    const stat = await fs.stat(filePath)
+    if (stat.isDirectory()) {
+      res.status(400).json({ error: 'Path is a directory' })
+      return
+    }
+
+    // Check file size - limit to 10MB for images
+    if (stat.size > 10 * 1024 * 1024) {
+      res.status(413).json({ error: 'File too large (max 10MB)' })
+      return
+    }
+
+    // Get MIME type from extension
+    const ext = path.extname(filePath).slice(1).toLowerCase()
+    const mimeType = IMAGE_MIME_TYPES[ext]
+
+    if (!mimeType) {
+      res.status(400).json({ error: 'Not a supported image format' })
+      return
+    }
+
+    // Set content type and serve file
+    res.setHeader('Content-Type', mimeType)
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+
+    const fileStream = fs.createReadStream(filePath)
+    fileStream.pipe(res)
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
