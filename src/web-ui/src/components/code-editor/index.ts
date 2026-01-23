@@ -9,3 +9,12 @@ export { CommitHistory } from './CommitHistory'
 export { FileExplorer } from './FileExplorer'
 export { MarkdownViewer } from './MarkdownViewer'
 export { FilesPage } from './FilesPage'
+export {
+  ContextMenu,
+  useContextMenu,
+  useLongPress,
+  copyToClipboard,
+  createCopyPathItem,
+  createCopyRelativePathItem,
+  createCopyFileNameItem,
+} from './ContextMenu'

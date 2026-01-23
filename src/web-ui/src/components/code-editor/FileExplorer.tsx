@@ -2,8 +2,15 @@ import { useState, useEffect, useCallback } from 'react'
 import { FileTreeNode, api } from '../../api/client'
 import { FileTree } from './FileTree'
 import { MarkdownViewer } from './MarkdownViewer'
+import {
+  ContextMenu,
+  useContextMenu,
+  createCopyPathItem,
+  createCopyRelativePathItem,
+  createCopyFileNameItem
+} from './ContextMenu'
 import Editor from '@monaco-editor/react'
-import { FileText, Image as ImageIcon, File, AlertCircle, ArrowLeft, FolderOpen } from 'lucide-react'
+import { FileText, Image as ImageIcon, File, AlertCircle, ArrowLeft, FolderOpen, Check } from 'lucide-react'
 
 interface FileExplorerProps {
   projectPath: string
@@ -129,6 +136,39 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
   // Mobile state - controls which view is shown
   const [mobileView, setMobileView] = useState<'tree' | 'file'>('tree')
   const isMobile = useIsMobile()
+
+  // Context menu state
+  const { contextMenu, hideContextMenu, handleContextMenu, handleLongPress } = useContextMenu()
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
+
+  // Show toast notification
+  const showToast = useCallback((message: string) => {
+    setToast({ show: true, message })
+    setTimeout(() => setToast({ show: false, message: '' }), 2000)
+  }, [])
+
+  // Build context menu items for a path - must be before any early returns
+  const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
+    const fullPath = `${projectPath}/${path}`
+
+    return [
+      createCopyPathItem(fullPath, () => showToast('Path copied')),
+      createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),
+      ...(!isDirectory ? [createCopyFileNameItem(path, () => showToast('File name copied'))] : []),
+    ]
+  }, [projectPath, showToast])
+
+  // Handle context menu (right click)
+  const handleTreeContextMenu = useCallback((e: React.MouseEvent, path: string, isDirectory: boolean) => {
+    handleContextMenu(e, { path, isDirectory })
+  }, [handleContextMenu])
+
+  // Handle long press (mobile)
+  const handleTreeLongPress = useCallback((e: React.TouchEvent | React.MouseEvent, path: string, isDirectory: boolean) => {
+    handleLongPress(e, { path, isDirectory })
+  }, [handleLongPress])
 
   // Load file tree
   useEffect(() => {
@@ -369,6 +409,36 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
     )
   }
 
+  // Render context menu
+  const renderContextMenu = () => {
+    if (!contextMenu.show || !contextMenu.data) return null
+
+    const { path, isDirectory } = contextMenu.data
+    const fileName = path.split('/').pop() || path
+    const items = buildContextMenuItems(path, isDirectory)
+
+    return (
+      <ContextMenu
+        items={items}
+        position={contextMenu.position}
+        onClose={hideContextMenu}
+        title={fileName}
+      />
+    )
+  }
+
+  // Render toast notification
+  const renderToast = () => {
+    if (!toast.show) return null
+
+    return (
+      <div className="copy-toast success">
+        <Check size={16} className="toast-icon" />
+        <span>{toast.message}</span>
+      </div>
+    )
+  }
+
   // Mobile layout - show one view at a time
   if (isMobile) {
     return (
@@ -386,6 +456,8 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
                 onFileSelect={handleFileSelect}
                 gitStatus={null}
                 onExpandDirectory={handleExpandDirectory}
+                onContextMenu={handleTreeContextMenu}
+                onLongPress={handleTreeLongPress}
               />
             </div>
           </div>
@@ -394,6 +466,8 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
             {renderFileViewer(true)}
           </div>
         )}
+        {renderContextMenu()}
+        {renderToast()}
       </div>
     )
   }
@@ -408,11 +482,15 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
           onFileSelect={handleFileSelect}
           gitStatus={null}
           onExpandDirectory={handleExpandDirectory}
+          onContextMenu={handleTreeContextMenu}
+          onLongPress={handleTreeLongPress}
         />
       </div>
       <div className="file-viewer-panel">
         {renderFileViewer(false)}
       </div>
+      {renderContextMenu()}
+      {renderToast()}
     </div>
   )
 }

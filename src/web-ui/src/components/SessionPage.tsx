@@ -1,12 +1,23 @@
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, RegisteredProject, Session } from '../api/client'
 import { SessionView } from './SessionView'
 import { decodeProjectPath, encodeProjectPath } from './ProjectDashboard'
 
+type RightPanelTab = 'terminal' | 'code' | 'files'
+
 export function SessionPage() {
   const { encodedPath, sessionId } = useParams<{ encodedPath: string; sessionId: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Get current tab from URL, default to 'terminal'
+  const currentTab = (searchParams.get('tab') as RightPanelTab) || 'terminal'
+
+  // Handle tab change - updates URL
+  const handleTabChange = useCallback((tab: RightPanelTab) => {
+    setSearchParams({ tab }, { replace: true })
+  }, [setSearchParams])
 
   const [project, setProject] = useState<RegisteredProject | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -100,6 +111,8 @@ export function SessionPage() {
       session={session}
       onBack={handleBack}
       onGoHome={handleGoHome}
+      currentTab={currentTab}
+      onTabChange={handleTabChange}
     />
   )
 }

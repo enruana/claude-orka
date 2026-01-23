@@ -1,9 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Save, GitBranch, RefreshCw, X, ExternalLink } from 'lucide-react'
+import { Save, GitBranch, RefreshCw, X, ExternalLink, Check } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
 import { GitPanel } from './GitPanel'
 import { DiffViewer } from './DiffViewer'
+import {
+  ContextMenu,
+  useContextMenu,
+  createCopyPathItem,
+  createCopyRelativePathItem,
+  createCopyFileNameItem
+} from './ContextMenu'
 import { api, FileTreeNode, GitStatus, GitDiff } from '../../api/client'
 import './code-editor.css'
 
@@ -34,6 +41,39 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
   const [diffData, setDiffData] = useState<GitDiff | null>(null)
+
+  // Context menu state
+  const { contextMenu, hideContextMenu, handleContextMenu, handleLongPress } = useContextMenu()
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
+
+  // Show toast notification
+  const showToast = useCallback((message: string) => {
+    setToast({ show: true, message })
+    setTimeout(() => setToast({ show: false, message: '' }), 2000)
+  }, [])
+
+  // Build context menu items for a path - must be before any early returns
+  const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
+    const fullPath = `${projectPath}/${path}`
+
+    return [
+      createCopyPathItem(fullPath, () => showToast('Path copied')),
+      createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),
+      ...(!isDirectory ? [createCopyFileNameItem(path, () => showToast('File name copied'))] : []),
+    ]
+  }, [projectPath, showToast])
+
+  // Handle context menu (right click)
+  const handleTreeContextMenu = useCallback((e: React.MouseEvent, path: string, isDirectory: boolean) => {
+    handleContextMenu(e, { path, isDirectory })
+  }, [handleContextMenu])
+
+  // Handle long press (mobile)
+  const handleTreeLongPress = useCallback((e: React.TouchEvent | React.MouseEvent, path: string, isDirectory: boolean) => {
+    handleLongPress(e, { path, isDirectory })
+  }, [handleLongPress])
 
   // Load file tree
   const loadFileTree = useCallback(async () => {
@@ -278,6 +318,8 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
               const children = await api.expandFileTree(encodedPath, dirPath)
               setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
             }}
+            onContextMenu={handleTreeContextMenu}
+            onLongPress={handleTreeLongPress}
           />
         </div>
 
@@ -353,6 +395,24 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
           </div>
         )}
       </div>
+
+      {/* Context Menu */}
+      {contextMenu.show && contextMenu.data && (
+        <ContextMenu
+          items={buildContextMenuItems(contextMenu.data.path, contextMenu.data.isDirectory)}
+          position={contextMenu.position}
+          onClose={hideContextMenu}
+          title={contextMenu.data.path.split('/').pop() || contextMenu.data.path}
+        />
+      )}
+
+      {/* Toast Notification */}
+      {toast.show && (
+        <div className="copy-toast success">
+          <Check size={16} className="toast-icon" />
+          <span>{toast.message}</span>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import {
   ChevronRight,
   ChevronDown,
@@ -20,6 +20,8 @@ interface FileTreeProps {
   onFileSelect: (path: string) => void
   gitStatus: GitStatus | null
   onExpandDirectory: (path: string) => Promise<void>
+  onContextMenu?: (e: React.MouseEvent, path: string, isDirectory: boolean) => void
+  onLongPress?: (e: React.TouchEvent | React.MouseEvent, path: string, isDirectory: boolean) => void
 }
 
 interface TreeNodeProps {
@@ -29,6 +31,8 @@ interface TreeNodeProps {
   onFileSelect: (path: string) => void
   gitChanges: Map<string, string>
   onExpandDirectory: (path: string) => Promise<void>
+  onContextMenu?: (e: React.MouseEvent, path: string, isDirectory: boolean) => void
+  onLongPress?: (e: React.TouchEvent | React.MouseEvent, path: string, isDirectory: boolean) => void
 }
 
 // Get appropriate icon for file type
@@ -112,6 +116,71 @@ function getGitStatusColor(status: string): string {
   }
 }
 
+// Hook for long press detection
+function useLongPress(
+  onLongPressRef: React.MutableRefObject<((e: React.TouchEvent) => void) | null>,
+  onClickRef: React.MutableRefObject<(() => void) | null>,
+  delay: number = 500
+) {
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const isLongPressRef = useRef(false)
+  const startPosRef = useRef<{ x: number; y: number } | null>(null)
+
+  const start = useCallback((e: React.TouchEvent) => {
+    isLongPressRef.current = false
+    startPosRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY
+    }
+
+    timerRef.current = setTimeout(() => {
+      isLongPressRef.current = true
+      // Haptic feedback
+      if ('vibrate' in navigator) {
+        navigator.vibrate(50)
+      }
+      onLongPressRef.current?.(e)
+    }, delay)
+  }, [onLongPressRef, delay])
+
+  const clear = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }, [])
+
+  const end = useCallback((e: React.TouchEvent) => {
+    clear()
+    if (!isLongPressRef.current) {
+      onClickRef.current?.()
+    }
+    // Prevent ghost clicks
+    if (isLongPressRef.current) {
+      e.preventDefault()
+    }
+  }, [clear, onClickRef])
+
+  const move = useCallback((e: React.TouchEvent) => {
+    if (startPosRef.current) {
+      const distance = Math.sqrt(
+        Math.pow(e.touches[0].clientX - startPosRef.current.x, 2) +
+        Math.pow(e.touches[0].clientY - startPosRef.current.y, 2)
+      )
+      if (distance > 10) {
+        clear()
+      }
+    }
+  }, [clear])
+
+  return {
+    onTouchStart: start,
+    onTouchEnd: end,
+    onTouchMove: move,
+    onTouchCancel: clear,
+  }
+}
+
 function TreeNode({
   node,
   depth,
@@ -119,6 +188,8 @@ function TreeNode({
   onFileSelect,
   gitChanges,
   onExpandDirectory,
+  onContextMenu,
+  onLongPress,
 }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(depth < 2) // Auto-expand first two levels
   const [loading, setLoading] = useState(false)
@@ -127,7 +198,12 @@ function TreeNode({
   const isSelected = selectedFile === node.path
   const gitStatus = gitChanges.get(node.path)
 
-  const handleClick = async () => {
+  // Use refs to store callbacks to avoid hook dependency issues
+  const onClickRef = useRef<(() => void) | null>(null)
+  const onLongPressCallbackRef = useRef<((e: React.TouchEvent) => void) | null>(null)
+
+  // Update refs on each render
+  onClickRef.current = async () => {
     if (isDirectory) {
       if (!expanded && node.children?.length === 0) {
         setLoading(true)
@@ -140,12 +216,41 @@ function TreeNode({
     }
   }
 
+  onLongPressCallbackRef.current = (e: React.TouchEvent) => {
+    if (onLongPress) {
+      onLongPress(e, node.path, isDirectory)
+    }
+  }
+
+  const handleClick = () => {
+    onClickRef.current?.()
+  }
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (onContextMenu) {
+      e.preventDefault()
+      e.stopPropagation()
+      onContextMenu(e, node.path, isDirectory)
+    }
+  }
+
+  const longPressHandlers = useLongPress(
+    onLongPressCallbackRef,
+    onClickRef,
+    500
+  )
+
+  // Determine if we should use touch handlers
+  const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window
+
   return (
     <div className="tree-node-wrapper">
       <div
         className={`tree-node ${isSelected ? 'selected' : ''} ${isDirectory ? 'directory' : 'file'}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        onClick={handleClick}
+        onClick={isTouchDevice ? undefined : handleClick}
+        onContextMenu={handleContextMenu}
+        {...(isTouchDevice ? longPressHandlers : {})}
       >
         {/* Expand/Collapse Arrow */}
         <span className="tree-node-arrow">
@@ -196,6 +301,8 @@ function TreeNode({
               onFileSelect={onFileSelect}
               gitChanges={gitChanges}
               onExpandDirectory={onExpandDirectory}
+              onContextMenu={onContextMenu}
+              onLongPress={onLongPress}
             />
           ))}
         </div>
@@ -210,6 +317,8 @@ export function FileTree({
   onFileSelect,
   gitStatus,
   onExpandDirectory,
+  onContextMenu,
+  onLongPress,
 }: FileTreeProps) {
   // Build a map of file path -> git status
   const gitChanges = new Map<string, string>()
@@ -239,6 +348,8 @@ export function FileTree({
               onFileSelect={onFileSelect}
               gitChanges={gitChanges}
               onExpandDirectory={onExpandDirectory}
+              onContextMenu={onContextMenu}
+              onLongPress={onLongPress}
             />
           ))
         )}

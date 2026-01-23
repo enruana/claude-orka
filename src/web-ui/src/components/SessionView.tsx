@@ -21,11 +21,15 @@ import {
 import { SessionCodeEditor, FileExplorer } from './code-editor'
 import { encodeProjectPath } from './ProjectDashboard'
 
+type RightPanelTab = 'terminal' | 'code' | 'files'
+
 interface SessionViewProps {
   project: RegisteredProject
   session: Session
   onBack: () => void
   onGoHome: () => void
+  currentTab?: RightPanelTab
+  onTabChange?: (tab: RightPanelTab) => void
 }
 
 interface TreeNode {
@@ -37,9 +41,14 @@ interface TreeNode {
   isClickable: boolean
 }
 
-type RightPanelTab = 'terminal' | 'code' | 'files'
-
-export function SessionView({ project, session: initialSession, onBack, onGoHome }: SessionViewProps) {
+export function SessionView({
+  project,
+  session: initialSession,
+  onBack,
+  onGoHome,
+  currentTab = 'terminal',
+  onTabChange
+}: SessionViewProps) {
   const [session, setSession] = useState<Session>(initialSession)
   const [selectedNode, setSelectedNode] = useState<string>('main')
   const [error, setError] = useState<string | null>(null)
@@ -49,9 +58,13 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
   const [isExporting, setIsExporting] = useState(false)
   const [isMerging, setIsMerging] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
-  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('terminal')
   const [showThreadsOnMobile, setShowThreadsOnMobile] = useState(false)
   const terminalIframeRef = useRef<HTMLIFrameElement>(null)
+
+  // Use controlled tab from props, or local state as fallback
+  const [localTab, setLocalTab] = useState<RightPanelTab>(currentTab)
+  const rightPanelTab = onTabChange ? currentTab : localTab
+  const setRightPanelTab = onTabChange || setLocalTab
 
   // Focus terminal iframe when switching to terminal tab
   useEffect(() => {
@@ -230,10 +243,10 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
     }
   }
 
-  // Use current hostname so it works from other devices (phone, etc)
+  // Get terminal URL - uses our custom wrapper with virtual keyboard disabled for desktop
   const getTerminalUrl = () => {
-    const host = window.location.hostname
-    return `http://${host}:${session.ttydPort}`
+    // Always use our wrapper to have consistent styling and disabled context menu
+    return `/terminal/${session.ttydPort}/?desktop=1`
   }
 
   // Get mobile terminal URL - uses our custom wrapper with virtual keyboard
@@ -594,7 +607,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
           {/* Panel Content */}
           <div className="right-panel-content">
             {rightPanelTab === 'terminal' && (
-              <div className="terminal-wrapper">
+              <div className="terminal-wrapper" onContextMenu={(e) => e.preventDefault()}>
                 {session.ttydPort ? (
                   <iframe
                     ref={terminalIframeRef}
@@ -604,6 +617,7 @@ export function SessionView({ project, session: initialSession, onBack, onGoHome
                     allow="clipboard-read; clipboard-write"
                     tabIndex={0}
                     onLoad={() => terminalIframeRef.current?.focus()}
+                    onContextMenu={(e) => e.preventDefault()}
                   />
                 ) : (
                   <div className="terminal-placeholder">
