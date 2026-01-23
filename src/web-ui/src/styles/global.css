@@ -2205,46 +2205,21 @@ body {
   }
 }
 
-@media (max-width: 480px) {
-  .settings-sidebar {
-    max-height: 40vh;
-  }
-
-  .sidebar-header h1 {
-    font-size: 14px;
-  }
-
-  .content-header-info h2 {
-    font-size: 15px;
-  }
-
-  .content-header-path {
-    font-size: 11px;
-    word-break: break-all;
-  }
-
-  .session-row-name {
-    font-size: 13px;
-  }
-
-  .session-row-meta {
-    font-size: 11px;
-  }
-
-  /* New Mobile Session View */
+/* Mobile Session View - applies to tablets and phones */
+@media (max-width: 900px) {
   .mobile-session-view {
     flex: 1;
     display: flex;
     flex-direction: column;
-    padding: var(--space-md);
-    gap: var(--space-md);
+    padding: var(--space-lg);
+    gap: var(--space-lg);
     overflow-y: auto;
   }
 
   .mobile-quick-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: var(--space-md);
+    gap: var(--space-lg);
   }
 
   .mobile-action-card {
@@ -2252,14 +2227,14 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: var(--space-sm);
+    gap: var(--space-md);
     padding: var(--space-xl) var(--space-lg);
     background: var(--bg-secondary);
     border: 1px solid var(--border-secondary);
     border-radius: var(--radius-lg);
     cursor: pointer;
     transition: all var(--transition-fast);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     color: var(--text-primary);
   }
@@ -2300,7 +2275,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: var(--space-md) var(--space-lg);
+    padding: var(--space-lg);
     cursor: pointer;
     user-select: none;
   }
@@ -2313,7 +2288,7 @@ body {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     color: var(--text-primary);
   }
@@ -2323,7 +2298,7 @@ body {
     align-items: center;
     gap: var(--space-sm);
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .thread-count {
@@ -2352,15 +2327,15 @@ body {
 
   .mobile-threads-expanded {
     border-top: 1px solid var(--border-secondary);
-    padding: var(--space-md) var(--space-lg);
+    padding: var(--space-lg);
   }
 
   .mobile-thread-actions {
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
-    margin-top: var(--space-md);
-    padding-top: var(--space-md);
+    margin-top: var(--space-lg);
+    padding-top: var(--space-lg);
     border-top: 1px solid var(--border-secondary);
   }
 
@@ -2368,7 +2343,7 @@ body {
     display: flex;
     gap: var(--space-md);
     margin-top: auto;
-    padding-top: var(--space-md);
+    padding-top: var(--space-lg);
   }
 
   .mobile-control-btn {
@@ -2377,10 +2352,10 @@ body {
     align-items: center;
     justify-content: center;
     gap: var(--space-sm);
-    padding: var(--space-md) var(--space-lg);
+    padding: var(--space-lg);
     border: none;
     border-radius: var(--radius-md);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -2402,5 +2377,67 @@ body {
 
   .mobile-control-btn.close:hover {
     background: rgba(255, 69, 58, 0.25);
+  }
+}
+
+/* Small screens refinements */
+@media (max-width: 480px) {
+  .settings-sidebar {
+    max-height: 40vh;
+  }
+
+  .sidebar-header h1 {
+    font-size: 14px;
+  }
+
+  .content-header-info h2 {
+    font-size: 15px;
+  }
+
+  .content-header-path {
+    font-size: 11px;
+    word-break: break-all;
+  }
+
+  .session-row-name {
+    font-size: 13px;
+  }
+
+  .session-row-meta {
+    font-size: 11px;
+  }
+
+  .mobile-session-view {
+    padding: var(--space-md);
+    gap: var(--space-md);
+  }
+
+  .mobile-quick-actions {
+    gap: var(--space-md);
+  }
+
+  .mobile-action-card {
+    font-size: 14px;
+  }
+
+  .mobile-info-header {
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .mobile-info-title {
+    font-size: 14px;
+  }
+
+  .mobile-info-toggle {
+    font-size: 12px;
+  }
+
+  .mobile-threads-expanded {
+    padding: var(--space-md) var(--space-lg);
+  }
+
+  .mobile-control-btn {
+    padding: var(--space-md) var(--space-lg);
+    font-size: 14px;
   }
 }

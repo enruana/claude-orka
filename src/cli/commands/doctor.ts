@@ -46,6 +46,10 @@ export function doctorCommand(program: Command) {
         // Check .claude directory
         results.push(await checkClaudeDir())
 
+        // Check Whisper dependencies (for speech-to-text)
+        results.push(await checkMake())
+        results.push(await checkWhisperModel())
+
         // Display results
         displayResults(results)
 
@@ -259,6 +263,64 @@ async function checkClaudeDir(): Promise<CheckResult> {
       name: 'Claude directory',
       status: 'fail',
       message: 'Error checking',
+      details: (error as Error).message,
+    }
+  }
+}
+
+async function checkMake(): Promise<CheckResult> {
+  try {
+    const { stdout } = await execa('make', ['--version'])
+    const version = stdout.split('\n')[0]
+
+    return {
+      name: 'make (Whisper)',
+      status: 'pass',
+      message: version,
+      details: 'Required for building Whisper speech-to-text',
+    }
+  } catch (error) {
+    return {
+      name: 'make (Whisper)',
+      status: 'warn',
+      message: 'Not found',
+      details: 'make is required for speech-to-text feature',
+      fix: 'Install build tools:\n  macOS: xcode-select --install\n  Ubuntu: sudo apt-get install build-essential',
+    }
+  }
+}
+
+async function checkWhisperModel(): Promise<CheckResult> {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || ''
+  const whisperDir = path.join(homeDir, '.cache', 'whisper')
+  const modelFile = path.join(whisperDir, 'ggml-tiny.en.bin')
+
+  try {
+    const modelExists = await fs.pathExists(modelFile)
+
+    if (modelExists) {
+      const stats = await fs.stat(modelFile)
+      const sizeMB = Math.round(stats.size / 1024 / 1024)
+      return {
+        name: 'Whisper model',
+        status: 'pass',
+        message: `tiny.en (${sizeMB}MB)`,
+        details: 'Speech-to-text model ready',
+      }
+    } else {
+      return {
+        name: 'Whisper model',
+        status: 'warn',
+        message: 'Not downloaded',
+        details: 'Model will be downloaded on first use (~40MB)',
+        fix: 'Model downloads automatically when you first use voice input',
+      }
+    }
+  } catch (error) {
+    return {
+      name: 'Whisper model',
+      status: 'warn',
+      message: 'Unknown',
       details: (error as Error).message,
     }
   }

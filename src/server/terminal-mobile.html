@@ -48,35 +48,64 @@
     /* Virtual Keyboard */
     #virtual-keyboard {
       display: none;
-      background: #181825;
+      background: linear-gradient(180deg, #181825 0%, #11111b 100%);
       border-top: 1px solid #313244;
-      padding: 6px 8px;
+      padding: 12px 16px;
+      padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     }
 
-    .keyboard-row {
+    .keyboard-grid {
+      display: grid;
+      grid-template-columns: auto auto minmax(100px, auto) auto auto;
+      grid-template-rows: auto auto;
+      gap: 10px 14px;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 0;
+    }
+
+    /* Row 1 positioning */
+    .keyboard-grid > button:nth-child(1) { grid-area: 1 / 1; } /* TAB */
+    .keyboard-grid > button:nth-child(2) { grid-area: 1 / 2; } /* ESC */
+    .keyboard-grid > button:nth-child(3) { grid-area: 1 / 3; justify-self: center; } /* ▲ */
+    .keyboard-grid > button:nth-child(4) { grid-area: 1 / 4; } /* MIC */
+    .keyboard-grid > span:nth-child(5) { grid-area: 1 / 5; } /* empty */
+
+    /* Row 2 positioning */
+    .keyboard-grid > button:nth-child(6) { grid-area: 2 / 1; } /* PASTE */
+    .keyboard-grid > span:nth-child(7) { grid-area: 2 / 2; } /* empty */
+    .keyboard-grid > .arrow-row { grid-area: 2 / 3; justify-self: center; } /* arrows */
+    .keyboard-grid > span:nth-child(9) { grid-area: 2 / 4; } /* empty */
+    .keyboard-grid > button:nth-child(10) { grid-area: 2 / 5; } /* ENTER */
+
+    .arrow-row {
       display: flex;
       gap: 6px;
       justify-content: center;
+      align-items: center;
     }
 
     .key-btn {
-      background: #313244;
+      background: linear-gradient(135deg, #3b3d54 0%, #313244 100%);
       color: #cdd6f4;
-      border: 1px solid #45475a;
-      border-radius: 4px;
-      padding: 8px 12px;
+      border: none;
+      border-radius: 12px;
+      padding: 10px 16px;
       font-size: 12px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
       user-select: none;
       -webkit-user-select: none;
       -webkit-touch-callout: none;
       touch-action: manipulation;
-      min-width: 38px;
-      text-align: center;
-      /* Prevent focus and native keyboard */
+      min-width: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       -webkit-tap-highlight-color: transparent;
       outline: none;
+      transition: all 0.15s ease;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
 
     .key-btn:focus {
@@ -84,13 +113,102 @@
     }
 
     .key-btn:active {
-      background: #45475a;
+      background: linear-gradient(135deg, #45475a 0%, #3b3d54 100%);
+      transform: scale(0.95);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Arrow keys - slightly smaller and more compact */
+    .arrow-row .key-btn {
+      min-width: 36px;
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+
+    /* Special keys styling */
+    .key-btn[data-key="tab"],
+    .key-btn[data-key="esc"] {
+      background: linear-gradient(135deg, #45475a 0%, #3b3d54 100%);
+      color: #bac2de;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+    }
+
+    .key-btn[data-key="paste"] {
+      background: linear-gradient(135deg, #cba6f7 0%, #b4befe 100%);
+      color: #1e1e2e;
+      box-shadow: 0 2px 6px rgba(203, 166, 247, 0.3);
+      min-width: auto;
+      padding: 10px 14px;
+      font-size: 11px;
+    }
+
+    .key-btn[data-key="paste"]:active {
+      background: linear-gradient(135deg, #b4befe 0%, #89b4fa 100%);
     }
 
     .key-btn.enter {
-      background: #89b4fa;
+      background: linear-gradient(135deg, #89b4fa 0%, #74c7ec 100%);
       color: #1e1e2e;
-      border-color: #89b4fa;
+      box-shadow: 0 2px 6px rgba(137, 180, 250, 0.3);
+      font-size: 16px;
+    }
+
+    .key-btn.enter:active {
+      background: linear-gradient(135deg, #74c7ec 0%, #94e2d5 100%);
+    }
+
+    /* Microphone button */
+    .key-btn.mic {
+      background: linear-gradient(135deg, #94e2d5 0%, #74c7ec 100%);
+      border: none;
+      color: #1e1e2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      border-radius: 50%;
+      box-shadow: 0 2px 8px rgba(148, 226, 213, 0.3);
+    }
+
+    .key-btn.mic:active {
+      background: linear-gradient(135deg, #74c7ec 0%, #89b4fa 100%);
+      transform: scale(0.95);
+    }
+
+    .key-btn.mic svg {
+      display: block;
+      stroke: #1e1e2e;
+    }
+
+    .key-btn.mic.recording {
+      background: linear-gradient(135deg, #f38ba8 0%, #eba0ac 100%);
+      box-shadow: 0 2px 12px rgba(243, 139, 168, 0.5);
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    .key-btn.mic.recording svg {
+      stroke: #1e1e2e;
+    }
+
+    .key-btn.mic.transcribing {
+      background: linear-gradient(135deg, #f9e2af 0%, #fab387 100%);
+      box-shadow: 0 2px 12px rgba(249, 226, 175, 0.5);
+    }
+
+    .key-btn.mic.transcribing svg {
+      stroke: #1e1e2e;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.8; transform: scale(1.05); }
     }
 
     /* Status bar */
@@ -139,6 +257,255 @@
     #loading.hidden {
       display: none;
     }
+
+    /* Input Modal */
+    #input-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(17, 17, 27, 0.95);
+      z-index: 1000;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0;
+    }
+
+    #input-modal.visible {
+      display: flex;
+    }
+
+    .modal-content {
+      background: #1e1e2e;
+      border-top: 1px solid #313244;
+      border-radius: 16px 16px 0 0;
+      width: 100%;
+      max-width: 100%;
+      padding: 16px;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+      box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #313244;
+    }
+
+    .modal-title {
+      color: #cdd6f4;
+      font-size: 15px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .modal-title-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-title-icon svg {
+      display: block;
+    }
+
+    .modal-close {
+      background: #313244;
+      border: none;
+      color: #9399b2;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 6px 10px;
+      border-radius: 8px;
+      line-height: 1;
+    }
+
+    .modal-close:active {
+      background: #45475a;
+    }
+
+    .modal-input-container {
+      margin-bottom: 12px;
+    }
+
+    .modal-textarea {
+      width: 100%;
+      min-height: 100px;
+      max-height: 200px;
+      background: #11111b;
+      color: #cdd6f4;
+      border: 2px solid #313244;
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 16px;
+      font-family: inherit;
+      line-height: 1.5;
+      resize: none;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .modal-textarea:focus {
+      border-color: #89b4fa;
+    }
+
+    .modal-textarea::placeholder {
+      color: #6c7086;
+    }
+
+    .modal-hint {
+      font-size: 12px;
+      color: #6c7086;
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .modal-hint-icon {
+      font-size: 14px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .modal-btn {
+      flex: 1;
+      padding: 14px 20px;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .modal-btn.cancel {
+      background: #313244;
+      color: #cdd6f4;
+    }
+
+    .modal-btn.cancel:active {
+      background: #45475a;
+    }
+
+    .modal-btn.send {
+      background: #89b4fa;
+      color: #1e1e2e;
+    }
+
+    .modal-btn.send:active {
+      background: #74c7ec;
+    }
+
+    .modal-btn.send:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* Transcription status (for recording feedback) */
+    .transcription-status {
+      background: #11111b;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    .transcription-status.recording {
+      background: linear-gradient(135deg, #45475a 0%, #313244 100%);
+      border: 2px solid #f38ba8;
+    }
+
+    .transcription-status.processing {
+      background: linear-gradient(135deg, #45475a 0%, #313244 100%);
+      border: 2px solid #f9e2af;
+    }
+
+    .status-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .status-text {
+      color: #cdd6f4;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .status-subtext {
+      color: #6c7086;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    /* Spinner animation */
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid #313244;
+      border-top-color: #89b4fa;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 8px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Recording indicator overlay */
+    #recording-indicator {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: linear-gradient(135deg, #f38ba8 0%, #eba0ac 100%);
+      color: #1e1e2e;
+      padding: 20px 32px;
+      border-radius: 16px;
+      font-size: 15px;
+      font-weight: 600;
+      z-index: 999;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(243, 139, 168, 0.3);
+    }
+
+    #recording-indicator.visible {
+      display: block;
+      animation: pulse-scale 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-scale {
+      0%, 100% { transform: translate(-50%, -50%) scale(1); }
+      50% { transform: translate(-50%, -50%) scale(1.02); }
+    }
+
+    #recording-indicator .rec-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      background: #1e1e2e;
+      border-radius: 50%;
+      margin-right: 10px;
+      animation: blink 1s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
   </style>
 </head>
 <body>
@@ -148,13 +515,29 @@
     </div>
 
     <div id="virtual-keyboard">
-      <div class="keyboard-row">
-        <button class="key-btn" data-key="esc">ESC</button>
+      <div class="keyboard-grid">
+        <!-- Row 1: TAB, ESC, ▲, 🎤, (empty) -->
         <button class="key-btn" data-key="tab">TAB</button>
-        <button class="key-btn" data-key="left">◀</button>
+        <button class="key-btn" data-key="esc">ESC</button>
         <button class="key-btn" data-key="up">▲</button>
-        <button class="key-btn" data-key="down">▼</button>
-        <button class="key-btn" data-key="right">▶</button>
+        <button class="key-btn mic" data-key="mic" id="mic-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" x2="12" y1="19" y2="22"/>
+          </svg>
+        </button>
+        <span></span>
+
+        <!-- Row 2: PASTE, (empty), ◀▼▶, (empty), ENTER -->
+        <button class="key-btn" data-key="paste">PASTE</button>
+        <span></span>
+        <div class="arrow-row">
+          <button class="key-btn" data-key="left">◀</button>
+          <button class="key-btn" data-key="down">▼</button>
+          <button class="key-btn" data-key="right">▶</button>
+        </div>
+        <span></span>
         <button class="key-btn enter" data-key="enter">⏎</button>
       </div>
     </div>
@@ -162,6 +545,48 @@
     <div id="status-bar">
       <span id="status">Connecting...</span>
       <span id="dimensions"></span>
+    </div>
+  </div>
+
+  <!-- Recording Indicator -->
+  <div id="recording-indicator">
+    <span class="rec-dot"></span>
+    Recording... Release to stop
+  </div>
+
+  <!-- Input Modal (for voice/text input) -->
+  <div id="input-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title">
+          <span class="modal-title-icon" id="modal-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" x2="12" y1="19" y2="22"/>
+            </svg>
+          </span>
+          <span id="modal-title-text">Voice Input</span>
+        </span>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div id="modal-body">
+        <div class="modal-input-container">
+          <textarea
+            class="modal-textarea"
+            id="modal-textarea"
+            placeholder="Type or use voice dictation..."
+          ></textarea>
+          <div class="modal-hint">
+            <span class="modal-hint-icon">💡</span>
+            <span id="modal-hint-text">Use keyboard microphone for voice dictation</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn cancel" id="modal-cancel">Cancel</button>
+        <button class="modal-btn send" id="modal-send">Send</button>
+      </div>
     </div>
   </div>
 
@@ -191,8 +616,248 @@
       'up': '\x1b[A',
       'down': '\x1b[B',
       'right': '\x1b[C',
-      'left': '\x1b[D'
+      'left': '\x1b[D',
+      'paste': '\x16' // Ctrl+V
     };
+
+    // Voice Recorder class
+    class VoiceRecorder {
+      constructor(options = {}) {
+        this.onTranscribe = options.onTranscribe || (() => {});
+        this.onStart = options.onStart || (() => {});
+        this.onStop = options.onStop || (() => {});
+        this.onError = options.onError || ((err) => console.error(err));
+        this.onPermissionNeeded = options.onPermissionNeeded || (() => {});
+
+        this.mediaRecorder = null;
+        this.chunks = [];
+        this.stream = null;
+        this.isRecording = false;
+        this.permissionGranted = false;
+      }
+
+      async checkPermission() {
+        try {
+          // Check if permissions API is available
+          if (navigator.permissions && navigator.permissions.query) {
+            const result = await navigator.permissions.query({ name: 'microphone' });
+            console.log('Microphone permission state:', result.state);
+            return result.state;
+          }
+          // Fallback: assume we need to request
+          return 'prompt';
+        } catch (err) {
+          console.log('Permissions API not available:', err);
+          return 'prompt';
+        }
+      }
+
+      async requestPermission() {
+        try {
+          // Request microphone access
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // Permission granted, stop the test stream
+          stream.getTracks().forEach(track => track.stop());
+          this.permissionGranted = true;
+          console.log('Microphone permission granted');
+          return true;
+        } catch (err) {
+          console.error('Microphone permission denied:', err);
+          this.permissionGranted = false;
+
+          // Determine error type
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            this.onError('Microphone access denied. Please allow microphone access in your browser settings.');
+          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            this.onError('No microphone found. Please connect a microphone.');
+          } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+            this.onError('Microphone is in use by another application.');
+          } else if (err.name === 'OverconstrainedError') {
+            this.onError('Microphone constraints cannot be satisfied.');
+          } else if (err.name === 'SecurityError') {
+            this.onError('Microphone access blocked. Page must be served over HTTPS.');
+          } else {
+            this.onError(`Microphone error: ${err.message || err.name}`);
+          }
+          return false;
+        }
+      }
+
+      async start() {
+        try {
+          // Check if mediaDevices API is available
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            // Check if we're on HTTPS or localhost
+            const isSecure = window.location.protocol === 'https:' ||
+                            window.location.hostname === 'localhost' ||
+                            window.location.hostname === '127.0.0.1';
+
+            if (!isSecure) {
+              this.onError('Microphone requires HTTPS. Access this page via localhost or enable HTTPS.');
+            } else {
+              this.onError('Microphone not supported in this browser.');
+            }
+            return;
+          }
+
+          // Check current permission state
+          const permState = await this.checkPermission();
+
+          if (permState === 'denied') {
+            this.onError('Microphone access denied. Please enable it in browser settings and reload the page.');
+            return;
+          }
+
+          // Request permission if needed
+          if (!this.permissionGranted && permState !== 'granted') {
+            this.onPermissionNeeded();
+          }
+
+          // Get microphone access
+          this.stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              sampleRate: 16000
+            }
+          });
+
+          this.permissionGranted = true;
+
+          // Detect supported format (important for iOS)
+          const mimeType = this.getSupportedMimeType();
+          console.log('Using audio format:', mimeType);
+
+          this.mediaRecorder = new MediaRecorder(this.stream, { mimeType });
+          this.chunks = [];
+
+          this.mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+              this.chunks.push(e.data);
+            }
+          };
+
+          this.mediaRecorder.onstop = async () => {
+            this.isRecording = false;
+            this.onStop();
+
+            if (this.chunks.length === 0) {
+              this.onError('No audio recorded');
+              return;
+            }
+
+            const blob = new Blob(this.chunks, { type: mimeType });
+            console.log('Audio blob size:', blob.size);
+
+            // Clean up stream
+            this.stream.getTracks().forEach(track => track.stop());
+
+            // Transcribe
+            try {
+              const text = await this.transcribe(blob, mimeType);
+              this.onTranscribe(text);
+            } catch (err) {
+              this.onError(err.message);
+            }
+          };
+
+          this.mediaRecorder.start();
+          this.isRecording = true;
+          this.onStart();
+          console.log('Recording started');
+
+        } catch (err) {
+          console.error('Failed to start recording:', err);
+
+          // Clean up any partial stream
+          if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+            this.stream = null;
+          }
+
+          // Determine error type and show appropriate message
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            this.onError('Microphone access denied. Please allow microphone access and try again.');
+          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            this.onError('No microphone found. Please connect a microphone.');
+          } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+            this.onError('Microphone is busy. Close other apps using it and try again.');
+          } else if (err.name === 'SecurityError') {
+            this.onError('Microphone blocked. Use HTTPS or localhost.');
+          } else {
+            this.onError(`Recording failed: ${err.message || 'Unknown error'}`);
+          }
+        }
+      }
+
+      stop() {
+        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+          this.mediaRecorder.stop();
+          console.log('Recording stopped');
+        }
+      }
+
+      cancel() {
+        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+          this.mediaRecorder.stop();
+        }
+        if (this.stream) {
+          this.stream.getTracks().forEach(track => track.stop());
+        }
+        this.chunks = [];
+        this.isRecording = false;
+      }
+
+      getSupportedMimeType() {
+        // Order of preference
+        const types = [
+          'audio/webm;codecs=opus',
+          'audio/webm',
+          'audio/mp4',
+          'audio/ogg;codecs=opus',
+          'audio/wav'
+        ];
+
+        for (const type of types) {
+          if (MediaRecorder.isTypeSupported(type)) {
+            return type;
+          }
+        }
+
+        return 'audio/webm'; // Fallback
+      }
+
+      async transcribe(blob, mimeType) {
+        // Get the orka server URL (same origin, different port)
+        const orkaPort = new URLSearchParams(window.location.search).get('orkaPort') || '3456';
+        const orkaHost = window.location.hostname;
+        const transcribeUrl = `http://${orkaHost}:${orkaPort}/api/transcribe`;
+
+        console.log('Sending audio to:', transcribeUrl);
+
+        const response = await fetch(transcribeUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': mimeType
+          },
+          body: blob
+        });
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ error: 'Transcription failed' }));
+          throw new Error(error.message || error.error || 'Transcription failed');
+        }
+
+        const result = await response.json();
+        console.log('Transcription result:', result);
+
+        if (!result.text || result.text.trim() === '') {
+          throw new Error('No speech detected');
+        }
+
+        return result.text.trim();
+      }
+    }
 
     class OrkaTerminal {
       constructor() {
@@ -205,6 +870,8 @@
         this.altPressed = false;
         this.authToken = '';
         this.retryTimeout = null;
+        this.voiceRecorder = null;
+        this.transcribedText = '';
 
         this.init();
       }
@@ -240,6 +907,261 @@
         this.setupKeyboard();
         this.setupResize();
         this.setupStatusBar();
+        this.setupVoiceRecorder();
+      }
+
+      setupVoiceRecorder() {
+        const micBtn = document.getElementById('mic-btn');
+        const recordingIndicator = document.getElementById('recording-indicator');
+
+        // Check if we can use native recording (HTTPS or localhost)
+        const canUseNativeRecording = navigator.mediaDevices &&
+          navigator.mediaDevices.getUserMedia &&
+          (window.location.protocol === 'https:' ||
+           window.location.hostname === 'localhost' ||
+           window.location.hostname === '127.0.0.1');
+
+        if (canUseNativeRecording) {
+          this.setupNativeRecording(micBtn, recordingIndicator);
+        } else {
+          // Use keyboard fallback (opens modal with textarea for native keyboard dictation)
+          this.setupKeyboardFallback(micBtn);
+        }
+
+        this.setupModalHandlers();
+      }
+
+      setupNativeRecording(micBtn, recordingIndicator) {
+        this.voiceRecorder = new VoiceRecorder({
+          onStart: () => {
+            micBtn.classList.add('recording');
+            recordingIndicator.innerHTML = '<span class="rec-dot"></span> Recording... Release to stop';
+            recordingIndicator.classList.add('visible');
+          },
+          onStop: () => {
+            micBtn.classList.remove('recording');
+            micBtn.classList.add('transcribing');
+            recordingIndicator.classList.remove('visible');
+            this.showProcessingState();
+          },
+          onTranscribe: (text) => {
+            micBtn.classList.remove('transcribing');
+            this.showTextInModal(text);
+          },
+          onError: (error) => {
+            micBtn.classList.remove('recording', 'transcribing');
+            recordingIndicator.classList.remove('visible');
+            this.showErrorInModal(error);
+          },
+          onPermissionNeeded: () => {
+            recordingIndicator.innerHTML = '<span class="rec-dot"></span> Allow microphone access...';
+            recordingIndicator.classList.add('visible');
+          }
+        });
+
+        // Hold to record (touch)
+        let recordingStarted = false;
+
+        micBtn.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          recordingStarted = true;
+          this.voiceRecorder.start();
+        }, { passive: false });
+
+        micBtn.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          if (recordingStarted) {
+            recordingStarted = false;
+            this.voiceRecorder.stop();
+          }
+        });
+
+        micBtn.addEventListener('touchcancel', (e) => {
+          e.preventDefault();
+          if (recordingStarted) {
+            recordingStarted = false;
+            this.voiceRecorder.cancel();
+            micBtn.classList.remove('recording');
+            recordingIndicator.classList.remove('visible');
+          }
+        });
+
+        // Mouse support for desktop
+        micBtn.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          recordingStarted = true;
+          this.voiceRecorder.start();
+        });
+
+        micBtn.addEventListener('mouseup', (e) => {
+          e.preventDefault();
+          if (recordingStarted) {
+            recordingStarted = false;
+            this.voiceRecorder.stop();
+          }
+        });
+
+        micBtn.addEventListener('mouseleave', () => {
+          if (recordingStarted) {
+            recordingStarted = false;
+            this.voiceRecorder.cancel();
+            micBtn.classList.remove('recording');
+            recordingIndicator.classList.remove('visible');
+          }
+        });
+      }
+
+      setupKeyboardFallback(micBtn) {
+        // Single tap opens modal with textarea for native keyboard dictation
+        micBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openInputModal('voice');
+        });
+      }
+
+      setupModalHandlers() {
+        const modal = document.getElementById('input-modal');
+        const modalClose = document.getElementById('modal-close');
+        const modalCancel = document.getElementById('modal-cancel');
+        const modalSend = document.getElementById('modal-send');
+        const modalTextarea = document.getElementById('modal-textarea');
+
+        const closeModal = () => {
+          modal.classList.remove('visible');
+          modalTextarea.value = '';
+        };
+
+        modalClose.addEventListener('click', closeModal);
+        modalCancel.addEventListener('click', closeModal);
+
+        modalSend.addEventListener('click', () => {
+          const text = modalTextarea.value.trim();
+          if (text) {
+            this.sendInput(text);
+            closeModal();
+          }
+        });
+
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) {
+            closeModal();
+          }
+        });
+
+        // Enable/disable send button based on input
+        modalTextarea.addEventListener('input', () => {
+          modalSend.disabled = !modalTextarea.value.trim();
+        });
+      }
+
+      openInputModal(type) {
+        const modal = document.getElementById('input-modal');
+        const modalIcon = document.getElementById('modal-icon');
+        const modalTitle = document.getElementById('modal-title-text');
+        const modalHint = document.getElementById('modal-hint-text');
+        const modalTextarea = document.getElementById('modal-textarea');
+        const modalSend = document.getElementById('modal-send');
+
+        if (type === 'voice') {
+          modalIcon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
+          modalTitle.textContent = 'Voice Input';
+          modalHint.textContent = 'Tap the microphone on your keyboard to dictate';
+          modalTextarea.placeholder = 'Type or use voice dictation...';
+        } else {
+          modalIcon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>';
+          modalTitle.textContent = 'Paste Text';
+          modalHint.textContent = 'Paste text from clipboard';
+          modalTextarea.placeholder = 'Paste your text here...';
+        }
+
+        modalTextarea.value = '';
+        modalSend.disabled = true;
+        modal.classList.add('visible');
+
+        // Focus textarea after modal is visible
+        setTimeout(() => modalTextarea.focus(), 100);
+      }
+
+      showProcessingState() {
+        const modal = document.getElementById('input-modal');
+        const modalBody = document.getElementById('modal-body');
+        const modalSend = document.getElementById('modal-send');
+
+        modalBody.innerHTML = `
+          <div class="transcription-status processing">
+            <div class="spinner"></div>
+            <span class="status-text">Transcribing audio...</span>
+            <span class="status-subtext">Please wait</span>
+          </div>
+        `;
+        modalSend.disabled = true;
+        modal.classList.add('visible');
+      }
+
+      showTextInModal(text) {
+        const modal = document.getElementById('input-modal');
+        const modalBody = document.getElementById('modal-body');
+        const modalTextarea = document.getElementById('modal-textarea');
+        const modalSend = document.getElementById('modal-send');
+
+        // Restore textarea
+        modalBody.innerHTML = `
+          <div class="modal-input-container">
+            <textarea
+              class="modal-textarea"
+              id="modal-textarea"
+              placeholder="Type or use voice dictation..."
+            ></textarea>
+            <div class="modal-hint">
+              <span class="modal-hint-icon">✓</span>
+              <span id="modal-hint-text">Transcription complete - edit if needed</span>
+            </div>
+          </div>
+        `;
+
+        const newTextarea = document.getElementById('modal-textarea');
+        newTextarea.value = text;
+        modalSend.disabled = false;
+        newTextarea.focus();
+        newTextarea.setSelectionRange(text.length, text.length);
+
+        // Re-add input listener
+        newTextarea.addEventListener('input', () => {
+          modalSend.disabled = !newTextarea.value.trim();
+        });
+      }
+
+      showErrorInModal(error) {
+        const modal = document.getElementById('input-modal');
+        const modalBody = document.getElementById('modal-body');
+        const modalSend = document.getElementById('modal-send');
+
+        modalBody.innerHTML = `
+          <div class="transcription-status" style="border: 2px solid #f38ba8;">
+            <span class="status-icon">⚠️</span>
+            <span class="status-text" style="color: #f38ba8;">${error}</span>
+            <span class="status-subtext">Try using the keyboard microphone instead</span>
+          </div>
+          <div class="modal-input-container" style="margin-top: 12px;">
+            <textarea
+              class="modal-textarea"
+              id="modal-textarea"
+              placeholder="Type or use voice dictation..."
+            ></textarea>
+          </div>
+        `;
+
+        const newTextarea = document.getElementById('modal-textarea');
+        modalSend.disabled = true;
+        newTextarea.focus();
+
+        newTextarea.addEventListener('input', () => {
+          modalSend.disabled = !newTextarea.value.trim();
+        });
+
+        modal.classList.add('visible');
       }
 
       createTerminal() {
@@ -321,7 +1243,7 @@
 
         // Clean up any existing socket before creating new one
         if (this.socket) {
-          this.socket.onclose = null; // Prevent recursive retry
+          this.socket.onclose = null;
           this.socket.onerror = null;
           this.socket.onmessage = null;
           this.socket.onopen = null;
@@ -348,18 +1270,11 @@
         this.socket.binaryType = 'arraybuffer';
 
         this.socket.onopen = () => {
-          this.retryCount = 0; // Reset on successful connection
-
-          // Clear terminal on reconnect to avoid duplicate content
-          // ttyd will resend the screen contents
+          this.retryCount = 0;
           this.term.clear();
-
-          // Re-fit terminal to ensure correct dimensions after reconnect
           this.fitAddon.fit();
 
-          // Small delay to let fit complete, then send auth and dimensions
           setTimeout(() => {
-            // Double-check socket is still open after delay
             if (this.socket?.readyState !== WebSocket.OPEN) {
               return;
             }
@@ -372,10 +1287,7 @@
             });
 
             this.socket.send(Command.JSON_DATA + authData);
-
-            // Also send explicit resize command to sync dimensions
             this.sendResize();
-
             this.updateStatus('Connected', true);
           }, 50);
         };
@@ -423,7 +1335,7 @@
         }
 
         this.retryCount++;
-        const delay = Math.min(1000 * this.retryCount, 5000); // 1s, 2s, 3s, 4s, 5s
+        const delay = Math.min(1000 * this.retryCount, 5000);
 
         this.updateStatus(`Reconnecting in ${delay/1000}s...`, false);
 
@@ -442,7 +1354,7 @@
         // Apply modifiers
         if (this.ctrlPressed && data.length === 1) {
           const char = data.toLowerCase();
-          const code = char.charCodeAt(0) - 96; // a=1, b=2, etc.
+          const code = char.charCodeAt(0) - 96;
           if (code >= 1 && code <= 26) {
             data = String.fromCharCode(code);
           }
@@ -454,37 +1366,78 @@
           this.toggleModifier('alt', false);
         }
 
-        // Send INPUT command - must be binary with command byte first
+        // Send INPUT command
         const dataBytes = this.textEncoder.encode(data);
         const payload = new Uint8Array(dataBytes.length + 1);
-        payload[0] = Command.INPUT.charCodeAt(0); // '0' = 48
+        payload[0] = Command.INPUT.charCodeAt(0);
         payload.set(dataBytes, 1);
         this.socket.send(payload);
-        console.log('Sent input:', data, 'bytes:', payload);
+        console.log('Sent input:', data.substring(0, 50));
       }
 
       sendKey(key) {
+        if (key === 'mic') {
+          // Handled by voice recorder
+          return;
+        }
+
+        if (key === 'paste') {
+          // Read from clipboard and paste
+          this.pasteFromClipboard();
+          return;
+        }
+
         const sequence = KeySequences[key];
         if (sequence) {
           this.sendInput(sequence);
-          // Don't focus terminal - it triggers native keyboard on mobile
         }
+      }
+
+      async pasteFromClipboard() {
+        console.log('Paste button clicked');
+
+        // Check if clipboard API is available
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+          console.log('Clipboard API not available, using fallback');
+          this.showPastePrompt();
+          return;
+        }
+
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text && text.trim()) {
+            this.sendInput(text);
+            console.log('Pasted:', text.substring(0, 50));
+          } else {
+            console.log('Clipboard is empty');
+            this.showPastePrompt();
+          }
+        } catch (err) {
+          console.error('Failed to read clipboard:', err);
+          // Show manual paste prompt as fallback
+          this.showPastePrompt();
+        }
+      }
+
+      showPastePrompt() {
+        this.openInputModal('paste');
       }
 
       toggleModifier(modifier, state) {
         if (modifier === 'ctrl') {
           this.ctrlPressed = state !== undefined ? state : !this.ctrlPressed;
-          document.getElementById('ctrl-btn').classList.toggle('active', this.ctrlPressed);
+          const btn = document.getElementById('ctrl-btn');
+          if (btn) btn.classList.toggle('active', this.ctrlPressed);
         } else if (modifier === 'alt') {
           this.altPressed = state !== undefined ? state : !this.altPressed;
-          document.getElementById('alt-btn').classList.toggle('active', this.altPressed);
+          const btn = document.getElementById('alt-btn');
+          if (btn) btn.classList.toggle('active', this.altPressed);
         }
       }
 
       setupKeyboard() {
         const keyboard = document.getElementById('virtual-keyboard');
 
-        // Handle both touch and click
         const handleKey = (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -493,25 +1446,30 @@
           if (!btn) return;
 
           const key = btn.dataset.key;
+
+          // Skip mic button - it's handled separately
+          if (key === 'mic') return;
+
           this.sendKey(key);
 
-          // Blur any focused element to prevent native keyboard
           if (document.activeElement && document.activeElement !== document.body) {
             document.activeElement.blur();
           }
         };
 
-        // Use pointerup for unified touch/mouse handling
         keyboard.addEventListener('pointerup', handleKey);
 
-        // Prevent default touch behaviors and focus
         keyboard.addEventListener('touchstart', (e) => {
-          e.preventDefault();
+          // Don't prevent default for mic button
+          if (!e.target.closest('.key-btn.mic')) {
+            e.preventDefault();
+          }
         }, { passive: false });
 
-        // Prevent focus on buttons
         keyboard.addEventListener('focus', (e) => {
-          e.target.blur();
+          if (!e.target.closest('.key-btn.mic')) {
+            e.target.blur();
+          }
         }, true);
       }
 
@@ -547,7 +1505,6 @@
         status.textContent = text;
         status.className = connected ? 'connected' : 'disconnected';
 
-        // Show retry style when disconnected
         const needsRetry = text.includes('tap to retry');
         statusBar.classList.toggle('retry', needsRetry);
       }
@@ -556,7 +1513,7 @@
         const statusBar = document.getElementById('status-bar');
         statusBar.addEventListener('click', () => {
           if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            this.retryCount = 0; // Reset on manual retry
+            this.retryCount = 0;
             this.connectWebSocket();
           }
         });

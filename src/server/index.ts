@@ -8,6 +8,7 @@ import { sessionsRouter } from './api/sessions'
 import { browseRouter } from './api/browse'
 import { filesRouter } from './api/files'
 import { gitRouter } from './api/git'
+import { transcribeRouter } from './api/transcribe'
 import { logger } from '../utils'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -36,6 +37,7 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/browse', browseRouter)
   app.use('/api/files', filesRouter)
   app.use('/api/git', gitRouter)
+  app.use('/api/transcribe', transcribeRouter)
 
   // Health check
   app.get('/api/health', (_req, res) => {
