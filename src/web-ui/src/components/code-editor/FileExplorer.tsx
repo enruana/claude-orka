@@ -7,7 +7,10 @@ import {
   useContextMenu,
   createCopyPathItem,
   createCopyRelativePathItem,
-  createCopyFileNameItem
+  createCopyFileNameItem,
+  createNewFileItem,
+  createNewFolderItem,
+  createDeleteItem
 } from './ContextMenu'
 import Editor from '@monaco-editor/react'
 import { FileText, Image as ImageIcon, File, AlertCircle, ArrowLeft, FolderOpen, Check } from 'lucide-react'
@@ -143,21 +146,103 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
   // Toast notification state
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
 
+  // Create file/folder modal state
+  const [createModal, setCreateModal] = useState<{
+    show: boolean
+    type: 'file' | 'directory'
+    parentPath: string
+  }>({ show: false, type: 'file', parentPath: '' })
+  const [createName, setCreateName] = useState('')
+
   // Show toast notification
   const showToast = useCallback((message: string) => {
     setToast({ show: true, message })
     setTimeout(() => setToast({ show: false, message: '' }), 2000)
   }, [])
 
+  // Load file tree function (extracted for reuse)
+  const loadTree = useCallback(async () => {
+    try {
+      const newTree = await api.getFileTree(encodedPath)
+      setTree(newTree)
+      setError(null)
+    } catch (err: any) {
+      setError(err.message || 'Failed to load file tree')
+    }
+  }, [encodedPath])
+
+  // Handle creating a new file or folder
+  const handleCreateFile = async () => {
+    if (!createName.trim()) return
+
+    const newPath = createModal.parentPath
+      ? `${createModal.parentPath}/${createName.trim()}`
+      : createName.trim()
+
+    try {
+      await api.createFile(encodedPath, newPath, createModal.type)
+      setCreateModal({ show: false, type: 'file', parentPath: '' })
+      setCreateName('')
+      await loadTree()
+      showToast(`${createModal.type === 'file' ? 'File' : 'Folder'} created`)
+
+      // If it's a file, open it
+      if (createModal.type === 'file') {
+        handleFileSelect(newPath)
+      }
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
+  // Handle deleting a file or folder
+  const handleDelete = async (path: string, isDirectory: boolean) => {
+    const name = path.split('/').pop() || path
+    if (!confirm(`Delete ${isDirectory ? 'folder' : 'file'} "${name}"?`)) return
+
+    try {
+      await api.deleteFile(encodedPath, path)
+      await loadTree()
+      showToast(`${isDirectory ? 'Folder' : 'File'} deleted`)
+
+      // Clear selection if deleted
+      if (selectedFile === path) {
+        setSelectedFile(null)
+        setFileContent(null)
+      }
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
   // Build context menu items for a path - must be before any early returns
   const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
     const fullPath = `${projectPath}/${path}`
 
-    return [
+    const items = [
       createCopyPathItem(fullPath, () => showToast('Path copied')),
       createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),
       ...(!isDirectory ? [createCopyFileNameItem(path, () => showToast('File name copied'))] : []),
     ]
+
+    // Add create options for directories
+    if (isDirectory) {
+      items.push(
+        createNewFileItem(() => {
+          setCreateModal({ show: true, type: 'file', parentPath: path })
+          setCreateName('')
+        }),
+        createNewFolderItem(() => {
+          setCreateModal({ show: true, type: 'directory', parentPath: path })
+          setCreateName('')
+        })
+      )
+    }
+
+    // Add delete option
+    items.push(createDeleteItem(() => handleDelete(path, isDirectory)))
+
+    return items
   }, [projectPath, showToast])
 
   // Handle context menu (right click)
@@ -170,22 +255,15 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
     handleLongPress(e, { path, isDirectory })
   }, [handleLongPress])
 
-  // Load file tree
+  // Load file tree on mount
   useEffect(() => {
-    const loadTree = async () => {
-      try {
-        setIsLoadingTree(true)
-        const tree = await api.getFileTree(encodedPath)
-        setTree(tree)
-        setError(null)
-      } catch (err: any) {
-        setError(err.message || 'Failed to load file tree')
-      } finally {
-        setIsLoadingTree(false)
-      }
+    const init = async () => {
+      setIsLoadingTree(true)
+      await loadTree()
+      setIsLoadingTree(false)
     }
-    loadTree()
-  }, [encodedPath])
+    init()
+  }, [loadTree])
 
   // Handle directory expansion
   const handleExpandDirectory = useCallback(async (path: string) => {
@@ -439,6 +517,48 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
     )
   }
 
+  // Render create file/folder modal
+  const renderCreateModal = () => {
+    if (!createModal.show) return null
+
+    return (
+      <div className="modal-overlay" onClick={() => setCreateModal({ show: false, type: 'file', parentPath: '' })}>
+        <div className="create-file-modal" onClick={(e) => e.stopPropagation()}>
+          <h3>New {createModal.type === 'file' ? 'File' : 'Folder'}</h3>
+          <p className="modal-subtitle">
+            In: <strong>{createModal.parentPath || '/'}</strong>
+          </p>
+          <input
+            type="text"
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+            placeholder={createModal.type === 'file' ? 'filename.ts' : 'folder-name'}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreateFile()
+              if (e.key === 'Escape') setCreateModal({ show: false, type: 'file', parentPath: '' })
+            }}
+          />
+          <div className="modal-buttons">
+            <button
+              className="button-secondary"
+              onClick={() => setCreateModal({ show: false, type: 'file', parentPath: '' })}
+            >
+              Cancel
+            </button>
+            <button
+              className="button-primary"
+              onClick={handleCreateFile}
+              disabled={!createName.trim()}
+            >
+              Create
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Mobile layout - show one view at a time
   if (isMobile) {
     return (
@@ -468,6 +588,7 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
         )}
         {renderContextMenu()}
         {renderToast()}
+        {renderCreateModal()}
       </div>
     )
   }
@@ -491,6 +612,7 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
       </div>
       {renderContextMenu()}
       {renderToast()}
+      {renderCreateModal()}
     </div>
   )
 }

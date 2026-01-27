@@ -243,6 +243,14 @@ function TreeNode({
   // Determine if we should use touch handlers
   const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window
 
+  // Handle drag start for dropping path to terminal
+  const handleDragStart = (e: React.DragEvent) => {
+    // Set the path in multiple formats for compatibility
+    e.dataTransfer.setData('text/x-orka-path', node.path)
+    e.dataTransfer.setData('text/plain', node.path)
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+
   return (
     <div className="tree-node-wrapper">
       <div
@@ -250,6 +258,8 @@ function TreeNode({
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={isTouchDevice ? undefined : handleClick}
         onContextMenu={handleContextMenu}
+        draggable
+        onDragStart={handleDragStart}
         {...(isTouchDevice ? longPressHandlers : {})}
       >
         {/* Expand/Collapse Arrow */}

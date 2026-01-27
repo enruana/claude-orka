@@ -275,6 +275,22 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
   },
 
+  async createFile(projectEncoded: string, filePath: string, type: 'file' | 'directory'): Promise<void> {
+    const res = await fetch(`${API_BASE}/files/create?project=${projectEncoded}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, type }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  async deleteFile(projectEncoded: string, filePath: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/files?project=${projectEncoded}&path=${encodeURIComponent(filePath)}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
   // Git operations
   async getGitStatus(projectEncoded: string): Promise<GitStatus> {
     const res = await fetch(`${API_BASE}/git/status?project=${projectEncoded}`)

@@ -45,6 +45,29 @@
       overflow-y: auto !important;
     }
 
+    /* Drag and drop visual feedback */
+    #terminal-container.drag-over {
+      outline: 2px dashed #89b4fa;
+      outline-offset: -2px;
+      background: rgba(137, 180, 250, 0.1);
+    }
+
+    #terminal-container.drag-over::after {
+      content: 'Drop file to paste path';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(30, 30, 46, 0.9);
+      color: #89b4fa;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      pointer-events: none;
+      z-index: 100;
+    }
+
     /* Virtual Keyboard */
     #virtual-keyboard {
       display: none;
@@ -244,17 +267,91 @@
       }
     }
 
-    /* Loading state */
-    #loading {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: #cdd6f4;
-      font-size: 14px;
+    /* Loading/Connection overlay */
+    #connection-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(30, 30, 46, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.3s ease;
     }
 
-    #loading.hidden {
+    #connection-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #connection-overlay.connected {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .connection-spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid #313244;
+      border-top-color: #89b4fa;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+
+    .connection-text {
+      color: #cdd6f4;
+      font-size: 16px;
+      font-weight: 500;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+
+    .connection-subtext {
+      color: #6c7086;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .connection-retry-btn {
+      margin-top: 20px;
+      background: #89b4fa;
+      color: #1e1e2e;
+      border: none;
+      border-radius: 12px;
+      padding: 12px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
+    }
+
+    .connection-retry-btn.visible {
+      display: block;
+    }
+
+    .connection-retry-btn:active {
+      background: #74c7ec;
+      transform: scale(0.98);
+    }
+
+    /* Error state */
+    #connection-overlay.error .connection-spinner {
+      border-color: #f38ba8;
+      border-top-color: #f38ba8;
+      animation: none;
+    }
+
+    #connection-overlay.error .connection-text {
+      color: #f38ba8;
+    }
+
+    /* Legacy loading for backwards compat */
+    #loading {
       display: none;
     }
 
@@ -510,6 +607,14 @@
 </head>
 <body>
   <div id="app">
+    <!-- Connection overlay -->
+    <div id="connection-overlay">
+      <div class="connection-spinner"></div>
+      <div class="connection-text">Connecting to terminal...</div>
+      <div class="connection-subtext">Please wait</div>
+      <button class="connection-retry-btn" id="connection-retry">Tap to retry</button>
+    </div>
+
     <div id="terminal-container">
       <div id="loading">Connecting...</div>
     </div>
@@ -906,6 +1011,7 @@
         this.connectWebSocket();
         this.setupKeyboard();
         this.setupResize();
+        this.setupSwipeScroll();
         this.setupStatusBar();
         this.setupVoiceRecorder();
       }
@@ -1246,6 +1352,86 @@
 
         document.getElementById('loading').classList.add('hidden');
 
+        // Handle drag and drop of files
+        this.setupDragAndDrop();
+
+        // Listen for postMessage from parent (for cross-tab drag and drop)
+        window.addEventListener('message', (event) => {
+          if (event.data && event.data.type === 'terminal-input' && event.data.text) {
+            this.sendInput(event.data.text);
+            this.term.focus();
+            console.log('Received input via postMessage:', event.data.text);
+          }
+        });
+
+        // Handle paste - intercept at the earliest point to prevent xterm's built-in handling
+        const handlePaste = (event) => {
+          const clipboardData = event.clipboardData || window.clipboardData;
+          if (clipboardData) {
+            const text = clipboardData.getData('text') || clipboardData.getData('text/plain');
+            if (text && text.length > 0) {
+              // IMPORTANT: Prevent default and stop propagation to block xterm's handling
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+
+              this.sendInput(text);
+              console.log('Pasted:', text.length, 'characters');
+              return true;
+            }
+          }
+          return false;
+        };
+
+        // Capture paste at document level with capture phase (runs before xterm)
+        document.addEventListener('paste', handlePaste, { capture: true });
+
+        // Handle Cmd+V / Ctrl+V - block xterm's default and use clipboard API
+        this.term.attachCustomKeyEventHandler((event) => {
+          // Check for Cmd+V (Mac) or Ctrl+V (Windows/Linux)
+          if ((event.metaKey || event.ctrlKey) && event.key === 'v' && event.type === 'keydown') {
+            console.log('Cmd+V detected');
+
+            // Prevent xterm from handling this - we'll handle paste via the paste event
+            // or via clipboard API
+            event.preventDefault();
+
+            // Try clipboard API as primary method
+            if (navigator.clipboard && navigator.clipboard.readText) {
+              navigator.clipboard.readText()
+                .then(text => {
+                  if (text && text.length > 0) {
+                    this.sendInput(text);
+                    console.log('Pasted via Clipboard API:', text.length, 'characters');
+                  }
+                })
+                .catch(err => {
+                  console.log('Clipboard API failed, relying on paste event:', err.message);
+                  // The paste event should still fire and handle it
+                });
+            }
+
+            // Return false to prevent xterm from processing this key
+            return false;
+          }
+
+          // Check for Cmd+C / Ctrl+C for copy
+          if ((event.metaKey || event.ctrlKey) && event.key === 'c' && event.type === 'keydown') {
+            const selection = this.term.getSelection();
+            if (selection) {
+              navigator.clipboard.writeText(selection).catch(err => {
+                console.error('Failed to copy:', err);
+              });
+              return false;
+            }
+            // If no selection, send Ctrl+C to terminal (interrupt)
+            return true;
+          }
+
+          // Allow all other keys
+          return true;
+        });
+
         // Handle terminal input
         this.term.onData((data) => {
           this.sendInput(data);
@@ -1292,22 +1478,44 @@
           this.term.clear();
           this.fitAddon.fit();
 
-          setTimeout(() => {
+          // Wait for layout to stabilize before sending auth
+          // Mobile devices need more time for proper dimension calculation
+          const sendAuthWhenReady = (attempts = 0) => {
             if (this.socket?.readyState !== WebSocket.OPEN) {
               return;
             }
 
+            // Try to fit the terminal
+            this.fitAddon.fit();
+
+            // Check if we have valid dimensions
+            if (!this.hasValidDimensions() && attempts < 10) {
+              // Retry after delay (up to 10 attempts = ~2 seconds)
+              console.log(`Waiting for valid dimensions (attempt ${attempts + 1})...`);
+              setTimeout(() => sendAuthWhenReady(attempts + 1), 200);
+              return;
+            }
+
             const { cols, rows } = this.term;
+
+            // Use fallback dimensions if still invalid after all attempts
+            const finalCols = cols > 0 ? cols : 80;
+            const finalRows = rows > 0 ? rows : 24;
+
             const authData = JSON.stringify({
               AuthToken: this.authToken,
-              columns: cols,
-              rows: rows
+              columns: finalCols,
+              rows: finalRows
             });
 
+            console.log(`Sending auth with dimensions: ${finalCols}x${finalRows}`);
             this.socket.send(Command.JSON_DATA + authData);
             this.sendResize();
             this.updateStatus('Connected', true);
-          }, 50);
+          };
+
+          // Start with initial delay for mobile layout
+          setTimeout(() => sendAuthWhenReady(0), 150);
         };
 
         this.socket.onmessage = (event) => {
@@ -1411,34 +1619,150 @@
         }
       }
 
-      async pasteFromClipboard() {
-        console.log('Paste button clicked');
+      async pasteFromClipboard(showPromptOnFailure = true) {
+        console.log('Paste requested');
 
-        // Check if clipboard API is available
-        if (!navigator.clipboard || !navigator.clipboard.readText) {
-          console.log('Clipboard API not available, using fallback');
-          this.showPastePrompt();
-          return;
+        // Method 1: Try Clipboard API
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          try {
+            this.term.focus();
+            const text = await navigator.clipboard.readText();
+            if (text && text.length > 0) {
+              this.sendInput(text);
+              console.log('Pasted via Clipboard API:', text.length, 'characters');
+              return;
+            }
+          } catch (err) {
+            console.log('Clipboard API failed:', err.message);
+          }
         }
 
+        // Method 2: Try using a hidden textarea with execCommand
         try {
-          const text = await navigator.clipboard.readText();
-          if (text && text.trim()) {
-            this.sendInput(text);
-            console.log('Pasted:', text.substring(0, 50));
-          } else {
-            console.log('Clipboard is empty');
-            this.showPastePrompt();
+          const textarea = document.createElement('textarea');
+          textarea.style.position = 'fixed';
+          textarea.style.left = '-9999px';
+          textarea.style.top = '0';
+          document.body.appendChild(textarea);
+          textarea.focus();
+
+          // Try to paste into the textarea
+          const pasted = document.execCommand('paste');
+          if (pasted && textarea.value) {
+            this.sendInput(textarea.value);
+            console.log('Pasted via execCommand:', textarea.value.length, 'characters');
+            document.body.removeChild(textarea);
+            this.term.focus();
+            return;
           }
+          document.body.removeChild(textarea);
         } catch (err) {
-          console.error('Failed to read clipboard:', err);
-          // Show manual paste prompt as fallback
+          console.log('execCommand paste failed:', err.message);
+        }
+
+        // Fallback: Show manual paste prompt
+        if (showPromptOnFailure) {
+          console.log('All paste methods failed, showing prompt');
           this.showPastePrompt();
         }
       }
 
       showPastePrompt() {
         this.openInputModal('paste');
+      }
+
+      setupDragAndDrop() {
+        const terminalContainer = document.getElementById('terminal-container');
+
+        // Prevent default drag behaviors
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+          terminalContainer.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          });
+        });
+
+        // Visual feedback on drag
+        ['dragenter', 'dragover'].forEach(eventName => {
+          terminalContainer.addEventListener(eventName, () => {
+            terminalContainer.classList.add('drag-over');
+          });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+          terminalContainer.addEventListener(eventName, () => {
+            terminalContainer.classList.remove('drag-over');
+          });
+        });
+
+        // Handle drop
+        terminalContainer.addEventListener('drop', (e) => {
+          const dataTransfer = e.dataTransfer;
+
+          // Check for custom data from our FileTree (internal drag)
+          const internalPath = dataTransfer.getData('text/x-orka-path');
+          if (internalPath) {
+            // Quote the path if it contains spaces
+            const quotedPath = internalPath.includes(' ') ? `"${internalPath}"` : internalPath;
+            this.sendInput(quotedPath);
+            this.term.focus();
+            console.log('Dropped internal path:', internalPath);
+            return;
+          }
+
+          // Check for plain text (could be a path from another source)
+          const textData = dataTransfer.getData('text/plain');
+          if (textData && textData.trim()) {
+            // Check if it looks like a path
+            if (textData.startsWith('/') || textData.startsWith('~') || textData.match(/^[a-zA-Z]:\\/)) {
+              const quotedPath = textData.includes(' ') ? `"${textData}"` : textData;
+              this.sendInput(quotedPath);
+              this.term.focus();
+              console.log('Dropped text path:', textData);
+              return;
+            }
+          }
+
+          // Handle external file drops
+          if (dataTransfer.files && dataTransfer.files.length > 0) {
+            const files = Array.from(dataTransfer.files);
+            const paths = files.map(file => {
+              // Web browsers only give us the filename, not the full path
+              // But we can still provide the name for reference
+              const name = file.name;
+              return name.includes(' ') ? `"${name}"` : name;
+            });
+
+            // Join multiple files with space
+            const pathsStr = paths.join(' ');
+            this.sendInput(pathsStr);
+            this.term.focus();
+
+            // Show hint that full paths aren't available in web
+            if (files.length === 1) {
+              console.log('Dropped file (name only, full path not available in web):', files[0].name);
+            } else {
+              console.log('Dropped', files.length, 'files (names only)');
+            }
+            return;
+          }
+
+          // Check for items (for directories, etc.)
+          if (dataTransfer.items && dataTransfer.items.length > 0) {
+            for (const item of dataTransfer.items) {
+              if (item.kind === 'string') {
+                item.getAsString((str) => {
+                  if (str && str.trim()) {
+                    const quotedStr = str.includes(' ') ? `"${str}"` : str;
+                    this.sendInput(quotedStr);
+                    this.term.focus();
+                  }
+                });
+                return;
+              }
+            }
+          }
+        });
       }
 
       toggleModifier(modifier, state) {
@@ -1492,21 +1816,218 @@
       }
 
       setupResize() {
+        // Throttled resize handler to prevent dimension spam
+        let resizeTimeout = null;
+        let lastResizeTime = 0;
+        const RESIZE_THROTTLE_MS = 150;
+
+        const throttledResize = () => {
+          const now = Date.now();
+
+          // Clear any pending resize
+          if (resizeTimeout) {
+            clearTimeout(resizeTimeout);
+          }
+
+          // If enough time has passed, resize immediately
+          if (now - lastResizeTime >= RESIZE_THROTTLE_MS) {
+            this.fitAddon.fit();
+            this.sendResize();
+            lastResizeTime = now;
+          } else {
+            // Otherwise, schedule a resize for later
+            resizeTimeout = setTimeout(() => {
+              this.fitAddon.fit();
+              this.sendResize();
+              lastResizeTime = Date.now();
+            }, RESIZE_THROTTLE_MS);
+          }
+        };
+
         const resizeObserver = new ResizeObserver(() => {
-          this.fitAddon.fit();
-          this.sendResize();
+          throttledResize();
         });
 
         resizeObserver.observe(document.getElementById('terminal-container'));
 
         window.addEventListener('resize', () => {
-          this.fitAddon.fit();
-          this.sendResize();
+          throttledResize();
         });
+
+        // Handle orientation change specifically (mobile)
+        window.addEventListener('orientationchange', () => {
+          // Longer delay for orientation change since layout needs to settle
+          setTimeout(() => {
+            this.fitAddon.fit();
+            this.sendResize();
+          }, 300);
+        });
+      }
+
+      setupSwipeScroll() {
+        const container = document.getElementById('terminal-container');
+
+        let touchStartY = 0;
+        let touchStartX = 0;
+        let touchStartTime = 0;
+        // Track touch position for sending scroll to correct tmux pane
+        let lastTouchX = 0;
+        let lastTouchY = 0;
+        let isSwiping = false;
+        let lastScrollTime = 0;
+
+        // Minimum distance to consider it a swipe (pixels)
+        const SWIPE_THRESHOLD = 30;
+        // Minimum velocity to trigger scroll (pixels/ms)
+        const VELOCITY_THRESHOLD = 0.3;
+        // Throttle scroll events (ms)
+        const SCROLL_THROTTLE = 50;
+
+        container.addEventListener('touchstart', (e) => {
+          if (e.touches.length === 1) {
+            touchStartY = e.touches[0].clientY;
+            touchStartX = e.touches[0].clientX;
+            lastTouchX = touchStartX;
+            lastTouchY = touchStartY;
+            touchStartTime = Date.now();
+            isSwiping = false;
+          }
+        }, { passive: true });
+
+        container.addEventListener('touchmove', (e) => {
+          if (e.touches.length !== 1) return;
+
+          const touchY = e.touches[0].clientY;
+          const touchX = e.touches[0].clientX;
+          const deltaY = touchStartY - touchY;
+          const deltaX = Math.abs(touchStartX - touchX);
+
+          // Track current touch position
+          lastTouchX = touchX;
+          lastTouchY = touchY;
+
+          // Only consider vertical swipes (ignore horizontal)
+          if (Math.abs(deltaY) > deltaX && Math.abs(deltaY) > SWIPE_THRESHOLD) {
+            isSwiping = true;
+
+            // Throttle scroll events
+            const now = Date.now();
+            if (now - lastScrollTime > SCROLL_THROTTLE) {
+              lastScrollTime = now;
+
+              // Send scroll: positive deltaY = swipe up = scroll up (show older content)
+              const scrollLines = Math.ceil(Math.abs(deltaY) / 30);
+              // Pass touch position so scroll goes to correct tmux pane
+              this.sendMouseScroll(deltaY > 0 ? 'up' : 'down', scrollLines, touchX, touchY);
+
+              // Update start position for continuous scrolling
+              touchStartY = touchY;
+            }
+
+            // Prevent default to stop page scrolling
+            e.preventDefault();
+          }
+        }, { passive: false });
+
+        container.addEventListener('touchend', (e) => {
+          if (!isSwiping) return;
+
+          const touchEndTime = Date.now();
+          const duration = touchEndTime - touchStartTime;
+
+          // Calculate velocity for momentum scrolling
+          if (duration > 0 && duration < 300) {
+            const velocity = Math.abs(touchStartY - (e.changedTouches[0]?.clientY || touchStartY)) / duration;
+
+            if (velocity > VELOCITY_THRESHOLD) {
+              // Add extra scroll lines for momentum
+              const extraLines = Math.ceil(velocity * 5);
+              const direction = touchStartY > (e.changedTouches[0]?.clientY || touchStartY) ? 'up' : 'down';
+              // Use last known touch position for correct tmux pane targeting
+              this.sendMouseScroll(direction, extraLines, lastTouchX, lastTouchY);
+            }
+          }
+
+          isSwiping = false;
+        }, { passive: true });
+
+        // Handle mouse wheel scroll (for desktop) - target correct tmux pane
+        container.addEventListener('wheel', (e) => {
+          // Use mouse position for correct tmux pane targeting
+          const direction = e.deltaY > 0 ? 'down' : 'up';
+          const lines = Math.max(1, Math.ceil(Math.abs(e.deltaY) / 50));
+          this.sendMouseScroll(direction, lines, e.clientX, e.clientY);
+
+          // Prevent page scroll
+          e.preventDefault();
+        }, { passive: false });
+      }
+
+      sendMouseScroll(direction, lines = 1, clientX = null, clientY = null) {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
+
+        // Validate dimensions before sending scroll events
+        if (!this.hasValidDimensions()) {
+          console.warn('Skipping scroll: invalid dimensions');
+          return;
+        }
+
+        const { cols, rows } = this.term;
+        let col, row;
+
+        // If touch position is provided, convert to terminal coordinates
+        if (clientX !== null && clientY !== null) {
+          const container = document.getElementById('terminal-container');
+          const rect = container.getBoundingClientRect();
+
+          // Calculate relative position within terminal
+          const relX = clientX - rect.left;
+          const relY = clientY - rect.top;
+
+          // Convert pixel position to terminal cell coordinates
+          // Terminal cell size = container size / cols (or rows)
+          const cellWidth = rect.width / cols;
+          const cellHeight = rect.height / rows;
+
+          col = Math.max(1, Math.min(cols, Math.floor(relX / cellWidth) + 1));
+          row = Math.max(1, Math.min(rows, Math.floor(relY / cellHeight) + 1));
+        } else {
+          // Fallback to center of terminal
+          col = Math.floor(cols / 2);
+          row = Math.floor(rows / 2);
+        }
+
+        // SGR mouse encoding for scroll wheel
+        // Button 64 = scroll up, Button 65 = scroll down
+        const button = direction === 'up' ? 64 : 65;
+
+        // Send multiple scroll events for faster scrolling
+        for (let i = 0; i < lines; i++) {
+          // SGR format: \x1b[<button;col;rowM
+          const scrollSequence = `\x1b[<${button};${col};${row}M`;
+          this.sendInput(scrollSequence);
+        }
+
+        console.log(`Scroll ${direction} x${lines} at col:${col} row:${row}`);
+      }
+
+      // Validate terminal dimensions are valid before sending
+      hasValidDimensions() {
+        if (!this.term) return false;
+        const { cols, rows } = this.term;
+        return cols > 0 && rows > 0 && !isNaN(cols) && !isNaN(rows);
       }
 
       sendResize() {
         if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
+
+        // Validate dimensions before sending
+        if (!this.hasValidDimensions()) {
+          console.warn('Skipping resize: invalid dimensions');
           return;
         }
 
@@ -1523,8 +2044,43 @@
         status.textContent = text;
         status.className = connected ? 'connected' : 'disconnected';
 
-        const needsRetry = text.includes('tap to retry');
+        const needsRetry = text.includes('tap to retry') || text.includes('Failed');
         statusBar.classList.toggle('retry', needsRetry);
+
+        // Update connection overlay
+        this.updateConnectionOverlay(text, connected, needsRetry);
+      }
+
+      updateConnectionOverlay(text, connected, needsRetry) {
+        const overlay = document.getElementById('connection-overlay');
+        const overlayText = overlay.querySelector('.connection-text');
+        const overlaySubtext = overlay.querySelector('.connection-subtext');
+        const retryBtn = document.getElementById('connection-retry');
+
+        if (connected) {
+          overlay.classList.add('connected');
+          overlay.classList.remove('error');
+          retryBtn.classList.remove('visible');
+        } else {
+          overlay.classList.remove('connected');
+
+          if (needsRetry) {
+            overlay.classList.add('error');
+            overlayText.textContent = 'Connection lost';
+            overlaySubtext.textContent = 'Unable to connect to terminal';
+            retryBtn.classList.add('visible');
+          } else if (text.includes('Reconnecting')) {
+            overlay.classList.remove('error');
+            overlayText.textContent = text;
+            overlaySubtext.textContent = 'Attempting to reconnect...';
+            retryBtn.classList.remove('visible');
+          } else {
+            overlay.classList.remove('error');
+            overlayText.textContent = text;
+            overlaySubtext.textContent = 'Please wait';
+            retryBtn.classList.remove('visible');
+          }
+        }
       }
 
       setupStatusBar() {
@@ -1534,6 +2090,13 @@
             this.retryCount = 0;
             this.connectWebSocket();
           }
+        });
+
+        // Setup retry button in overlay
+        const retryBtn = document.getElementById('connection-retry');
+        retryBtn.addEventListener('click', () => {
+          this.retryCount = 0;
+          this.connectWebSocket();
         });
       }
 

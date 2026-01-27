@@ -142,9 +142,13 @@
   align-items: center;
   gap: var(--space-xs);
   padding: 4px var(--space-md);
-  cursor: pointer;
+  cursor: grab;
   transition: background var(--transition-fast);
   user-select: none;
+}
+
+.tree-node:active {
+  cursor: grabbing;
 }
 
 .tree-node:hover {

@@ -23,24 +23,10 @@ interface FileTreeNode {
   children?: FileTreeNode[]
 }
 
-// Patterns to ignore when building file tree
+// Patterns to ignore when building file tree (minimal - only system files)
 const IGNORE_PATTERNS = [
-  'node_modules',
-  '.git',
-  '.claude-orka',
-  '.next',
-  '.nuxt',
-  'dist',
-  'build',
-  'coverage',
-  '__pycache__',
-  '.pytest_cache',
-  '.venv',
-  'venv',
   '.DS_Store',
   'Thumbs.db',
-  '.idea',
-  '.vscode',
 ]
 
 function decodeProjectPath(encoded: string): string {
@@ -67,8 +53,8 @@ async function buildFileTree(
   const nodes: FileTreeNode[] = []
 
   for (const entry of entries) {
-    // Skip ignored patterns and hidden files
-    if (IGNORE_PATTERNS.includes(entry.name) || entry.name.startsWith('.')) {
+    // Skip ignored patterns
+    if (IGNORE_PATTERNS.includes(entry.name)) {
       continue
     }
 

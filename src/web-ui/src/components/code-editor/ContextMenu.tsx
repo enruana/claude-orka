@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Copy, FileText, Folder, X } from 'lucide-react'
+import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2 } from 'lucide-react'
 
 export interface ContextMenuItem {
   label: string
@@ -321,5 +321,29 @@ export function createCopyFileNameItem(path: string, onCopied?: () => void): Con
         onCopied()
       }
     }
+  }
+}
+
+export function createNewFileItem(onNewFile: () => void): ContextMenuItem {
+  return {
+    label: 'New File',
+    icon: <FilePlus size={14} />,
+    onClick: onNewFile
+  }
+}
+
+export function createNewFolderItem(onNewFolder: () => void): ContextMenuItem {
+  return {
+    label: 'New Folder',
+    icon: <FolderPlus size={14} />,
+    onClick: onNewFolder
+  }
+}
+
+export function createDeleteItem(onDelete: () => void, label: string = 'Delete'): ContextMenuItem {
+  return {
+    label,
+    icon: <Trash2 size={14} />,
+    onClick: onDelete
   }
 }

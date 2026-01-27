@@ -59,12 +59,49 @@ export function SessionView({
   const [isMerging, setIsMerging] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [showThreadsOnMobile, setShowThreadsOnMobile] = useState(false)
+  const [isTerminalLoading, setIsTerminalLoading] = useState(true)
+  const [isTerminalTabDragOver, setIsTerminalTabDragOver] = useState(false)
   const terminalIframeRef = useRef<HTMLIFrameElement>(null)
 
   // Use controlled tab from props, or local state as fallback
   const [localTab, setLocalTab] = useState<RightPanelTab>(currentTab)
   const rightPanelTab = onTabChange ? currentTab : localTab
   const setRightPanelTab = onTabChange || setLocalTab
+
+  // Send input to terminal iframe via postMessage
+  const sendInputToTerminal = useCallback((text: string) => {
+    if (terminalIframeRef.current?.contentWindow) {
+      terminalIframeRef.current.contentWindow.postMessage(
+        { type: 'terminal-input', text },
+        '*'
+      )
+    }
+  }, [])
+
+  // Handle drop on terminal tab
+  const handleTerminalTabDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsTerminalTabDragOver(false)
+
+    // Get the path from the drag data
+    const internalPath = e.dataTransfer.getData('text/x-orka-path')
+    const textPath = e.dataTransfer.getData('text/plain')
+    const path = internalPath || textPath
+
+    if (path) {
+      // Quote path if it has spaces
+      const quotedPath = path.includes(' ') ? `"${path}"` : path
+
+      // Switch to terminal tab
+      setRightPanelTab('terminal')
+
+      // Send the path to terminal after a short delay to ensure tab is switched
+      setTimeout(() => {
+        sendInputToTerminal(quotedPath)
+        terminalIframeRef.current?.focus()
+      }, 100)
+    }
+  }, [setRightPanelTab, sendInputToTerminal])
 
   // Focus terminal iframe when switching to terminal tab
   useEffect(() => {
@@ -75,6 +112,13 @@ export function SessionView({
       }, 100)
     }
   }, [rightPanelTab])
+
+  // Reset terminal loading state when ttydPort changes
+  useEffect(() => {
+    if (session.ttydPort) {
+      setIsTerminalLoading(true)
+    }
+  }, [session.ttydPort])
 
   // Update browser tab title with project name
   useEffect(() => {
@@ -574,11 +618,22 @@ export function SessionView({
           {/* Panel Tabs */}
           <div className="right-panel-tabs">
             <button
-              className={`panel-tab ${rightPanelTab === 'terminal' ? 'active' : ''}`}
+              className={`panel-tab ${rightPanelTab === 'terminal' ? 'active' : ''} ${isTerminalTabDragOver ? 'drag-over' : ''}`}
               onClick={() => setRightPanelTab('terminal')}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setIsTerminalTabDragOver(true)
+              }}
+              onDragEnter={(e) => {
+                e.preventDefault()
+                setIsTerminalTabDragOver(true)
+              }}
+              onDragLeave={() => setIsTerminalTabDragOver(false)}
+              onDrop={handleTerminalTabDrop}
             >
               <Terminal size={14} />
               <span>Terminal</span>
+              {isTerminalTabDragOver && <span className="drop-hint">Drop here</span>}
             </button>
             <button
               className={`panel-tab ${rightPanelTab === 'code' ? 'active' : ''}`}
@@ -620,16 +675,27 @@ export function SessionView({
             {rightPanelTab === 'terminal' && (
               <div className="terminal-wrapper" onContextMenu={(e) => e.preventDefault()}>
                 {session.ttydPort ? (
-                  <iframe
-                    ref={terminalIframeRef}
-                    src={getTerminalUrl()}
-                    title="Terminal"
-                    className="terminal-iframe"
-                    allow="clipboard-read; clipboard-write"
-                    tabIndex={0}
-                    onLoad={() => terminalIframeRef.current?.focus()}
-                    onContextMenu={(e) => e.preventDefault()}
-                  />
+                  <>
+                    {isTerminalLoading && (
+                      <div className="terminal-loading-overlay">
+                        <div className="terminal-loading-spinner" />
+                        <p>Loading terminal...</p>
+                      </div>
+                    )}
+                    <iframe
+                      ref={terminalIframeRef}
+                      src={getTerminalUrl()}
+                      title="Terminal"
+                      className="terminal-iframe"
+                      allow="clipboard-read; clipboard-write"
+                      tabIndex={0}
+                      onLoad={() => {
+                        setIsTerminalLoading(false)
+                        terminalIframeRef.current?.focus()
+                      }}
+                      onContextMenu={(e) => e.preventDefault()}
+                    />
+                  </>
                 ) : (
                   <div className="terminal-placeholder">
                     <p>Terminal not available</p>

@@ -1,9 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, ChevronDown, ChevronUp, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2 } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronUp, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2, Check } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
 import { GitPanel } from './GitPanel'
 import { DiffViewer } from './DiffViewer'
+import {
+  ContextMenu,
+  useContextMenu,
+  createCopyPathItem,
+  createCopyRelativePathItem,
+  createCopyFileNameItem,
+  createNewFileItem,
+  createNewFolderItem,
+  createDeleteItem
+} from './ContextMenu'
 import { api, FileTreeNode, GitStatus, GitDiff } from '../../api/client'
 import './code-editor.css'
 
@@ -57,6 +67,26 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
   const [diffData, setDiffData] = useState<GitDiff | null>(null)
 
+  // Context menu state
+  const { contextMenu, hideContextMenu, handleContextMenu, handleLongPress } = useContextMenu()
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
+
+  // Create file/folder modal state
+  const [createModal, setCreateModal] = useState<{
+    show: boolean
+    type: 'file' | 'directory'
+    parentPath: string
+  }>({ show: false, type: 'file', parentPath: '' })
+  const [createName, setCreateName] = useState('')
+
+  // Show toast notification
+  const showToast = useCallback((message: string) => {
+    setToast({ show: true, message })
+    setTimeout(() => setToast({ show: false, message: '' }), 2000)
+  }, [])
+
   // Load file tree
   const loadFileTree = useCallback(async () => {
     try {
@@ -77,6 +107,93 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
       setGitStatus(null)
     }
   }, [encodedPath])
+
+  // Handle creating a new file or folder
+  const handleCreateFile = async () => {
+    if (!createName.trim()) return
+
+    const newPath = createModal.parentPath
+      ? `${createModal.parentPath}/${createName.trim()}`
+      : createName.trim()
+
+    try {
+      await api.createFile(encodedPath, newPath, createModal.type)
+      setCreateModal({ show: false, type: 'file', parentPath: '' })
+      setCreateName('')
+      await loadFileTree()
+      showToast(`${createModal.type === 'file' ? 'File' : 'Folder'} created`)
+
+      // If it's a file, open it
+      if (createModal.type === 'file') {
+        handleFileSelect(newPath)
+      }
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
+  // Handle deleting a file or folder
+  const handleDelete = async (path: string, isDirectory: boolean) => {
+    const name = path.split('/').pop() || path
+    if (!confirm(`Delete ${isDirectory ? 'folder' : 'file'} "${name}"?`)) return
+
+    try {
+      await api.deleteFile(encodedPath, path)
+      await loadFileTree()
+      showToast(`${isDirectory ? 'Folder' : 'File'} deleted`)
+
+      // Close tab if open
+      if (!isDirectory) {
+        setOpenTabs(prev => prev.filter(t => t.path !== path))
+        if (activeTab === path) {
+          const remaining = openTabs.filter(t => t.path !== path)
+          setActiveTab(remaining.length > 0 ? remaining[remaining.length - 1].path : null)
+        }
+      }
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
+  // Build context menu items for a path
+  const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
+    const fullPath = `${projectPath}/${path}`
+
+    const items = [
+      createCopyPathItem(fullPath, () => showToast('Path copied')),
+      createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),
+      ...(!isDirectory ? [createCopyFileNameItem(path, () => showToast('File name copied'))] : []),
+    ]
+
+    // Add create options for directories
+    if (isDirectory) {
+      items.push(
+        createNewFileItem(() => {
+          setCreateModal({ show: true, type: 'file', parentPath: path })
+          setCreateName('')
+        }),
+        createNewFolderItem(() => {
+          setCreateModal({ show: true, type: 'directory', parentPath: path })
+          setCreateName('')
+        })
+      )
+    }
+
+    // Add delete option
+    items.push(createDeleteItem(() => handleDelete(path, isDirectory)))
+
+    return items
+  }, [projectPath, showToast, encodedPath])
+
+  // Handle context menu (right click)
+  const handleTreeContextMenu = useCallback((e: React.MouseEvent, path: string, isDirectory: boolean) => {
+    handleContextMenu(e, { path, isDirectory })
+  }, [handleContextMenu])
+
+  // Handle long press (mobile)
+  const handleTreeLongPress = useCallback((e: React.TouchEvent | React.MouseEvent, path: string, isDirectory: boolean) => {
+    handleLongPress(e, { path, isDirectory })
+  }, [handleLongPress])
 
   // Initial load
   useEffect(() => {
@@ -344,6 +461,8 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
                 // Update tree with new children
                 setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
               }}
+              onContextMenu={handleTreeContextMenu}
+              onLongPress={handleTreeLongPress}
             />
           )}
         </aside>
@@ -436,6 +555,62 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
           </aside>
         )}
       </div>
+
+      {/* Context Menu */}
+      {contextMenu.show && contextMenu.data && (
+        <ContextMenu
+          items={buildContextMenuItems(contextMenu.data.path, contextMenu.data.isDirectory)}
+          position={contextMenu.position}
+          onClose={hideContextMenu}
+          title={contextMenu.data.path.split('/').pop() || contextMenu.data.path}
+        />
+      )}
+
+      {/* Toast Notification */}
+      {toast.show && (
+        <div className="copy-toast success">
+          <Check size={16} className="toast-icon" />
+          <span>{toast.message}</span>
+        </div>
+      )}
+
+      {/* Create File/Folder Modal */}
+      {createModal.show && (
+        <div className="modal-overlay" onClick={() => setCreateModal({ show: false, type: 'file', parentPath: '' })}>
+          <div className="create-file-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>New {createModal.type === 'file' ? 'File' : 'Folder'}</h3>
+            <p className="modal-subtitle">
+              In: <strong>{createModal.parentPath || '/'}</strong>
+            </p>
+            <input
+              type="text"
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              placeholder={createModal.type === 'file' ? 'filename.ts' : 'folder-name'}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreateFile()
+                if (e.key === 'Escape') setCreateModal({ show: false, type: 'file', parentPath: '' })
+              }}
+            />
+            <div className="modal-buttons">
+              <button
+                className="button-secondary"
+                onClick={() => setCreateModal({ show: false, type: 'file', parentPath: '' })}
+              >
+                Cancel
+              </button>
+              <button
+                className="button-primary"
+                onClick={handleCreateFile}
+                disabled={!createName.trim()}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
