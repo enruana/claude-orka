@@ -92,7 +92,7 @@
     .keyboard-grid > button:nth-child(2) { grid-area: 1 / 2; } /* ESC */
     .keyboard-grid > button:nth-child(3) { grid-area: 1 / 3; justify-self: center; } /* ▲ */
     .keyboard-grid > button:nth-child(4) { grid-area: 1 / 4; } /* MIC */
-    .keyboard-grid > span:nth-child(5) { grid-area: 1 / 5; } /* empty */
+    .keyboard-grid > .quick-actions-container { grid-area: 1 / 5; position: relative; } /* Quick Actions */
 
     /* Row 2 positioning */
     .keyboard-grid > button:nth-child(6) { grid-area: 2 / 1; } /* PASTE */
@@ -100,6 +100,13 @@
     .keyboard-grid > .arrow-row { grid-area: 2 / 3; justify-self: center; } /* arrows */
     .keyboard-grid > span:nth-child(9) { grid-area: 2 / 4; } /* empty */
     .keyboard-grid > button:nth-child(10) { grid-area: 2 / 5; } /* ENTER */
+
+    .quick-actions-container {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
 
     .arrow-row {
       display: flex;
@@ -232,6 +239,138 @@
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.8; transform: scale(1.05); }
+    }
+
+    /* Quick Actions button */
+    .key-btn.quick-actions {
+      background: linear-gradient(135deg, #f9e2af 0%, #fab387 100%);
+      border: none;
+      color: #1e1e2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      border-radius: 50%;
+      box-shadow: 0 2px 8px rgba(249, 226, 175, 0.3);
+      position: relative;
+    }
+
+    .key-btn.quick-actions:active {
+      background: linear-gradient(135deg, #fab387 0%, #f38ba8 100%);
+      transform: scale(0.95);
+    }
+
+    .key-btn.quick-actions svg {
+      display: block;
+      stroke: #1e1e2e;
+    }
+
+    .key-btn.quick-actions.active {
+      background: linear-gradient(135deg, #fab387 0%, #f38ba8 100%);
+      box-shadow: 0 2px 12px rgba(249, 226, 175, 0.5);
+    }
+
+    /* Quick Actions Popup */
+    #quick-actions-popup {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 12px);
+      right: 0;
+      background: #1e1e2e;
+      border: 1px solid #313244;
+      border-radius: 16px;
+      padding: 8px;
+      min-width: 180px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      z-index: 100;
+      animation: popupSlideUp 0.2s ease;
+    }
+
+    #quick-actions-popup.visible {
+      display: block;
+    }
+
+    @keyframes popupSlideUp {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .quick-action-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      color: #cdd6f4;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+    }
+
+    .quick-action-item:active {
+      background: #313244;
+      transform: scale(0.98);
+    }
+
+    .quick-action-item .action-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .quick-action-item .action-icon.keyboard {
+      background: linear-gradient(135deg, #89b4fa 0%, #74c7ec 100%);
+    }
+
+    .quick-action-item .action-icon.clear {
+      background: linear-gradient(135deg, #f38ba8 0%, #eba0ac 100%);
+    }
+
+    .quick-action-item .action-icon.scroll-top {
+      background: linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%);
+    }
+
+    .quick-action-item .action-icon.scroll-bottom {
+      background: linear-gradient(135deg, #cba6f7 0%, #b4befe 100%);
+    }
+
+    .quick-action-item .action-icon svg {
+      stroke: #1e1e2e;
+    }
+
+    .quick-action-item .action-text {
+      flex: 1;
+    }
+
+    .quick-actions-backdrop {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 99;
+    }
+
+    .quick-actions-backdrop.visible {
+      display: block;
     }
 
     /* Status bar */
@@ -603,6 +742,34 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.3; }
     }
+
+    /* Copy toast indicator */
+    #copy-toast {
+      display: none;
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%);
+      color: #1e1e2e;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 999;
+      box-shadow: 0 4px 16px rgba(166, 227, 161, 0.3);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    #copy-toast.visible {
+      display: block;
+      opacity: 1;
+    }
+
+    #copy-toast.fade-out {
+      opacity: 0;
+    }
   </style>
 </head>
 <body>
@@ -621,7 +788,7 @@
 
     <div id="virtual-keyboard">
       <div class="keyboard-grid">
-        <!-- Row 1: TAB, ESC, ▲, 🎤, (empty) -->
+        <!-- Row 1: TAB, ESC, ▲, 🎤, ⚡ -->
         <button class="key-btn" data-key="tab">TAB</button>
         <button class="key-btn" data-key="esc">ESC</button>
         <button class="key-btn" data-key="up">▲</button>
@@ -632,7 +799,48 @@
             <line x1="12" x2="12" y1="19" y2="22"/>
           </svg>
         </button>
-        <span></span>
+        <div class="quick-actions-container">
+          <button class="key-btn quick-actions" id="quick-actions-btn" data-key="quick-actions">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </button>
+          <div id="quick-actions-popup">
+            <button class="quick-action-item" data-action="keyboard">
+              <span class="action-icon keyboard">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="4" width="20" height="16" rx="2"/>
+                  <path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M6 16h12"/>
+                </svg>
+              </span>
+              <span class="action-text">Open Keyboard</span>
+            </button>
+            <button class="quick-action-item" data-action="scroll-top">
+              <span class="action-icon scroll-top">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 19V5M5 12l7-7 7 7"/>
+                </svg>
+              </span>
+              <span class="action-text">Scroll to Top</span>
+            </button>
+            <button class="quick-action-item" data-action="scroll-bottom">
+              <span class="action-icon scroll-bottom">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 5v14M5 12l7 7 7-7"/>
+                </svg>
+              </span>
+              <span class="action-text">Scroll to Bottom</span>
+            </button>
+            <button class="quick-action-item" data-action="clear">
+              <span class="action-icon clear">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                </svg>
+              </span>
+              <span class="action-text">Clear Terminal</span>
+            </button>
+          </div>
+        </div>
 
         <!-- Row 2: PASTE, (empty), ◀▼▶, (empty), ENTER -->
         <button class="key-btn" data-key="paste">PASTE</button>
@@ -647,6 +855,9 @@
       </div>
     </div>
 
+    <!-- Quick Actions Backdrop -->
+    <div class="quick-actions-backdrop" id="quick-actions-backdrop"></div>
+
     <div id="status-bar">
       <span id="status">Connecting...</span>
       <span id="dimensions"></span>
@@ -658,6 +869,9 @@
     <span class="rec-dot"></span>
     Recording... Release to stop
   </div>
+
+  <!-- Copy Toast -->
+  <div id="copy-toast">Copied!</div>
 
   <!-- Input Modal (for voice/text input) -->
   <div id="input-modal">
@@ -977,8 +1191,32 @@
         this.retryTimeout = null;
         this.voiceRecorder = null;
         this.transcribedText = '';
+        this.copyToastTimeout = null;
 
         this.init();
+      }
+
+      showCopyToast(charCount) {
+        const toast = document.getElementById('copy-toast');
+        if (!toast) return;
+
+        // Clear any existing timeout
+        if (this.copyToastTimeout) {
+          clearTimeout(this.copyToastTimeout);
+        }
+
+        toast.textContent = `Copied ${charCount} character${charCount !== 1 ? 's' : ''}`;
+        toast.classList.remove('fade-out');
+        toast.classList.add('visible');
+
+        // Start fade out after 1.5s
+        this.copyToastTimeout = setTimeout(() => {
+          toast.classList.add('fade-out');
+          // Remove after transition
+          setTimeout(() => {
+            toast.classList.remove('visible', 'fade-out');
+          }, 200);
+        }, 1500);
       }
 
       async init() {
@@ -1014,6 +1252,7 @@
         this.setupSwipeScroll();
         this.setupStatusBar();
         this.setupVoiceRecorder();
+        this.setupQuickActions();
       }
 
       setupVoiceRecorder() {
@@ -1340,6 +1579,61 @@
           e.preventDefault();
         });
 
+        // Prevent keyboard from auto-opening on touch devices
+        // xterm.js uses a hidden textarea to capture keyboard input
+        // We intercept focus and prevent it unless explicitly requested
+        const isTouchDevice = window.matchMedia('(pointer: coarse)').matches ||
+                              'ontouchstart' in window ||
+                              navigator.maxTouchPoints > 0;
+
+        if (isTouchDevice && !isDesktopMode && this.term.textarea) {
+          // Allow keyboard to be opened explicitly via Quick Actions
+          this.keyboardAllowed = false;
+
+          this.term.textarea.addEventListener('focus', (e) => {
+            if (!this.keyboardAllowed) {
+              // Blur immediately to prevent keyboard from opening
+              setTimeout(() => {
+                if (this.term.textarea && !this.keyboardAllowed) {
+                  this.term.textarea.blur();
+                }
+              }, 0);
+            }
+          });
+        }
+
+        // Clear accidental selections when terminal gains focus
+        // This prevents small selections from overwriting the clipboard when switching terminals
+        this.term.textarea.addEventListener('focus', () => {
+          // Small delay to let any click-based selection complete
+          setTimeout(() => {
+            const selection = this.term.getSelection();
+            // If selection is very small (likely accidental click), clear it
+            if (selection && selection.length < 3) {
+              this.term.clearSelection();
+            }
+          }, 50);
+        });
+
+        // Also clear tiny selections on mouseup/touchend to prevent accidental copies
+        container.addEventListener('mouseup', () => {
+          setTimeout(() => {
+            const selection = this.term.getSelection();
+            if (selection && selection.length < 3) {
+              this.term.clearSelection();
+            }
+          }, 10);
+        });
+
+        container.addEventListener('touchend', () => {
+          setTimeout(() => {
+            const selection = this.term.getSelection();
+            if (selection && selection.length < 3) {
+              this.term.clearSelection();
+            }
+          }, 10);
+        }, { passive: true });
+
         // Fit after layout is ready
         requestAnimationFrame(() => {
           this.fitAddon.fit();
@@ -1418,13 +1712,18 @@
           // Check for Cmd+C / Ctrl+C for copy
           if ((event.metaKey || event.ctrlKey) && event.key === 'c' && event.type === 'keydown') {
             const selection = this.term.getSelection();
-            if (selection) {
-              navigator.clipboard.writeText(selection).catch(err => {
+            // Only copy if selection is meaningful (3+ characters)
+            // This prevents accidental tiny selections from overwriting clipboard
+            if (selection && selection.length >= 3) {
+              navigator.clipboard.writeText(selection).then(() => {
+                console.log('Copied:', selection.length, 'characters');
+                this.showCopyToast(selection.length);
+              }).catch(err => {
                 console.error('Failed to copy:', err);
               });
               return false;
             }
-            // If no selection, send Ctrl+C to terminal (interrupt)
+            // If no meaningful selection, send Ctrl+C to terminal (interrupt)
             return true;
           }
 
@@ -1789,8 +2088,8 @@
 
           const key = btn.dataset.key;
 
-          // Skip mic button - it's handled separately
-          if (key === 'mic') return;
+          // Skip mic and quick-actions buttons - handled separately
+          if (key === 'mic' || key === 'quick-actions') return;
 
           this.sendKey(key);
 
@@ -1802,14 +2101,19 @@
         keyboard.addEventListener('pointerup', handleKey);
 
         keyboard.addEventListener('touchstart', (e) => {
-          // Don't prevent default for mic button
-          if (!e.target.closest('.key-btn.mic')) {
-            e.preventDefault();
+          // Don't prevent default for mic, quick-actions, or popup items
+          const target = e.target;
+          if (target.closest('.key-btn.mic') ||
+              target.closest('.key-btn.quick-actions') ||
+              target.closest('#quick-actions-popup') ||
+              target.closest('.quick-action-item')) {
+            return;
           }
+          e.preventDefault();
         }, { passive: false });
 
         keyboard.addEventListener('focus', (e) => {
-          if (!e.target.closest('.key-btn.mic')) {
+          if (!e.target.closest('.key-btn.mic') && !e.target.closest('.quick-actions-container')) {
             e.target.blur();
           }
         }, true);
@@ -2098,6 +2402,86 @@
           this.retryCount = 0;
           this.connectWebSocket();
         });
+      }
+
+      setupQuickActions() {
+        const quickActionsBtn = document.getElementById('quick-actions-btn');
+        const quickActionsPopup = document.getElementById('quick-actions-popup');
+        const backdrop = document.getElementById('quick-actions-backdrop');
+
+        // Toggle popup
+        const togglePopup = (show) => {
+          if (show) {
+            quickActionsPopup.classList.add('visible');
+            backdrop.classList.add('visible');
+            quickActionsBtn.classList.add('active');
+          } else {
+            quickActionsPopup.classList.remove('visible');
+            backdrop.classList.remove('visible');
+            quickActionsBtn.classList.remove('active');
+          }
+        };
+
+        // Toggle on button click
+        quickActionsBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const isVisible = quickActionsPopup.classList.contains('visible');
+          togglePopup(!isVisible);
+        });
+
+        // Close on backdrop click
+        backdrop.addEventListener('click', () => {
+          togglePopup(false);
+        });
+
+        // Handle action items
+        quickActionsPopup.querySelectorAll('.quick-action-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const action = item.dataset.action;
+            this.executeQuickAction(action);
+            togglePopup(false);
+          });
+        });
+      }
+
+      executeQuickAction(action) {
+        switch (action) {
+          case 'keyboard':
+            this.openNativeKeyboard();
+            break;
+          case 'scroll-top':
+            // Send Ctrl+Home or tmux scroll to top
+            this.sendMouseScroll('up', 100);
+            break;
+          case 'scroll-bottom':
+            // Send Ctrl+End or tmux scroll to bottom
+            this.sendMouseScroll('down', 100);
+            break;
+          case 'clear':
+            // Send Ctrl+L to clear terminal
+            this.sendInput('\x0c');
+            break;
+        }
+      }
+
+      openNativeKeyboard() {
+        // Allow keyboard focus temporarily
+        this.keyboardAllowed = true;
+
+        // Focus the terminal's internal textarea to open keyboard
+        if (this.term.textarea) {
+          this.term.textarea.focus();
+
+          // Track when keyboard closes to re-enable protection
+          const handleBlur = () => {
+            this.keyboardAllowed = false;
+            this.term.textarea.removeEventListener('blur', handleBlur);
+          };
+          this.term.textarea.addEventListener('blur', handleBlur);
+        }
       }
 
       showError(message) {

@@ -98,18 +98,31 @@ export function SessionView({
       // Send the path to terminal after a short delay to ensure tab is switched
       setTimeout(() => {
         sendInputToTerminal(quotedPath)
-        terminalIframeRef.current?.focus()
+        // Only focus on desktop - touch devices have virtual keyboard
+        const isTouchDevice = window.matchMedia('(pointer: coarse)').matches ||
+                              'ontouchstart' in window ||
+                              navigator.maxTouchPoints > 0
+        if (!isTouchDevice) {
+          terminalIframeRef.current?.focus()
+        }
       }, 100)
     }
   }, [setRightPanelTab, sendInputToTerminal])
 
-  // Focus terminal iframe when switching to terminal tab
+  // Focus terminal iframe when switching to terminal tab (desktop only)
   useEffect(() => {
     if (rightPanelTab === 'terminal' && terminalIframeRef.current) {
-      // Small delay to ensure iframe is visible
-      setTimeout(() => {
-        terminalIframeRef.current?.focus()
-      }, 100)
+      // Don't auto-focus on touch devices - it triggers the keyboard
+      // pointer: coarse catches most touch devices including iPad
+      const isTouchDevice = window.matchMedia('(pointer: coarse)').matches ||
+                            'ontouchstart' in window ||
+                            navigator.maxTouchPoints > 0
+      if (!isTouchDevice) {
+        // Small delay to ensure iframe is visible
+        setTimeout(() => {
+          terminalIframeRef.current?.focus()
+        }, 100)
+      }
     }
   }, [rightPanelTab])
 
@@ -691,7 +704,13 @@ export function SessionView({
                       tabIndex={0}
                       onLoad={() => {
                         setIsTerminalLoading(false)
-                        terminalIframeRef.current?.focus()
+                        // Don't auto-focus on touch devices - triggers keyboard
+                        const isTouchDevice = window.matchMedia('(pointer: coarse)').matches ||
+                                              'ontouchstart' in window ||
+                                              navigator.maxTouchPoints > 0
+                        if (!isTouchDevice) {
+                          terminalIframeRef.current?.focus()
+                        }
                       }}
                       onContextMenu={(e) => e.preventDefault()}
                     />

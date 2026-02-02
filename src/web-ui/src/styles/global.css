@@ -1285,6 +1285,9 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .panel-tab:hover {
