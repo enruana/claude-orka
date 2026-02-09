@@ -442,14 +442,25 @@ export class SessionManager {
     logger.debug(`Parent Claude session ID: ${parentClaudeSessionId}`)
     logger.debug(`Pre-generated fork Claude session ID: ${forkClaudeSessionId}`)
 
-    // 1. Crear split en tmux
+    // 1. Capturar estado actual de panes ANTES del split
+    const panesBeforeSplit = await TmuxCommands.listPanes(session.tmuxSessionId)
+    logger.debug(`Panes before split: ${panesBeforeSplit.join(', ')}`)
+
+    // 2. Crear split en tmux
     await TmuxCommands.splitPane(session.tmuxSessionId, vertical)
     await sleep(1000)
 
-    // 2. Obtener nuevo pane ID (último pane creado)
-    const allPanes = await TmuxCommands.listPanes(session.tmuxSessionId)
-    const forkPaneId = allPanes[allPanes.length - 1]
-    logger.debug(`Fork pane ID: ${forkPaneId}`)
+    // 3. Obtener panes DESPUÉS del split y encontrar el nuevo
+    const panesAfterSplit = await TmuxCommands.listPanes(session.tmuxSessionId)
+    logger.debug(`Panes after split: ${panesAfterSplit.join(', ')}`)
+
+    // Encontrar el pane nuevo (el que no existía antes)
+    const newPanes = panesAfterSplit.filter(pane => !panesBeforeSplit.includes(pane))
+    if (newPanes.length === 0) {
+      throw new Error('Failed to create new pane - no new pane detected after split')
+    }
+    const forkPaneId = newPanes[0]
+    logger.debug(`Fork pane ID (new pane detected): ${forkPaneId}`)
 
     // 2.5. Set pane title to show fork name
     await TmuxCommands.setPaneTitle(forkPaneId, `🔀 ${forkName}`)
@@ -511,15 +522,27 @@ export class SessionManager {
       }
     }
 
-    // 1. Crear split en tmux
+    // 1. Capturar estado actual de panes ANTES del split
+    const panesBeforeSplit = await TmuxCommands.listPanes(session.tmuxSessionId)
+    logger.debug(`Panes before split (resume): ${panesBeforeSplit.join(', ')}`)
+
+    // 2. Crear split en tmux
     await TmuxCommands.splitPane(session.tmuxSessionId, false)
     await sleep(1000)
 
-    // 2. Obtener nuevo pane ID
-    const allPanes = await TmuxCommands.listPanes(session.tmuxSessionId)
-    const forkPaneId = allPanes[allPanes.length - 1]
+    // 3. Obtener panes DESPUÉS del split y encontrar el nuevo
+    const panesAfterSplit = await TmuxCommands.listPanes(session.tmuxSessionId)
+    logger.debug(`Panes after split (resume): ${panesAfterSplit.join(', ')}`)
 
-    // 2.5. Set pane title to show fork name
+    // Encontrar el pane nuevo (el que no existía antes)
+    const newPanes = panesAfterSplit.filter(pane => !panesBeforeSplit.includes(pane))
+    if (newPanes.length === 0) {
+      throw new Error('Failed to create new pane for fork resume - no new pane detected after split')
+    }
+    const forkPaneId = newPanes[0]
+    logger.debug(`Fork pane ID (resume, new pane detected): ${forkPaneId}`)
+
+    // 4. Set pane title to show fork name
     await TmuxCommands.setPaneTitle(forkPaneId, `🔀 ${fork.name}`)
 
     // 3. Restaurar Claude fork session (Claude maneja el contexto)

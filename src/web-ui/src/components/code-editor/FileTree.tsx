@@ -191,7 +191,7 @@ function TreeNode({
   onContextMenu,
   onLongPress,
 }: TreeNodeProps) {
-  const [expanded, setExpanded] = useState(depth < 2) // Auto-expand first two levels
+  const [expanded, setExpanded] = useState(false) // All folders closed by default
   const [loading, setLoading] = useState(false)
 
   const isDirectory = node.type === 'directory'

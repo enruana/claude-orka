@@ -48,6 +48,7 @@ export function doctorCommand(program: Command) {
 
         // Check Whisper dependencies (for speech-to-text)
         results.push(await checkMake())
+        results.push(await checkCmake())
         results.push(await checkWhisperModel())
 
         // Display results
@@ -286,6 +287,28 @@ async function checkMake(): Promise<CheckResult> {
       message: 'Not found',
       details: 'make is required for speech-to-text feature',
       fix: 'Install build tools:\n  macOS: xcode-select --install\n  Ubuntu: sudo apt-get install build-essential',
+    }
+  }
+}
+
+async function checkCmake(): Promise<CheckResult> {
+  try {
+    const { stdout } = await execa('cmake', ['--version'])
+    const version = stdout.split('\n')[0]
+
+    return {
+      name: 'cmake (Whisper)',
+      status: 'pass',
+      message: version,
+      details: 'Required for compiling Whisper model',
+    }
+  } catch (error) {
+    return {
+      name: 'cmake (Whisper)',
+      status: 'warn',
+      message: 'Not found',
+      details: 'cmake is required for speech-to-text feature',
+      fix: 'Install cmake:\n  macOS: brew install cmake\n  Ubuntu: sudo apt-get install cmake',
     }
   }
 }

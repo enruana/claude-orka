@@ -17,6 +17,11 @@ import {
   ChevronUp,
   GitBranch,
   FolderOpen,
+  Mic,
+  MicOff,
+  Send,
+  X,
+  Loader2,
 } from 'lucide-react'
 import { SessionCodeEditor, FileExplorer } from './code-editor'
 import { encodeProjectPath } from './ProjectDashboard'
@@ -59,9 +64,18 @@ export function SessionView({
   const [isMerging, setIsMerging] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [showThreadsOnMobile, setShowThreadsOnMobile] = useState(false)
+  const [showThreadsPopover, setShowThreadsPopover] = useState(false)
   const [isTerminalLoading, setIsTerminalLoading] = useState(true)
   const [isTerminalTabDragOver, setIsTerminalTabDragOver] = useState(false)
+  const [showVoiceModal, setShowVoiceModal] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
+  const [transcribedText, setTranscribedText] = useState('')
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const terminalIframeRef = useRef<HTMLIFrameElement>(null)
+  const threadsPopoverRef = useRef<HTMLDivElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
 
   // Use controlled tab from props, or local state as fallback
   const [localTab, setLocalTab] = useState<RightPanelTab>(currentTab)
@@ -77,6 +91,128 @@ export function SessionView({
       )
     }
   }, [])
+
+  // Voice recording functions
+  const startRecording = useCallback(async () => {
+    try {
+      setVoiceError(null)
+      setTranscribedText('')
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 16000
+        }
+      })
+
+      // Detect supported format
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : 'audio/webm'
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType })
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data)
+        }
+      }
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop())
+
+        if (audioChunksRef.current.length === 0) {
+          setVoiceError('No audio recorded')
+          setIsRecording(false)
+          return
+        }
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
+        await transcribeAudio(audioBlob, mimeType)
+      }
+
+      mediaRecorder.start()
+      setIsRecording(true)
+    } catch (err: any) {
+      console.error('Failed to start recording:', err)
+      if (err.name === 'NotAllowedError') {
+        setVoiceError('Microphone access denied. Please allow microphone access.')
+      } else if (err.name === 'NotFoundError') {
+        setVoiceError('No microphone found.')
+      } else {
+        setVoiceError(`Recording failed: ${err.message}`)
+      }
+    }
+  }, [])
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      setIsTranscribing(true)
+    }
+  }, [])
+
+  const transcribeAudio = useCallback(async (audioBlob: Blob, mimeType: string) => {
+    try {
+      const response = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': mimeType
+        },
+        body: audioBlob
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Transcription failed' }))
+        throw new Error(error.message || error.error || 'Transcription failed')
+      }
+
+      const result = await response.json()
+
+      if (!result.text || result.text.trim() === '') {
+        setVoiceError('No speech detected. Please try again.')
+      } else {
+        setTranscribedText(result.text.trim())
+      }
+    } catch (err: any) {
+      console.error('Transcription error:', err)
+      setVoiceError(`Transcription failed: ${err.message}`)
+    } finally {
+      setIsTranscribing(false)
+    }
+  }, [])
+
+  const handleSendTranscription = useCallback(() => {
+    if (transcribedText.trim()) {
+      sendInputToTerminal(transcribedText.trim())
+      setShowVoiceModal(false)
+      setTranscribedText('')
+      setVoiceError(null)
+      // Focus terminal after sending
+      setTimeout(() => {
+        terminalIframeRef.current?.focus()
+      }, 100)
+    }
+  }, [transcribedText, sendInputToTerminal])
+
+  const closeVoiceModal = useCallback(() => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop()
+    }
+    setShowVoiceModal(false)
+    setIsRecording(false)
+    setIsTranscribing(false)
+    setTranscribedText('')
+    setVoiceError(null)
+  }, [isRecording])
 
   // Handle drop on terminal tab
   const handleTerminalTabDrop = useCallback((e: React.DragEvent) => {
@@ -143,6 +279,17 @@ export function SessionView({
       document.title = 'Claude Orka'
     }
   }, [project.path])
+
+  // Close threads popover when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (showThreadsPopover && threadsPopoverRef.current && !threadsPopoverRef.current.contains(e.target as Node)) {
+        setShowThreadsPopover(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showThreadsPopover])
 
   // Refresh session data
   const refreshSession = useCallback(async () => {
@@ -434,6 +581,83 @@ export function SessionView({
           </div>
         </div>
         <div className="header-right desktop-only">
+          <div className="threads-popover-container" ref={threadsPopoverRef}>
+            <button
+              className={`threads-button ${showThreadsPopover ? 'active' : ''}`}
+              onClick={() => setShowThreadsPopover(!showThreadsPopover)}
+              title="Threads"
+            >
+              <GitBranch size={16} />
+              <span className="btn-text">
+                {selectedNode === 'main' ? 'main' : selectedFork?.name || selectedNode}
+              </span>
+              <span className={`status-dot-small ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`} />
+              {session.forks.length > 0 && (
+                <span className="threads-count">{session.forks.length}</span>
+              )}
+              <ChevronDown size={14} className={`chevron ${showThreadsPopover ? 'rotated' : ''}`} />
+            </button>
+
+            {showThreadsPopover && (
+              <div className="threads-popover">
+                <div className="threads-popover-section">
+                  <div className="threads-popover-header">
+                    <h3>Threads</h3>
+                  </div>
+                  {renderThreadTree()}
+                </div>
+
+                <div className="threads-popover-section">
+                  <div className="threads-popover-header">
+                    <h3>Active: {selectedNode === 'main' ? 'main' : selectedFork?.name || selectedNode}</h3>
+                    <span className={`status-badge small ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}>
+                      {selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="threads-popover-actions">
+                  <button
+                    className="popover-action-btn primary"
+                    onClick={() => { handleCreateFork(); setShowThreadsPopover(false); }}
+                    disabled={!canCreateFork || isCreatingFork}
+                  >
+                    <MessageSquarePlus size={14} />
+                    {isCreatingFork ? 'Creating...' : 'New Thread'}
+                  </button>
+
+                  {selectedNode !== 'main' && (
+                    <>
+                      <button
+                        className="popover-action-btn"
+                        onClick={() => { handleExportFork(); setShowThreadsPopover(false); }}
+                        disabled={isExporting}
+                      >
+                        <FileText size={14} />
+                        {isExporting ? 'Summarizing...' : 'Summarize'}
+                      </button>
+                      <button
+                        className="popover-action-btn"
+                        onClick={() => { handleMergeFork(); setShowThreadsPopover(false); }}
+                        disabled={isMerging}
+                      >
+                        <MessagesSquare size={14} />
+                        {isMerging ? 'Merging...' : 'Merge'}
+                      </button>
+                      <button
+                        className="popover-action-btn danger"
+                        onClick={() => { handleCloseFork(); setShowThreadsPopover(false); }}
+                        disabled={isClosing}
+                      >
+                        <Square size={14} />
+                        {isClosing ? 'Closing...' : 'Close'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <button className="icon-button" onClick={refreshSession} title="Refresh">
             <RefreshCw size={18} />
           </button>
@@ -470,7 +694,7 @@ export function SessionView({
             disabled={!session.ttydPort}
           >
             <Terminal size={28} />
-            <span>Terminal</span>
+            <span>Claude Code</span>
           </button>
           <button
             className="mobile-action-card code"
@@ -548,86 +772,10 @@ export function SessionView({
         </div>
       </div>
 
-      {/* Desktop Two-panel layout */}
+      {/* Desktop layout - full width panel */}
       <div className="session-panels desktop-only">
-        {/* Left Panel - Thread Tree & Actions */}
-        <div className="left-panel">
-          <div className="panel-section">
-            <div className="panel-header">
-              <h2>Threads</h2>
-            </div>
-            {renderThreadTree()}
-          </div>
-
-          {/* Selected thread info */}
-          <div className="panel-section selected-info">
-            <div className="panel-header">
-              <h2>Active Thread</h2>
-            </div>
-            <div className="selected-thread-card">
-              <span className={`thread-node-dot large ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}>
-                <span className="dot-inner" />
-              </span>
-              <div className="selected-thread-info">
-                <span className="selected-thread-name">
-                  {selectedNode === 'main' ? 'main' : selectedFork?.name || selectedNode}
-                </span>
-                <span className={`selected-thread-status ${selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}`}>
-                  {selectedNode === 'main' ? session.status : selectedFork?.status || 'active'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="panel-section actions-section">
-            <div className="panel-header">
-              <h2>Actions</h2>
-            </div>
-            <div className="action-buttons-vertical">
-              <button
-                className="action-btn-full primary"
-                onClick={handleCreateFork}
-                disabled={!canCreateFork || isCreatingFork}
-              >
-                <MessageSquarePlus size={16} />
-                {isCreatingFork ? 'Creating...' : 'New Thread'}
-              </button>
-
-              {selectedNode !== 'main' && (
-                <>
-                  <button
-                    className="action-btn-full"
-                    onClick={handleExportFork}
-                    disabled={isExporting}
-                  >
-                    <FileText size={16} />
-                    {isExporting ? 'Summarizing...' : 'Summarize'}
-                  </button>
-                  <button
-                    className="action-btn-full"
-                    onClick={handleMergeFork}
-                    disabled={isMerging}
-                  >
-                    <MessagesSquare size={16} />
-                    {isMerging ? 'Merging...' : 'Merge to Main'}
-                  </button>
-                  <button
-                    className="action-btn-full danger"
-                    onClick={handleCloseFork}
-                    disabled={isClosing}
-                  >
-                    <Square size={16} />
-                    {isClosing ? 'Closing...' : 'Close Thread'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Panel - Terminal/Code */}
-        <div className="right-panel">
+        {/* Main Panel - Terminal/Code/Files */}
+        <div className="main-panel">
           {/* Panel Tabs */}
           <div className="right-panel-tabs">
             <button
@@ -645,7 +793,7 @@ export function SessionView({
               onDrop={handleTerminalTabDrop}
             >
               <Terminal size={14} />
-              <span>Terminal</span>
+              <span>Claude Code</span>
               {isTerminalTabDragOver && <span className="drop-hint">Drop here</span>}
             </button>
             <button
@@ -667,7 +815,7 @@ export function SessionView({
               <button
                 className="icon-button"
                 onClick={handleOpenTerminalInNewTab}
-                title="Open Terminal in new tab"
+                title="Open Claude Code in new tab"
               >
                 <ExternalLink size={14} />
               </button>
@@ -683,63 +831,68 @@ export function SessionView({
             )}
           </div>
 
-          {/* Panel Content */}
+          {/* Panel Content - All tabs stay mounted to preserve state */}
           <div className="right-panel-content">
-            {rightPanelTab === 'terminal' && (
-              <div className="terminal-wrapper" onContextMenu={(e) => e.preventDefault()}>
-                {session.ttydPort ? (
-                  <>
-                    {isTerminalLoading && (
-                      <div className="terminal-loading-overlay">
-                        <div className="terminal-loading-spinner" />
-                        <p>Loading terminal...</p>
-                      </div>
-                    )}
-                    <iframe
-                      ref={terminalIframeRef}
-                      src={getTerminalUrl()}
-                      title="Terminal"
-                      className="terminal-iframe"
-                      allow="clipboard-read; clipboard-write"
-                      tabIndex={0}
-                      onLoad={() => {
-                        setIsTerminalLoading(false)
-                        // Don't auto-focus on touch devices - triggers keyboard
-                        const isTouchDevice = window.matchMedia('(pointer: coarse)').matches ||
-                                              'ontouchstart' in window ||
-                                              navigator.maxTouchPoints > 0
-                        if (!isTouchDevice) {
-                          terminalIframeRef.current?.focus()
-                        }
-                      }}
-                      onContextMenu={(e) => e.preventDefault()}
-                    />
-                  </>
-                ) : (
-                  <div className="terminal-placeholder">
-                    <p>Terminal not available</p>
-                    <p className="hint">Session may need to be resumed</p>
-                  </div>
-                )}
-              </div>
-            )}
-            {rightPanelTab === 'code' && (
-              <div className="code-editor-wrapper">
-                <SessionCodeEditor
-                  projectPath={project.path}
-                  encodedPath={encodedPath}
-                  onOpenInNewTab={handleOpenCodeInNewTab}
-                />
-              </div>
-            )}
-            {rightPanelTab === 'files' && (
-              <div className="file-explorer-wrapper">
-                <FileExplorer
-                  projectPath={project.path}
-                  encodedPath={encodedPath}
-                />
-              </div>
-            )}
+            <div
+              className={`terminal-wrapper ${rightPanelTab === 'terminal' ? 'tab-visible' : 'tab-hidden'}`}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              {session.ttydPort ? (
+                <>
+                  {isTerminalLoading && (
+                    <div className="terminal-loading-overlay">
+                      <div className="terminal-loading-spinner" />
+                      <p>Loading terminal...</p>
+                    </div>
+                  )}
+                  <iframe
+                    ref={terminalIframeRef}
+                    src={getTerminalUrl()}
+                    title="Claude Code"
+                    className="terminal-iframe"
+                    allow="clipboard-read; clipboard-write"
+                    tabIndex={rightPanelTab === 'terminal' ? 0 : -1}
+                    onLoad={() => {
+                      setIsTerminalLoading(false)
+                      // Don't auto-focus on touch devices - triggers keyboard
+                      const isTouchDevice = window.matchMedia('(pointer: coarse)').matches ||
+                                            'ontouchstart' in window ||
+                                            navigator.maxTouchPoints > 0
+                      if (!isTouchDevice && rightPanelTab === 'terminal') {
+                        terminalIframeRef.current?.focus()
+                      }
+                    }}
+                    onContextMenu={(e) => e.preventDefault()}
+                  />
+                  {/* Floating voice button */}
+                  <button
+                    className="voice-fab"
+                    onClick={() => setShowVoiceModal(true)}
+                    title="Voice input"
+                  >
+                    <Mic size={20} />
+                  </button>
+                </>
+              ) : (
+                <div className="terminal-placeholder">
+                  <p>Claude Code not available</p>
+                  <p className="hint">Session may need to be resumed</p>
+                </div>
+              )}
+            </div>
+            <div className={`code-editor-wrapper ${rightPanelTab === 'code' ? 'tab-visible' : 'tab-hidden'}`}>
+              <SessionCodeEditor
+                projectPath={project.path}
+                encodedPath={encodedPath}
+                onOpenInNewTab={handleOpenCodeInNewTab}
+              />
+            </div>
+            <div className={`file-explorer-wrapper ${rightPanelTab === 'files' ? 'tab-visible' : 'tab-hidden'}`}>
+              <FileExplorer
+                projectPath={project.path}
+                encodedPath={encodedPath}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -771,6 +924,87 @@ export function SessionView({
               >
                 {isCreatingFork ? 'Creating...' : 'Create Thread'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Voice Input Modal */}
+      {showVoiceModal && (
+        <div className="modal-overlay" onClick={closeVoiceModal}>
+          <div className="voice-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="voice-modal-header">
+              <h3>Voice Input</h3>
+              <button className="voice-modal-close" onClick={closeVoiceModal}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="voice-modal-content">
+              {/* Recording state */}
+              {!isRecording && !isTranscribing && !transcribedText && !voiceError && (
+                <div className="voice-modal-idle">
+                  <p>Click the microphone to start recording</p>
+                  <button className="voice-record-btn" onClick={startRecording}>
+                    <Mic size={32} />
+                  </button>
+                </div>
+              )}
+
+              {/* Recording in progress */}
+              {isRecording && (
+                <div className="voice-modal-recording">
+                  <div className="recording-indicator">
+                    <span className="recording-dot" />
+                    <span>Recording...</span>
+                  </div>
+                  <button className="voice-stop-btn" onClick={stopRecording}>
+                    <MicOff size={32} />
+                    <span>Stop Recording</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Transcribing */}
+              {isTranscribing && (
+                <div className="voice-modal-transcribing">
+                  <Loader2 size={32} className="spinner" />
+                  <p>Transcribing audio...</p>
+                </div>
+              )}
+
+              {/* Error state */}
+              {voiceError && (
+                <div className="voice-modal-error">
+                  <p className="error-text">{voiceError}</p>
+                  <button className="voice-retry-btn" onClick={() => { setVoiceError(null); startRecording(); }}>
+                    <Mic size={20} />
+                    <span>Try Again</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Transcription result */}
+              {transcribedText && !voiceError && (
+                <div className="voice-modal-result">
+                  <textarea
+                    className="transcription-text"
+                    value={transcribedText}
+                    onChange={(e) => setTranscribedText(e.target.value)}
+                    placeholder="Transcribed text..."
+                  />
+                  <div className="voice-modal-actions">
+                    <button className="voice-retry-btn" onClick={() => { setTranscribedText(''); startRecording(); }}>
+                      <Mic size={16} />
+                      <span>Re-record</span>
+                    </button>
+                    <button className="voice-send-btn" onClick={handleSendTranscription}>
+                      <Send size={16} />
+                      <span>Send to Terminal</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

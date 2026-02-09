@@ -11,11 +11,11 @@ export function App() {
           {/* Redirect root to dashboard */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-          {/* Dashboard - list of projects */}
+          {/* Dashboard - unified view of all projects and sessions */}
           <Route path="/dashboard" element={<ProjectDashboard />} />
 
-          {/* Project view - shows sessions for a project */}
-          <Route path="/projects/:encodedPath" element={<ProjectDashboard />} />
+          {/* Legacy project view - redirect to dashboard */}
+          <Route path="/projects/:encodedPath" element={<Navigate to="/dashboard" replace />} />
 
           {/* Session view - shows a specific session */}
           <Route path="/projects/:encodedPath/sessions/:sessionId" element={<SessionPage />} />
