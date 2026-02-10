@@ -1148,9 +1148,7 @@
 
       async transcribe(blob, mimeType) {
         // Get the orka server URL (same origin, different port)
-        const orkaPort = new URLSearchParams(window.location.search).get('orkaPort') || '3456';
-        const orkaHost = window.location.hostname;
-        const transcribeUrl = `http://${orkaHost}:${orkaPort}/api/transcribe`;
+        const transcribeUrl = `${window.location.origin}/api/transcribe`;
 
         console.log('Sending audio to:', transcribeUrl);
 
@@ -1236,7 +1234,7 @@
 
         // First, get auth token from ttyd
         try {
-          const tokenResponse = await fetch(`http://${this.ttydHost}:${this.ttydPort}/token`);
+          const tokenResponse = await fetch(`/ttyd/${this.ttydPort}/token`);
           if (tokenResponse.ok) {
             const tokenData = await tokenResponse.json();
             this.authToken = tokenData.token || '';
@@ -1758,7 +1756,7 @@
         }
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${this.ttydHost}:${this.ttydPort}/ws`;
+        const wsUrl = `${protocol}//${window.location.host}/ttyd/${this.ttydPort}/ws`;
 
         const retryMsg = this.retryCount > 0 ? ` (retry ${this.retryCount})` : '';
         this.updateStatus('Connecting...' + retryMsg, false);

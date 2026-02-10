@@ -83,7 +83,8 @@ export interface GitCommitLog {
   relativeDate: string
 }
 
-const API_BASE = '/api'
+// Use origin-based URL for VPN/remote access compatibility
+const API_BASE = `${window.location.origin}/api`
 
 function encodeProjectPath(path: string): string {
   return btoa(path)
