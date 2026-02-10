@@ -72,6 +72,7 @@ export function SessionView({
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [transcribedText, setTranscribedText] = useState('')
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [voiceLanguage, setVoiceLanguage] = useState<'es' | 'en' | 'auto'>('auto')
   const terminalIframeRef = useRef<HTMLIFrameElement>(null)
   const threadsPopoverRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -135,7 +136,7 @@ export function SessionView({
         }
 
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
-        await transcribeAudio(audioBlob, mimeType)
+        await transcribeAudio(audioBlob, mimeType, voiceLanguage)
       }
 
       mediaRecorder.start()
@@ -160,9 +161,9 @@ export function SessionView({
     }
   }, [])
 
-  const transcribeAudio = useCallback(async (audioBlob: Blob, mimeType: string) => {
+  const transcribeAudio = useCallback(async (audioBlob: Blob, mimeType: string, language: 'es' | 'en' | 'auto' = 'auto') => {
     try {
-      const response = await fetch('/api/transcribe', {
+      const response = await fetch(`/api/transcribe?language=${language}`, {
         method: 'POST',
         headers: {
           'Content-Type': mimeType
@@ -461,12 +462,12 @@ export function SessionView({
   // Get terminal URL - uses our custom wrapper with virtual keyboard disabled for desktop
   const getTerminalUrl = () => {
     // Always use our wrapper to have consistent styling and disabled context menu
-    return `/terminal/${session.ttydPort}/?desktop=1`
+    return `/terminal/${session.ttydPort}?desktop=1`
   }
 
   // Get mobile terminal URL - uses our custom wrapper with virtual keyboard
   const getMobileTerminalUrl = () => {
-    return `/terminal/${session.ttydPort}/`
+    return `/terminal/${session.ttydPort}`
   }
 
   const handleOpenTerminalInNewTab = () => {
@@ -941,6 +942,30 @@ export function SessionView({
             </div>
 
             <div className="voice-modal-content">
+              {/* Language selector - always visible except when recording/transcribing */}
+              {!isRecording && !isTranscribing && (
+                <div className="voice-language-selector">
+                  <button
+                    className={`voice-lang-btn ${voiceLanguage === 'es' ? 'active' : ''}`}
+                    onClick={() => setVoiceLanguage('es')}
+                  >
+                    🇪🇸 Español
+                  </button>
+                  <button
+                    className={`voice-lang-btn ${voiceLanguage === 'en' ? 'active' : ''}`}
+                    onClick={() => setVoiceLanguage('en')}
+                  >
+                    🇺🇸 English
+                  </button>
+                  <button
+                    className={`voice-lang-btn ${voiceLanguage === 'auto' ? 'active' : ''}`}
+                    onClick={() => setVoiceLanguage('auto')}
+                  >
+                    🌐 Auto
+                  </button>
+                </div>
+              )}
+
               {/* Recording state */}
               {!isRecording && !isTranscribing && !transcribedText && !voiceError && (
                 <div className="voice-modal-idle">

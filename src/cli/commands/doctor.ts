@@ -47,8 +47,10 @@ export function doctorCommand(program: Command) {
         results.push(await checkClaudeDir())
 
         // Check Whisper dependencies (for speech-to-text)
+        results.push(await checkFfmpeg())
         results.push(await checkMake())
         results.push(await checkCmake())
+        results.push(await checkWhisperBinary())
         results.push(await checkWhisperModel())
 
         // Display results
@@ -269,6 +271,28 @@ async function checkClaudeDir(): Promise<CheckResult> {
   }
 }
 
+async function checkFfmpeg(): Promise<CheckResult> {
+  try {
+    const { stdout } = await execa('ffmpeg', ['-version'])
+    const version = stdout.split('\n')[0]
+
+    return {
+      name: 'ffmpeg (Voice)',
+      status: 'pass',
+      message: version.replace('ffmpeg version ', '').split(' ')[0],
+      details: 'Required for audio processing in voice input',
+    }
+  } catch (error) {
+    return {
+      name: 'ffmpeg (Voice)',
+      status: 'warn',
+      message: 'Not found',
+      details: 'ffmpeg is required for voice input feature',
+      fix: 'Run: orka prepare\n  Or manually: brew install ffmpeg (macOS)',
+    }
+  }
+}
+
 async function checkMake(): Promise<CheckResult> {
   try {
     const { stdout } = await execa('make', ['--version'])
@@ -286,7 +310,7 @@ async function checkMake(): Promise<CheckResult> {
       status: 'warn',
       message: 'Not found',
       details: 'make is required for speech-to-text feature',
-      fix: 'Install build tools:\n  macOS: xcode-select --install\n  Ubuntu: sudo apt-get install build-essential',
+      fix: 'Run: orka prepare\n  Or manually: xcode-select --install (macOS)',
     }
   }
 }
@@ -300,7 +324,7 @@ async function checkCmake(): Promise<CheckResult> {
       name: 'cmake (Whisper)',
       status: 'pass',
       message: version,
-      details: 'Required for compiling Whisper model',
+      details: 'Required for compiling Whisper',
     }
   } catch (error) {
     return {
@@ -308,35 +332,105 @@ async function checkCmake(): Promise<CheckResult> {
       status: 'warn',
       message: 'Not found',
       details: 'cmake is required for speech-to-text feature',
-      fix: 'Install cmake:\n  macOS: brew install cmake\n  Ubuntu: sudo apt-get install cmake',
+      fix: 'Run: orka prepare\n  Or manually: brew install cmake (macOS)',
+    }
+  }
+}
+
+async function checkWhisperBinary(): Promise<CheckResult> {
+  const whisperCppPath = path.join(
+    process.cwd(),
+    'node_modules',
+    'nodejs-whisper',
+    'cpp',
+    'whisper.cpp'
+  )
+  const whisperBin = path.join(whisperCppPath, 'build', 'bin', 'whisper-cli')
+
+  try {
+    const binExists = await fs.pathExists(whisperBin)
+
+    if (binExists) {
+      return {
+        name: 'Whisper binary',
+        status: 'pass',
+        message: 'Built',
+        details: 'whisper-cli is ready',
+      }
+    } else {
+      // Check if whisper.cpp directory exists at all
+      const dirExists = await fs.pathExists(whisperCppPath)
+      if (!dirExists) {
+        return {
+          name: 'Whisper binary',
+          status: 'warn',
+          message: 'Not installed',
+          details: 'nodejs-whisper not found in node_modules',
+          fix: 'Run: npm install (to install dependencies)',
+        }
+      }
+      return {
+        name: 'Whisper binary',
+        status: 'warn',
+        message: 'Not built',
+        details: 'Whisper needs to be compiled',
+        fix: 'Run: orka prepare',
+      }
+    }
+  } catch (error) {
+    return {
+      name: 'Whisper binary',
+      status: 'warn',
+      message: 'Unknown',
+      details: (error as Error).message,
     }
   }
 }
 
 async function checkWhisperModel(): Promise<CheckResult> {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || ''
-  const whisperDir = path.join(homeDir, '.cache', 'whisper')
-  const modelFile = path.join(whisperDir, 'ggml-tiny.en.bin')
+  // Check for model in nodejs-whisper location (used by our server)
+  const whisperCppPath = path.join(
+    process.cwd(),
+    'node_modules',
+    'nodejs-whisper',
+    'cpp',
+    'whisper.cpp',
+    'models'
+  )
+  // Check for base model (better quality) or tiny as fallback
+  const baseModel = path.join(whisperCppPath, 'ggml-base.bin')
+  const tinyModel = path.join(whisperCppPath, 'ggml-tiny.bin')
 
   try {
-    const modelExists = await fs.pathExists(modelFile)
+    const baseExists = await fs.pathExists(baseModel)
+    const tinyExists = await fs.pathExists(tinyModel)
 
-    if (modelExists) {
-      const stats = await fs.stat(modelFile)
+    if (baseExists) {
+      const stats = await fs.stat(baseModel)
       const sizeMB = Math.round(stats.size / 1024 / 1024)
       return {
         name: 'Whisper model',
         status: 'pass',
-        message: `tiny.en (${sizeMB}MB)`,
-        details: 'Speech-to-text model ready',
+        message: `base multilingual (${sizeMB}MB)`,
+        details: 'Speech-to-text ready (good quality, ES/EN)',
+      }
+    } else if (tinyExists) {
+      const stats = await fs.stat(tinyModel)
+      const sizeMB = Math.round(stats.size / 1024 / 1024)
+      return {
+        name: 'Whisper model',
+        status: 'warn',
+        message: `tiny multilingual (${sizeMB}MB)`,
+        details: 'Consider upgrading to base model for better accuracy',
+        fix: 'Run: orka prepare',
       }
     } else {
       return {
         name: 'Whisper model',
         status: 'warn',
         message: 'Not downloaded',
-        details: 'Model will be downloaded on first use (~40MB)',
-        fix: 'Model downloads automatically when you first use voice input',
+        details: 'Whisper model required for voice input (~142MB)',
+        fix: 'Run: orka prepare',
       }
     }
   } catch (error) {
