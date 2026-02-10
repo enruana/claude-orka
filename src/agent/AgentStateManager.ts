@@ -169,12 +169,16 @@ export class AgentStateManager {
     agentId: string,
     projectPath: string,
     sessionId?: string,
-    tmuxPaneId?: string
+    tmuxPaneId?: string,
+    claudeSessionId?: string,
+    branchId?: string
   ): Promise<Agent> {
     const connection: AgentConnection = {
       projectPath: path.resolve(projectPath),
       sessionId,
       tmuxPaneId,
+      claudeSessionId,
+      branchId,
       connectedAt: new Date().toISOString(),
     }
 

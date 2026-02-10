@@ -37,6 +37,35 @@ export interface AgentLogEntry {
 }
 
 /**
+ * Agent status summary - compiled from daemon state and recent logs
+ */
+export interface AgentStatusSummary {
+  agent: Agent
+  currentPhase: 'idle' | 'capture' | 'analyze' | 'decide' | 'execute' | 'done'
+  lastDecision?: {
+    action: string
+    reason: string
+    confidence: number
+    response?: string
+    timestamp: string
+  }
+  lastTerminalSnapshot?: string
+  lastTerminalState?: {
+    isProcessing: boolean
+    isWaitingForInput: boolean
+    hasPermissionPrompt: boolean
+    hasError: boolean
+  }
+  processingDuration?: number
+  stats: {
+    totalEvents: number
+    totalActions: number
+    totalErrors: number
+    consecutiveWaits: number
+  }
+}
+
+/**
  * AgentManager is the central orchestrator for all Master Agents
  */
 export class AgentManager extends EventEmitter {
@@ -267,7 +296,8 @@ export class AgentManager extends EventEmitter {
     agentId: string,
     projectPath: string,
     sessionId?: string,
-    tmuxPaneId?: string
+    tmuxPaneId?: string,
+    branchId?: string
   ): Promise<Agent> {
     if (!this.stateManager || !this.hookConfigGenerator) {
       throw new Error('AgentManager not initialized')
@@ -310,17 +340,59 @@ export class AgentManager extends EventEmitter {
       }
     }
 
+    // Resolve claudeSessionId from project state
+    let claudeSessionId: string | undefined
+
+    if (sessionId) {
+      try {
+        const orka = new ClaudeOrka(projectPath)
+        await orka.initialize()
+        const session = await orka.getSession(sessionId)
+
+        if (session) {
+          if (branchId && branchId !== 'main') {
+            // Look up fork by branchId
+            const fork = session.forks.find(f => f.id === branchId)
+            if (fork) {
+              claudeSessionId = fork.claudeSessionId
+              tmuxPaneId = fork.tmuxPaneId || tmuxPaneId
+            }
+          } else if (tmuxPaneId) {
+            // Match by pane ID
+            if (session.main.tmuxPaneId === tmuxPaneId) {
+              claudeSessionId = session.main.claudeSessionId
+              branchId = 'main'
+            } else {
+              const fork = session.forks.find(f => f.tmuxPaneId === tmuxPaneId)
+              if (fork) {
+                claudeSessionId = fork.claudeSessionId
+                branchId = fork.id
+              }
+            }
+          } else {
+            // Default to main branch
+            claudeSessionId = session.main.claudeSessionId
+            branchId = branchId || 'main'
+          }
+        }
+      } catch (error: any) {
+        logger.debug(`Could not resolve claudeSessionId: ${error.message}`)
+      }
+    }
+
     // Update agent state
     const updatedAgent = await this.stateManager.connectAgent(
       agentId,
       projectPath,
       sessionId,
-      tmuxPaneId
+      tmuxPaneId,
+      claudeSessionId,
+      branchId
     )
 
     this.emit('agentConnected', updatedAgent, projectPath)
-    this.addAgentLog(agentId, 'action', `Connected to ${projectPath}`)
-    logger.info(`Agent ${agentId} connected to ${projectPath}`)
+    this.addAgentLog(agentId, 'action', `Connected to ${projectPath}${branchId ? ` (branch: ${branchId})` : ''}`)
+    logger.info(`Agent ${agentId} connected to ${projectPath}${claudeSessionId ? ` [claude: ${claudeSessionId}]` : ''}`)
 
     return updatedAgent
   }
@@ -361,6 +433,26 @@ export class AgentManager extends EventEmitter {
   private async handleHookEvent(event: ProcessedHookEvent): Promise<void> {
     logger.debug(`AgentManager received hook event for agent ${event.agentId}`)
 
+    const agent = this.stateManager?.getAgent(event.agentId)
+    if (!agent) {
+      logger.debug(`Ignoring hook event - agent ${event.agentId} not found`)
+      return
+    }
+
+    // Filter 1: Event type must be in agent's hookEvents
+    if (!agent.hookEvents.includes(event.payload.event_type as AgentHookTrigger)) {
+      logger.debug(`Ignoring ${event.payload.event_type} - not in agent ${event.agentId}'s hookEvents`)
+      return
+    }
+
+    // Filter 2: Claude session ID must match the agent's connected session
+    const hookSessionId = event.payload.session_id
+    const agentSessionId = agent.connection?.claudeSessionId
+    if (hookSessionId && agentSessionId && hookSessionId !== agentSessionId) {
+      logger.debug(`Ignoring event from session ${hookSessionId} - agent ${event.agentId} monitors ${agentSessionId}`)
+      return
+    }
+
     this.addAgentLog(event.agentId, 'info', `Received hook event: ${event.payload.event_type}`, {
       eventType: event.payload.event_type,
       projectPath: event.projectPath,
@@ -372,8 +464,7 @@ export class AgentManager extends EventEmitter {
     const daemon = this.daemons.get(event.agentId)
     if (!daemon) {
       // Agent might not be running, try to start it
-      const agent = this.stateManager?.getAgent(event.agentId)
-      if (agent && agent.status !== 'paused') {
+      if (agent.status !== 'paused') {
         this.addAgentLog(event.agentId, 'info', 'Auto-starting agent to handle hook event')
         await this.startAgent(event.agentId)
         const newDaemon = this.daemons.get(event.agentId)
@@ -387,9 +478,9 @@ export class AgentManager extends EventEmitter {
     // Refresh daemon's agent data
     await daemon.refresh()
 
-    // Check if agent is paused
-    const agent = daemon.getAgent()
-    if (agent.status === 'paused') {
+    // Check if agent is paused (re-check after refresh)
+    const refreshedAgent = daemon.getAgent()
+    if (refreshedAgent.status === 'paused') {
       this.addAgentLog(event.agentId, 'warn', 'Agent is paused, ignoring hook event')
       return
     }
@@ -419,11 +510,12 @@ export class AgentManager extends EventEmitter {
     this.addAgentLog(agentId, 'action', 'Manual trigger received')
 
     // Create a synthetic hook event
+    // Use claudeSessionId so it passes the session_id filter
     const syntheticEvent: ProcessedHookEvent = {
       payload: {
         event_type: 'Stop',
         timestamp: new Date().toISOString(),
-        session_id: agent.connection.sessionId,
+        session_id: agent.connection.claudeSessionId || agent.connection.sessionId,
         cwd: agent.connection.projectPath,
       },
       agentId,
@@ -448,10 +540,108 @@ export class AgentManager extends EventEmitter {
     // Refresh daemon's agent data
     await daemon.refresh()
 
+    // Force-reset processing state - manual trigger should always work
+    daemon.forceResetProcessing()
+    this.addAgentLog(agentId, 'info', 'Force-reset processing state for manual trigger')
+
     // Handle the synthetic event
     await daemon.handleHookEvent(syntheticEvent, this)
 
     this.addAgentLog(agentId, 'info', 'Manual trigger completed')
+  }
+
+  /**
+   * Get agent status summary - compiled from daemon state and recent logs
+   */
+  getAgentStatus(agentId: string): AgentStatusSummary | null {
+    const agent = this.stateManager?.getAgent(agentId)
+    if (!agent) return null
+
+    const logs = this.agentLogs.get(agentId) || []
+    const daemon = this.daemons.get(agentId)
+
+    // Determine current phase from most recent log with phase info
+    let currentPhase: AgentStatusSummary['currentPhase'] = 'idle'
+    let lastDecision: AgentStatusSummary['lastDecision'] | undefined
+    let lastTerminalSnapshot: string | undefined
+    let lastTerminalState: AgentStatusSummary['lastTerminalState'] | undefined
+
+    // Scan recent logs in reverse to find latest structured data
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const log = logs[i]
+      const details = log.details as Record<string, unknown> | undefined
+
+      if (!details?.phase) continue
+
+      // Get current phase from most recent log
+      if (currentPhase === 'idle') {
+        currentPhase = details.phase as AgentStatusSummary['currentPhase']
+      }
+
+      // Get last decision
+      if (!lastDecision && details.phase === 'decide' && details.decision) {
+        const d = details.decision as Record<string, unknown>
+        lastDecision = {
+          action: d.action as string,
+          reason: d.reason as string,
+          confidence: d.confidence as number,
+          response: d.response as string | undefined,
+          timestamp: log.timestamp,
+        }
+      }
+
+      // Get last terminal snapshot
+      if (!lastTerminalSnapshot && details.terminalSnapshot) {
+        lastTerminalSnapshot = details.terminalSnapshot as string
+      }
+
+      // Get last terminal state
+      if (!lastTerminalState && details.terminalState) {
+        lastTerminalState = details.terminalState as AgentStatusSummary['lastTerminalState']
+      }
+
+      // Stop scanning once we have everything
+      if (lastDecision && lastTerminalSnapshot && lastTerminalState) break
+    }
+
+    // If agent is not connected or not running, phase is idle
+    if (!agent.connection || agent.status === 'idle') {
+      currentPhase = 'idle'
+    }
+
+    // Calculate stats
+    let totalActions = 0
+    let totalErrors = 0
+    for (const log of logs) {
+      if (log.level === 'action') totalActions++
+      if (log.level === 'error') totalErrors++
+    }
+
+    // Get processing duration from daemon
+    let processingDuration: number | undefined
+    let consecutiveWaits = 0
+    if (daemon) {
+      const pState = daemon.getProcessingState()
+      consecutiveWaits = pState.consecutiveWaits
+      if (pState.isProcessing) {
+        processingDuration = Date.now() - pState.processingStartedAt
+      }
+    }
+
+    return {
+      agent,
+      currentPhase,
+      lastDecision,
+      lastTerminalSnapshot,
+      lastTerminalState,
+      processingDuration,
+      stats: {
+        totalEvents: logs.length,
+        totalActions,
+        totalErrors,
+        consecutiveWaits,
+      },
+    }
   }
 
   /**

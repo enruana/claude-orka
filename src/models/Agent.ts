@@ -64,6 +64,10 @@ export interface AgentConnection {
   sessionId?: string
   /** tmux pane ID being monitored */
   tmuxPaneId?: string
+  /** Claude session UUID for this specific pane (used for hook event filtering) */
+  claudeSessionId?: string
+  /** Branch identifier: 'main' or fork ID (e.g., 'fork-abc123') */
+  branchId?: string
   /** Connected at timestamp */
   connectedAt: string
 }

@@ -46,6 +46,8 @@ export interface AgentConnection {
   projectPath: string
   sessionId?: string
   tmuxPaneId?: string
+  claudeSessionId?: string
+  branchId?: string
   connectedAt: string
 }
 
@@ -70,6 +72,35 @@ export interface Agent {
   createdAt: string
   lastActivity?: string
   lastError?: string
+}
+
+/**
+ * Agent status summary from the /status endpoint
+ */
+export interface AgentStatusSummary {
+  agent: Agent
+  currentPhase: 'idle' | 'capture' | 'analyze' | 'decide' | 'execute' | 'done'
+  lastDecision?: {
+    action: string
+    reason: string
+    confidence: number
+    response?: string
+    timestamp: string
+  }
+  lastTerminalSnapshot?: string
+  lastTerminalState?: {
+    isProcessing: boolean
+    isWaitingForInput: boolean
+    hasPermissionPrompt: boolean
+    hasError: boolean
+  }
+  processingDuration?: number
+  stats: {
+    totalEvents: number
+    totalActions: number
+    totalErrors: number
+    consecutiveWaits: number
+  }
 }
 
 /**
@@ -178,11 +209,12 @@ export const agentsApi = {
     agentId: string,
     projectPath: string,
     sessionId?: string,
-    tmuxPaneId?: string
+    tmuxPaneId?: string,
+    branchId?: string
   ): Promise<Agent> {
     return apiFetch<Agent>(`/agents/${agentId}/connect`, {
       method: 'POST',
-      body: JSON.stringify({ projectPath, sessionId, tmuxPaneId }),
+      body: JSON.stringify({ projectPath, sessionId, tmuxPaneId, branchId }),
     })
   },
 
@@ -198,6 +230,13 @@ export const agentsApi = {
    */
   async trigger(agentId: string): Promise<Agent> {
     return apiFetch<Agent>(`/agents/${agentId}/trigger`, { method: 'POST' })
+  },
+
+  /**
+   * Get agent status summary
+   */
+  async getStatus(agentId: string): Promise<AgentStatusSummary> {
+    return apiFetch<AgentStatusSummary>(`/agents/${agentId}/status`)
   },
 
   /**

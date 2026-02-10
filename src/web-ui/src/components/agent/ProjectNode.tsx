@@ -380,8 +380,77 @@ function ProjectNodeComponent({ data, selected }: NodeProps<{ data: ProjectNodeD
         </div>
       )}
 
-      {/* Output handle - for connecting to agents */}
-      <Handle type="source" position={Position.Right} />
+      {/* Per-branch output handles for connecting to agents */}
+      {activeSession ? (
+        <div style={{
+          position: 'absolute',
+          right: '-12px',
+          top: 0,
+          bottom: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: '12px',
+          pointerEvents: 'none',
+        }}>
+          {/* Main branch handle */}
+          <div style={{ position: 'relative' }}>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={`main-${activeSession.id}`}
+              style={{ position: 'relative', top: 'auto', transform: 'none' }}
+            />
+            <div style={{
+              position: 'absolute',
+              left: '16px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              fontSize: '0.55rem',
+              color: '#a6e3a1',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              background: '#1e1e2e',
+              padding: '1px 4px',
+              borderRadius: '3px',
+              border: '1px solid #313244',
+            }}>
+              main
+            </div>
+          </div>
+          {/* Active fork handles */}
+          {activeSession.forks
+            .filter(f => f.status === 'active')
+            .map((fork) => (
+              <div key={fork.id} style={{ position: 'relative' }}>
+                <Handle
+                  type="source"
+                  position={Position.Right}
+                  id={`fork-${fork.id}`}
+                  style={{ position: 'relative', top: 'auto', transform: 'none' }}
+                />
+                <div style={{
+                  position: 'absolute',
+                  left: '16px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  fontSize: '0.55rem',
+                  color: '#94e2d5',
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none',
+                  background: '#1e1e2e',
+                  padding: '1px 4px',
+                  borderRadius: '3px',
+                  border: '1px solid #313244',
+                }}>
+                  {fork.name}
+                </div>
+              </div>
+            ))}
+        </div>
+      ) : (
+        <Handle type="source" position={Position.Right} />
+      )}
 
       {/* Keyframes for animations */}
       <style>{`

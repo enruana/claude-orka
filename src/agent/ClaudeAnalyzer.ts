@@ -213,6 +213,18 @@ Respond with a JSON object only, no other text.`
   }
 
   private async callClaude(systemPrompt: string, userPrompt: string): Promise<AnalysisResult> {
+    // Wrap with a timeout to prevent hanging indefinitely on API calls
+    const ANALYSIS_TIMEOUT = 60_000 // 60 seconds
+
+    const analysisPromise = this.callClaudeInner(systemPrompt, userPrompt)
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Claude API analysis timed out after 60s')), ANALYSIS_TIMEOUT)
+    )
+
+    return Promise.race([analysisPromise, timeoutPromise])
+  }
+
+  private async callClaudeInner(systemPrompt: string, userPrompt: string): Promise<AnalysisResult> {
     try {
       // Use the Claude Agent SDK to query
       const conversation = query({

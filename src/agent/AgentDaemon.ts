@@ -35,6 +35,7 @@ export interface AgentResponse {
  */
 interface ProcessingState {
   isProcessing: boolean
+  processingStartedAt: number
   lastResponseTime: number
   lastEventType: string | null
   consecutiveWaits: number
@@ -45,6 +46,9 @@ const MIN_RESPONSE_INTERVAL = 3000
 
 // Maximum consecutive "wait" decisions before requesting help
 const MAX_CONSECUTIVE_WAITS = 10
+
+// Maximum time (ms) an event can be processing before auto-reset (2 minutes)
+const MAX_PROCESSING_TIME = 120_000
 
 /**
  * AgentDaemon runs an individual agent that monitors and controls Claude Code sessions
@@ -57,6 +61,7 @@ export class AgentDaemon extends EventEmitter {
   private decisionHistory: DecisionRecord[] = []
   private processingState: ProcessingState = {
     isProcessing: false,
+    processingStartedAt: 0,
     lastResponseTime: 0,
     lastEventType: null,
     consecutiveWaits: 0,
@@ -116,8 +121,14 @@ export class AgentDaemon extends EventEmitter {
     }
 
     if (this.processingState.isProcessing) {
-      log('warn', '⚠️ Already processing an event, ignoring')
-      return
+      const elapsed = Date.now() - this.processingState.processingStartedAt
+      if (elapsed < MAX_PROCESSING_TIME) {
+        log('warn', `⚠️ Already processing an event (${Math.round(elapsed / 1000)}s), ignoring`)
+        return
+      }
+      // Processing has been stuck for too long - force reset
+      log('warn', `⚠️ Processing stuck for ${Math.round(elapsed / 1000)}s, force-resetting`)
+      this.processingState.isProcessing = false
     }
 
     // Check cooldown
@@ -128,15 +139,18 @@ export class AgentDaemon extends EventEmitter {
     }
 
     this.processingState.isProcessing = true
+    this.processingState.processingStartedAt = Date.now()
     this.processingState.lastEventType = event.payload.event_type
 
+    const cycleStart = Date.now()
+
     try {
-      log('info', `\n${'='.repeat(50)}`)
-      log('info', `📥 HOOK RECEIVED: ${event.payload.event_type}`)
-      log('info', `${'='.repeat(50)}`)
+      log('info', `📥 Hook: ${event.payload.event_type}`, {
+        phase: 'capture',
+        eventType: event.payload.event_type,
+      })
 
       // === PHASE 2: Capture terminal state ===
-      log('info', '📸 Capturing terminal content...')
       const terminalContent = await this.captureTargetTerminal()
 
       if (!terminalContent) {
@@ -144,25 +158,33 @@ export class AgentDaemon extends EventEmitter {
         return
       }
 
-      log('info', `✅ Captured ${terminalContent.content.length} chars from pane ${terminalContent.paneId}`)
-
-      // Show last few lines of terminal for context
-      const lastLines = terminalContent.content.split('\n').slice(-10).join('\n')
-      log('debug', `📄 Terminal tail:\n${lastLines}`)
+      const lastLines = terminalContent.content.split('\n').slice(-20).join('\n')
+      log('info', `📸 Terminal captured (${terminalContent.content.length} chars)`, {
+        phase: 'capture',
+        terminalSnapshot: lastLines,
+      })
 
       // === PHASE 3: Quick checks before AI analysis ===
       const terminalState = TerminalReader.parseState(terminalContent.content)
 
-      log('info', '🔍 Terminal state analysis:', {
+      const terminalStateInfo = {
         isProcessing: terminalState.isProcessing,
         isWaitingForInput: terminalState.isWaitingForInput,
         hasPermissionPrompt: terminalState.hasPermissionPrompt,
         hasError: !!terminalState.error,
+      }
+
+      log('info', `🔍 State: ${terminalState.isWaitingForInput ? 'waiting for input' : terminalState.isProcessing ? 'processing' : terminalState.hasPermissionPrompt ? 'permission prompt' : 'other'}`, {
+        phase: 'analyze',
+        terminalState: terminalStateInfo,
       })
 
       // If Claude is still processing (spinner visible), don't interrupt
       if (ClaudeAnalyzer.isProcessing(terminalContent.content)) {
-        log('info', '⏳ Claude is still working (spinner detected) - waiting')
+        log('info', '⏳ Claude still working (spinner) - waiting', {
+          phase: 'analyze',
+          terminalState: { ...terminalStateInfo, isProcessing: true },
+        })
         this.processingState.consecutiveWaits++
         return
       }
@@ -190,20 +212,23 @@ export class AgentDaemon extends EventEmitter {
 
       // === PHASE 5: Execute the decision ===
       if (response.action !== 'wait') {
-        log('info', `\n${'─'.repeat(40)}`)
-        log('action', `🎯 EXECUTING: ${response.action.toUpperCase()}`)
-        log('info', `📝 Reason: ${response.reason}`)
-        if (response.response) {
-          log('info', `💬 Message: "${response.response}"`)
-        }
-        log('info', `${'─'.repeat(40)}\n`)
+        log('action', `🎯 Executing: ${response.action}${response.response ? ` → "${response.response}"` : ''}`, {
+          phase: 'execute',
+          action: response.action,
+          reason: response.reason,
+          response: response.response,
+        })
 
         await this.executeResponse(response, terminalContent.paneId, manager)
         this.processingState.lastResponseTime = Date.now()
         this.processingState.consecutiveWaits = 0
       } else {
         this.processingState.consecutiveWaits++
-        log('debug', `😴 Waiting... (consecutive waits: ${this.processingState.consecutiveWaits})`)
+        log('debug', `😴 Waiting (${this.processingState.consecutiveWaits} consecutive)`, {
+          phase: 'execute',
+          action: 'wait',
+          consecutiveWaits: this.processingState.consecutiveWaits,
+        })
 
         // If we've waited too many times, something might be wrong
         if (this.processingState.consecutiveWaits >= MAX_CONSECUTIVE_WAITS) {
@@ -224,6 +249,8 @@ export class AgentDaemon extends EventEmitter {
       }
     } finally {
       this.processingState.isProcessing = false
+      const duration = Date.now() - cycleStart
+      log('debug', `Cycle complete (${duration}ms)`, { phase: 'done', durationMs: duration })
     }
   }
 
@@ -261,8 +288,7 @@ export class AgentDaemon extends EventEmitter {
     }
 
     // === AI Analysis ===
-    log('info', '\n🤖 ANALYZING with Claude AI...')
-    log('info', '📋 Master Prompt:', { prompt: this.agent.masterPrompt.substring(0, 100) + '...' })
+    log('info', '🤖 Analyzing with Claude AI...', { phase: 'decide' })
 
     try {
       const analyzer = new ClaudeAnalyzer(
@@ -286,14 +312,16 @@ export class AgentDaemon extends EventEmitter {
         this.decisionHistory
       )
 
-      // Log the AI's reasoning
-      log('info', '\n💭 AI REASONING:')
-      log('info', `   Action: ${analysis.action}`)
-      log('info', `   Confidence: ${(analysis.confidence * 100).toFixed(0)}%`)
-      log('info', `   Reason: ${analysis.reason}`)
-      if (analysis.response) {
-        log('info', `   Response: "${analysis.response}"`)
-      }
+      // Log the AI's decision as a single structured entry
+      log('action', `💭 Decision: ${analysis.action} (${(analysis.confidence * 100).toFixed(0)}%)${analysis.response ? ` → "${analysis.response}"` : ''} — ${analysis.reason}`, {
+        phase: 'decide',
+        decision: {
+          action: analysis.action,
+          reason: analysis.reason,
+          confidence: analysis.confidence,
+          response: analysis.response,
+        },
+      })
 
       // Low confidence check
       if (analysis.confidence < 0.3 && analysis.action !== 'wait') {
@@ -480,8 +508,29 @@ export class AgentDaemon extends EventEmitter {
     logger.info(`Agent ${this.agent.id} resumed from waiting_human state`)
   }
 
+  /**
+   * Force-reset the processing state so the agent can accept new events.
+   * Used by manual trigger when the agent is stuck.
+   */
+  forceResetProcessing(): void {
+    if (this.processingState.isProcessing) {
+      const elapsed = Date.now() - this.processingState.processingStartedAt
+      logger.warn(`Force-resetting processing state for agent ${this.agent.id} (was processing for ${Math.round(elapsed / 1000)}s)`)
+    }
+    this.processingState.isProcessing = false
+    this.processingState.processingStartedAt = 0
+  }
+
   getAgent(): Agent {
     return this.agent
+  }
+
+  getProcessingState(): ProcessingState {
+    return { ...this.processingState }
+  }
+
+  getDecisionHistory(): DecisionRecord[] {
+    return [...this.decisionHistory]
   }
 
   isActive(): boolean {

@@ -273,9 +273,16 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
 
         // Add edge if agent is connected to a project
         if (agent.connection) {
+          const branchId = agent.connection.branchId || 'main'
+          const connSessionId = agent.connection.sessionId
+          const sourceHandle = connSessionId
+            ? (branchId === 'main' ? `main-${connSessionId}` : `fork-${branchId}`)
+            : undefined
+
           newEdges.push({
             id: `edge-${agent.id}`,
             source: `project-${agent.connection.projectPath}`,
+            sourceHandle,
             target: `agent-${agent.id}`,
             type: 'connection',
             animated: agent.status === 'active',
@@ -382,16 +389,51 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
       }
 
       try {
-        // Get the active session for this project
+        // Extract branch info from sourceHandle
+        const sourceHandle = connection.sourceHandle
         const sessions = projectSessions[project.path] || []
-        const activeSession = sessions.find(s => s.status === 'active')
+        let targetSessionId: string | undefined
+        let targetTmuxPaneId: string | undefined
+        let targetBranchId: string | undefined
+
+        if (sourceHandle) {
+          if (sourceHandle.startsWith('main-')) {
+            const sessId = sourceHandle.replace('main-', '')
+            const session = sessions.find(s => s.id === sessId)
+            if (session) {
+              targetSessionId = session.id
+              targetTmuxPaneId = session.main?.tmuxPaneId
+              targetBranchId = 'main'
+            }
+          } else if (sourceHandle.startsWith('fork-')) {
+            const forkId = sourceHandle.replace('fork-', '')
+            for (const session of sessions) {
+              const fork = session.forks.find(f => f.id === forkId)
+              if (fork) {
+                targetSessionId = session.id
+                targetTmuxPaneId = fork.tmuxPaneId
+                targetBranchId = fork.id
+                break
+              }
+            }
+          }
+        }
+
+        if (!targetSessionId) {
+          // Fallback: use first active session's main branch
+          const activeSession = sessions.find(s => s.status === 'active')
+          targetSessionId = activeSession?.id
+          targetTmuxPaneId = activeSession?.main?.tmuxPaneId
+          targetBranchId = 'main'
+        }
 
         // Connect the agent to the project
         await agentsApi.connect(
           agent.id,
           project.path,
-          activeSession?.id,
-          activeSession?.main?.tmuxPaneId
+          targetSessionId,
+          targetTmuxPaneId,
+          targetBranchId
         )
 
         // Add the edge (always from project to agent for consistency)
@@ -400,6 +442,7 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
             {
               id: `edge-${agent.id}`,
               source: `project-${project.path}`,
+              sourceHandle: sourceHandle || undefined,
               target: `agent-${agent.id}`,
               animated: true,
               style: { stroke: '#a6e3a1' },

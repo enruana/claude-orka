@@ -363,7 +363,7 @@ export class TmuxCommands {
   static async sendKeys(paneId: string, text: string): Promise<void> {
     try {
       logger.debug(`Sending keys to pane ${paneId}: ${text.substring(0, 50)}...`)
-      await execa('tmux', ['send-keys', '-t', paneId, text])
+      await execa('tmux', ['send-keys', '-t', paneId, text], { timeout: 10000 })
     } catch (error: any) {
       throw new TmuxError(
         `Failed to send keys to pane: ${paneId}`,
@@ -379,7 +379,7 @@ export class TmuxCommands {
   static async sendEnter(paneId: string): Promise<void> {
     try {
       logger.debug(`Sending Enter to pane: ${paneId}`)
-      await execa('tmux', ['send-keys', '-t', paneId, 'Enter'])
+      await execa('tmux', ['send-keys', '-t', paneId, 'Enter'], { timeout: 10000 })
     } catch (error: any) {
       throw new TmuxError(
         `Failed to send Enter to pane: ${paneId}`,
@@ -397,7 +397,7 @@ export class TmuxCommands {
   static async sendSpecialKey(paneId: string, key: string): Promise<void> {
     try {
       logger.debug(`Sending special key '${key}' to pane: ${paneId}`)
-      await execa('tmux', ['send-keys', '-t', paneId, key])
+      await execa('tmux', ['send-keys', '-t', paneId, key], { timeout: 10000 })
     } catch (error: any) {
       throw new TmuxError(
         `Failed to send special key '${key}' to pane: ${paneId}`,
@@ -423,7 +423,7 @@ export class TmuxCommands {
         '-p',
         '-S',
         startLine.toString(),
-      ])
+      ], { timeout: 10000 })
       return stdout
     } catch (error: any) {
       throw new TmuxError(

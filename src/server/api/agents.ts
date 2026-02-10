@@ -215,7 +215,7 @@ agentsRouter.post('/:id/resume', async (req, res) => {
 agentsRouter.post('/:id/connect', async (req, res) => {
   try {
     const { id } = req.params
-    const { projectPath, sessionId, tmuxPaneId } = req.body
+    const { projectPath, sessionId, tmuxPaneId, branchId } = req.body
 
     if (!projectPath) {
       res.status(400).json({ error: 'projectPath is required' })
@@ -223,7 +223,7 @@ agentsRouter.post('/:id/connect', async (req, res) => {
     }
 
     const manager = await getAgentManager()
-    const agent = await manager.connectAgent(id, projectPath, sessionId, tmuxPaneId)
+    const agent = await manager.connectAgent(id, projectPath, sessionId, tmuxPaneId, branchId)
 
     res.json(agent)
   } catch (error: any) {
@@ -311,6 +311,28 @@ agentsRouter.get('/status/running', async (_req, res) => {
     res.json(agents)
   } catch (error: any) {
     logger.error('Failed to get running agents:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * GET /api/agents/:id/status
+ * Get agent status summary (current phase, last decision, terminal snapshot, stats)
+ */
+agentsRouter.get('/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params
+    const manager = await getAgentManager()
+    const status = manager.getAgentStatus(id)
+
+    if (!status) {
+      res.status(404).json({ error: 'Agent not found' })
+      return
+    }
+
+    res.json(status)
+  } catch (error: any) {
+    logger.error('Failed to get agent status:', error)
     res.status(500).json({ error: error.message })
   }
 })

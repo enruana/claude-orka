@@ -1,18 +1,11 @@
 /**
- * AgentNode - ReactFlow node for displaying an Agent with live logs
+ * AgentNode - ReactFlow node for displaying an Agent with live status
  */
 
-import { memo, useState, useEffect, useRef } from 'react'
+import { memo, useState, useEffect } from 'react'
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { Maximize2, Zap } from 'lucide-react'
-import type { Agent, AgentStatus } from '../../api/agents'
-
-interface AgentLog {
-  id: string
-  timestamp: string
-  level: 'info' | 'warn' | 'error' | 'debug' | 'action'
-  message: string
-}
+import type { Agent, AgentStatus, AgentStatusSummary } from '../../api/agents'
 
 interface AgentNodeData {
   agent: Agent
@@ -42,55 +35,68 @@ const statusColors: Record<AgentStatus, string> = {
   error: '#f38ba8',
 }
 
-const levelColors: Record<AgentLog['level'], string> = {
-  info: '#89b4fa',
-  warn: '#f9e2af',
-  error: '#f38ba8',
-  debug: '#6c7086',
-  action: '#a6e3a1',
+const phaseLabels: Record<string, string> = {
+  idle: 'Idle',
+  capture: 'Capturing...',
+  analyze: 'Analyzing...',
+  decide: 'Deciding...',
+  execute: 'Executing...',
+  done: 'Done',
 }
 
-const levelIcons: Record<AgentLog['level'], string> = {
-  info: 'ℹ️',
-  warn: '⚠️',
-  error: '❌',
-  debug: '🔍',
-  action: '▶️',
+const phaseIcons: Record<string, string> = {
+  idle: '💤',
+  capture: '📸',
+  analyze: '🔍',
+  decide: '🤖',
+  execute: '🎯',
+  done: '✅',
+}
+
+const actionIcons: Record<string, string> = {
+  respond: '💬',
+  approve: '✅',
+  reject: '❌',
+  wait: '⏸',
+  request_help: '🆘',
+  compact: '📦',
+  escape: '⎋',
+}
+
+function timeAgo(timestamp: string): string {
+  const diff = Date.now() - new Date(timestamp).getTime()
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ago`
 }
 
 function AgentNodeComponent({ data, selected }: NodeProps<{ data: AgentNodeData }>) {
   const { agent, onStart, onStop, onPause, onResume, onEdit, onDelete, onViewLogs, onTrigger } = data.data
-  const [logs, setLogs] = useState<AgentLog[]>([])
+  const [status, setStatus] = useState<AgentStatusSummary | null>(null)
   const [isTriggering, setIsTriggering] = useState(false)
-  const logsEndRef = useRef<HTMLDivElement>(null)
 
-  // Fetch logs periodically
+  // Fetch status periodically
   useEffect(() => {
-    const fetchLogs = async () => {
+    const fetchStatus = async () => {
       try {
-        // Use window.location.origin for mobile/VPN compatibility
         const baseUrl = window.location.origin
-        const res = await fetch(`${baseUrl}/api/agents/${agent.id}/logs`)
+        const res = await fetch(`${baseUrl}/api/agents/${agent.id}/status`)
         if (res.ok) {
           const data = await res.json()
-          setLogs(data.logs?.slice(-20) || []) // Keep last 20 logs
+          setStatus(data)
         }
       } catch (err) {
-        console.error('Failed to fetch agent logs:', err)
+        console.error('Failed to fetch agent status:', err)
       }
     }
 
-    fetchLogs()
-    const interval = setInterval(fetchLogs, 2000)
+    fetchStatus()
+    const interval = setInterval(fetchStatus, 2000)
     return () => clearInterval(interval)
   }, [agent.id])
-
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [logs])
 
   const handleStart = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -140,11 +146,18 @@ function AgentNodeComponent({ data, selected }: NodeProps<{ data: AgentNodeData 
     }
   }
 
+  const currentPhase = status?.currentPhase || 'idle'
+  const isActivePhase = ['capture', 'analyze', 'decide', 'execute'].includes(currentPhase)
+  const lastDecision = status?.lastDecision
+  const terminalSnapshot = status?.lastTerminalSnapshot
+  const snapshotLines = terminalSnapshot?.split('\n').slice(-8) || []
+
   return (
-    <div className={`agent-node ${selected ? 'selected' : ''}`} style={{ width: '320px' }}>
-      {/* Input handle - for receiving connections from projects */}
+    <div className={`agent-node ${selected ? 'selected' : ''}`} style={{ width: '340px' }}>
+      {/* Input handle */}
       <Handle type="target" position={Position.Left} />
 
+      {/* Header */}
       <div className="node-header">
         <span className="icon">🤖</span>
         <span className="title">{agent.name}</span>
@@ -160,151 +173,236 @@ function AgentNodeComponent({ data, selected }: NodeProps<{ data: AgentNodeData 
         />
       </div>
 
+      {/* Connection info with branch */}
       <div className="node-status">
         <span>{statusLabels[agent.status]}</span>
         {agent.connection && (
-          <span style={{ marginLeft: '8px', color: '#6c7086', fontSize: '0.75rem' }}>
+          <span style={{ marginLeft: '8px', color: '#89b4fa', fontSize: '0.6rem' }}>
             → {agent.connection.projectPath.split('/').pop()}
+            {agent.connection.branchId && (
+              <span style={{ color: '#a6e3a1' }}> ({agent.connection.branchId})</span>
+            )}
           </span>
         )}
       </div>
 
-      {/* Live Logs Preview */}
+      {/* Phase indicator */}
       <div
         style={{
-          position: 'relative',
-          marginTop: '8px',
+          marginTop: '6px',
+          padding: '4px 8px',
+          background: '#181825',
+          borderRadius: '4px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          fontSize: '0.6rem',
         }}
       >
-        {/* Action buttons - outside scroll container */}
-        <div
-          style={{
-            position: 'absolute',
-            top: '4px',
-            right: '4px',
-            display: 'flex',
-            gap: '4px',
-            zIndex: 10,
-          }}
-        >
-          {/* Trigger button */}
-          {agent.connection && (
-            <button
-              onClick={handleTrigger}
-              disabled={isTriggering}
-              className="nodrag"
-              style={{
-                background: isTriggering ? 'rgba(166, 227, 161, 0.3)' : 'rgba(0, 0, 0, 0.7)',
-                border: 'none',
-                borderRadius: '4px',
-                padding: '4px',
-                cursor: isTriggering ? 'wait' : 'pointer',
-                color: '#a6e3a1',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              title="Trigger Agent (Manual)"
-            >
-              <Zap size={12} style={{ animation: isTriggering ? 'pulse 0.5s infinite' : 'none' }} />
-            </button>
-          )}
-
-          {/* Expand button */}
-          <button
-            onClick={handleViewLogs}
-            className="nodrag"
+        <span style={{ fontSize: '0.65rem' }}>{phaseIcons[currentPhase] || '💤'}</span>
+        <span style={{ color: isActivePhase ? '#a6e3a1' : '#6c7086', fontWeight: 500 }}>
+          {phaseLabels[currentPhase] || 'Idle'}
+        </span>
+        {isActivePhase && (
+          <span
             style={{
-              background: 'rgba(0, 0, 0, 0.7)',
-              border: 'none',
-              borderRadius: '4px',
-              padding: '4px',
-              cursor: 'pointer',
-              color: '#89b4fa',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              marginLeft: 'auto',
+              width: '5px',
+              height: '5px',
+              borderRadius: '50%',
+              background: '#a6e3a1',
+              animation: 'pulse 1s ease-in-out infinite',
             }}
-            title="Expand Logs"
-          >
-            <Maximize2 size={12} />
-          </button>
-        </div>
+          />
+        )}
+        {status?.processingDuration && status.processingDuration > 0 && (
+          <span style={{ marginLeft: 'auto', color: '#6c7086', fontSize: '0.55rem' }}>
+            {(status.processingDuration / 1000).toFixed(1)}s
+          </span>
+        )}
+      </div>
 
-        {/* Scrollable logs container */}
+      {/* Last Decision Card */}
+      {lastDecision && (
         <div
-          className="logs-preview nodrag nopan nowheel"
           style={{
-            background: '#11111b',
-            borderRadius: '6px',
-            height: '150px',
-            overflow: 'auto',
-            fontFamily: 'monospace',
-            fontSize: '0.45rem',
+            marginTop: '4px',
+            padding: '5px 8px',
+            background: '#181825',
+            borderRadius: '4px',
+            borderLeft: '2px solid #89b4fa',
           }}
         >
-          {logs.length === 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
+            <span style={{ fontSize: '0.55rem', color: '#6c7086', textTransform: 'uppercase', fontWeight: 600 }}>
+              Last Decision
+            </span>
+            <span style={{ marginLeft: 'auto', fontSize: '0.5rem', color: '#6c7086' }}>
+              {timeAgo(lastDecision.timestamp)}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+            <span style={{ fontSize: '0.6rem' }}>{actionIcons[lastDecision.action] || '❓'}</span>
+            <span style={{ color: '#cdd6f4', fontSize: '0.6rem', fontWeight: 500 }}>
+              {lastDecision.action}
+            </span>
+            {/* Confidence bar */}
             <div
               style={{
-                height: '100%',
+                marginLeft: 'auto',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                color: '#6c7086',
+                gap: '3px',
               }}
             >
-              No logs yet
-            </div>
-          ) : (
-            <div style={{ padding: '8px', paddingTop: '28px' }}>
-              {logs.map(log => (
+              <div
+                style={{
+                  width: '32px',
+                  height: '3px',
+                  background: '#313244',
+                  borderRadius: '2px',
+                  overflow: 'hidden',
+                }}
+              >
                 <div
-                  key={log.id}
                   style={{
-                    padding: '2px 0',
-                    borderBottom: '1px solid #1e1e2e',
-                    display: 'flex',
-                    gap: '4px',
-                    alignItems: 'flex-start',
+                    width: `${lastDecision.confidence * 100}%`,
+                    height: '100%',
+                    background: lastDecision.confidence >= 0.7 ? '#a6e3a1' : lastDecision.confidence >= 0.4 ? '#f9e2af' : '#f38ba8',
+                    borderRadius: '2px',
                   }}
-                >
-                  <span style={{ flexShrink: 0 }}>{levelIcons[log.level]}</span>
-                  <span style={{ color: '#6c7086', flexShrink: 0, fontSize: '0.4rem' }}>
-                    {new Date(log.timestamp).toLocaleTimeString()}
-                  </span>
-                  <span
-                    style={{
-                      color: levelColors[log.level],
-                      wordBreak: 'break-word',
-                      flex: 1,
-                    }}
-                  >
-                    {log.message}
-                  </span>
-                </div>
-              ))}
-              <div ref={logsEndRef} />
+                />
+              </div>
+              <span style={{ fontSize: '0.5rem', color: '#6c7086' }}>
+                {(lastDecision.confidence * 100).toFixed(0)}%
+              </span>
+            </div>
+          </div>
+          {lastDecision.response && (
+            <div style={{ color: '#a6adc8', fontSize: '0.55rem', marginBottom: '1px', fontStyle: 'italic' }}>
+              "{lastDecision.response.length > 60 ? lastDecision.response.slice(0, 60) + '...' : lastDecision.response}"
             </div>
           )}
+          <div style={{ color: '#6c7086', fontSize: '0.5rem' }}>
+            {lastDecision.reason.length > 80 ? lastDecision.reason.slice(0, 80) + '...' : lastDecision.reason}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Terminal Snapshot */}
+      {snapshotLines.length > 0 && (
+        <div
+          style={{
+            marginTop: '4px',
+            borderRadius: '4px',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              padding: '3px 8px',
+              background: '#181825',
+              borderBottom: '1px solid #1e1e2e',
+              fontSize: '0.5rem',
+              color: '#6c7086',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+            }}
+          >
+            Terminal Snapshot
+          </div>
+          <div
+            className="nodrag nopan nowheel"
+            style={{
+              background: '#11111b',
+              padding: '4px 6px',
+              fontFamily: 'monospace',
+              fontSize: '0.45rem',
+              lineHeight: '1.35',
+              color: '#a6adc8',
+              maxHeight: '70px',
+              overflow: 'auto',
+              whiteSpace: 'pre',
+            }}
+          >
+            {snapshotLines.join('\n')}
+          </div>
+        </div>
+      )}
+
+      {/* No activity placeholder */}
+      {!lastDecision && !terminalSnapshot && agent.status !== 'idle' && (
+        <div
+          style={{
+            marginTop: '4px',
+            padding: '8px',
+            background: '#181825',
+            borderRadius: '4px',
+            textAlign: 'center',
+            color: '#6c7086',
+            fontSize: '0.55rem',
+          }}
+        >
+          No activity yet
+        </div>
+      )}
 
       {agent.lastError && (
         <div
           style={{
-            marginTop: '8px',
-            padding: '6px 8px',
+            marginTop: '4px',
+            padding: '4px 6px',
             background: 'rgba(243, 139, 168, 0.1)',
             borderRadius: '4px',
             color: '#f38ba8',
-            fontSize: '0.75rem',
+            fontSize: '0.55rem',
           }}
         >
           ⚠️ {agent.lastError}
         </div>
       )}
 
-      <div className="node-actions" style={{ marginTop: '8px' }}>
+      {/* Action buttons row */}
+      <div
+        style={{
+          marginTop: '8px',
+          display: 'flex',
+          gap: '4px',
+          alignItems: 'center',
+        }}
+      >
+        {/* Trigger button */}
+        {agent.connection && (
+          <button
+            onClick={handleTrigger}
+            disabled={isTriggering}
+            className="nodrag node-action-btn secondary"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              opacity: isTriggering ? 0.6 : 1,
+              cursor: isTriggering ? 'wait' : 'pointer',
+            }}
+          >
+            <Zap size={12} style={{ animation: isTriggering ? 'pulse 0.5s infinite' : 'none' }} />
+            Trigger
+          </button>
+        )}
+
+        {/* Expand logs */}
+        <button
+          onClick={handleViewLogs}
+          className="nodrag node-action-btn secondary"
+          style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+        >
+          <Maximize2 size={12} />
+          Logs
+        </button>
+
+        <div style={{ flex: 1 }} />
+
+        {/* Status-dependent buttons */}
         {agent.status === 'idle' && (
           <button className="node-action-btn primary" onClick={handleStart}>
             Start
@@ -342,7 +440,7 @@ function AgentNodeComponent({ data, selected }: NodeProps<{ data: AgentNodeData 
         )}
       </div>
 
-      <div className="node-actions" style={{ marginTop: '8px' }}>
+      <div className="node-actions" style={{ marginTop: '4px' }}>
         <button className="node-action-btn secondary" onClick={handleEdit}>
           Edit
         </button>
@@ -350,6 +448,13 @@ function AgentNodeComponent({ data, selected }: NodeProps<{ data: AgentNodeData 
           Delete
         </button>
       </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+      `}</style>
     </div>
   )
 }
