@@ -338,6 +338,75 @@ agentsRouter.get('/:id/status', async (req, res) => {
 })
 
 /**
+ * POST /api/agents/improve-prompt
+ * Send a prompt to Claude to get a refined version
+ * Body: { prompt: string }
+ */
+agentsRouter.post('/improve-prompt', async (req, res) => {
+  try {
+    const { prompt, instructions } = req.body
+
+    if (!prompt || typeof prompt !== 'string') {
+      res.status(400).json({ error: 'prompt is required' })
+      return
+    }
+
+    // Dynamic import to avoid issues if SDK is not available
+    const { query } = await import('@anthropic-ai/claude-agent-sdk')
+
+    const systemPrompt = `You are an expert prompt engineer. The user will give you a "master prompt" used to instruct an AI agent that monitors and responds to Claude Code terminal sessions.
+
+Your job is to return an IMPROVED version of this prompt. Improvements should:
+- Make instructions clearer and more specific
+- Add structure with markdown headings, bullet points, numbered steps
+- Remove ambiguity
+- Add edge-case handling (what to do on errors, when stuck, etc.)
+- Ensure the prompt covers the full workflow the user seems to intend
+- Keep the user's original intent and goals intact
+- Use markdown formatting for readability
+
+The user may also provide specific instructions for how to improve the prompt. If provided, prioritize those instructions over general improvements.
+
+Return ONLY the improved prompt text in markdown. Do not add any preamble, explanation, or commentary outside the prompt itself.`
+
+    const userInstructions = instructions && typeof instructions === 'string' && instructions.trim()
+      ? `\n\nUSER INSTRUCTIONS FOR THIS IMPROVEMENT:\n${instructions.trim()}`
+      : ''
+
+    const conversation = query({
+      prompt: `Here is the current master prompt to improve:\n\n---\n${prompt}\n---${userInstructions}\n\nReturn the improved version:`,
+      options: {
+        systemPrompt,
+        model: 'sonnet',
+        maxTurns: 1,
+        permissionMode: 'bypassPermissions',
+      },
+    })
+
+    let result = ''
+    for await (const message of conversation) {
+      if (message.type === 'assistant') {
+        for (const block of message.message.content) {
+          if ('text' in block) {
+            result += block.text
+          }
+        }
+      } else if (message.type === 'result') {
+        if (message.subtype === 'success' && message.result) {
+          result = message.result
+        }
+        break
+      }
+    }
+
+    res.json({ improvedPrompt: result.trim() })
+  } catch (error: any) {
+    logger.error('Failed to improve prompt:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * GET /api/agents/:id/logs
  * Get logs for a specific agent
  */

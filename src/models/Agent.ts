@@ -73,6 +73,18 @@ export interface AgentConnection {
 }
 
 /**
+ * A named prompt preset (role) that an agent can switch between
+ */
+export interface PromptRole {
+  /** Unique role ID */
+  id: string
+  /** Display name (e.g., "Workflow Guide", "Documentation", "Deployment") */
+  name: string
+  /** The prompt text (markdown) */
+  prompt: string
+}
+
+/**
  * Agent represents a Master Agent that acts as a "virtual human"
  * It monitors Claude Code sessions and responds based on a Master Prompt
  */
@@ -118,6 +130,12 @@ export interface Agent {
 
   /** Number of recent decisions to include as context (rolling window) */
   decisionHistorySize: number
+
+  /** Saved prompt roles/presets */
+  promptRoles?: PromptRole[]
+
+  /** Currently active role ID (if using roles) */
+  activeRoleId?: string
 
   /** Creation timestamp */
   createdAt: string

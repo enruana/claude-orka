@@ -1600,37 +1600,18 @@
           });
         }
 
-        // Clear accidental selections when terminal gains focus
-        // This prevents small selections from overwriting the clipboard when switching terminals
-        this.term.textarea.addEventListener('focus', () => {
-          // Small delay to let any click-based selection complete
-          setTimeout(() => {
-            const selection = this.term.getSelection();
-            // If selection is very small (likely accidental click), clear it
-            if (selection && selection.length < 3) {
-              this.term.clearSelection();
-            }
-          }, 50);
+        // Auto-copy selection to clipboard when user finishes selecting
+        // This gives a native-like "select to copy" experience
+        this.term.onSelectionChange(() => {
+          const selection = this.term.getSelection();
+          if (selection && selection.length > 0) {
+            navigator.clipboard.writeText(selection).then(() => {
+              this.showCopyToast(selection.length);
+            }).catch(() => {
+              // Clipboard API may fail in iframes without focus — ignore silently
+            });
+          }
         });
-
-        // Also clear tiny selections on mouseup/touchend to prevent accidental copies
-        container.addEventListener('mouseup', () => {
-          setTimeout(() => {
-            const selection = this.term.getSelection();
-            if (selection && selection.length < 3) {
-              this.term.clearSelection();
-            }
-          }, 10);
-        });
-
-        container.addEventListener('touchend', () => {
-          setTimeout(() => {
-            const selection = this.term.getSelection();
-            if (selection && selection.length < 3) {
-              this.term.clearSelection();
-            }
-          }, 10);
-        }, { passive: true });
 
         // Fit after layout is ready
         requestAnimationFrame(() => {
@@ -1710,9 +1691,8 @@
           // Check for Cmd+C / Ctrl+C for copy
           if ((event.metaKey || event.ctrlKey) && event.key === 'c' && event.type === 'keydown') {
             const selection = this.term.getSelection();
-            // Only copy if selection is meaningful (3+ characters)
-            // This prevents accidental tiny selections from overwriting clipboard
-            if (selection && selection.length >= 3) {
+            // If there is any selection, copy it
+            if (selection && selection.length > 0) {
               navigator.clipboard.writeText(selection).then(() => {
                 console.log('Copied:', selection.length, 'characters');
                 this.showCopyToast(selection.length);
@@ -1721,7 +1701,7 @@
               });
               return false;
             }
-            // If no meaningful selection, send Ctrl+C to terminal (interrupt)
+            // If no selection, send Ctrl+C to terminal (interrupt)
             return true;
           }
 

@@ -52,6 +52,15 @@ export interface AgentConnection {
 }
 
 /**
+ * A named prompt preset (role) that an agent can switch between
+ */
+export interface PromptRole {
+  id: string
+  name: string
+  prompt: string
+}
+
+/**
  * Agent interface
  */
 export interface Agent {
@@ -69,6 +78,8 @@ export interface Agent {
   maxConsecutiveResponses: number
   consecutiveResponses: number
   decisionHistorySize: number
+  promptRoles?: PromptRole[]
+  activeRoleId?: string
   createdAt: string
   lastActivity?: string
   lastError?: string
@@ -237,6 +248,17 @@ export const agentsApi = {
    */
   async getStatus(agentId: string): Promise<AgentStatusSummary> {
     return apiFetch<AgentStatusSummary>(`/agents/${agentId}/status`)
+  },
+
+  /**
+   * Improve a prompt using Claude
+   */
+  async improvePrompt(prompt: string, instructions?: string): Promise<string> {
+    const res = await apiFetch<{ improvedPrompt: string }>('/agents/improve-prompt', {
+      method: 'POST',
+      body: JSON.stringify({ prompt, instructions }),
+    })
+    return res.improvedPrompt
   },
 
   /**
