@@ -4,7 +4,7 @@
 
 import { EventEmitter } from 'events'
 import { logger } from '../utils'
-import { Agent, AgentHookTrigger, NotificationConfig } from '../models/Agent'
+import { Agent, AgentHookTrigger, NotificationConfig, PromptRole } from '../models/Agent'
 import { ProcessedHookEvent } from '../models/HookEvent'
 import { getAgentStateManager, AgentStateManager } from './AgentStateManager'
 import { getHookServer, HookServer } from './HookServer'
@@ -34,6 +34,7 @@ export interface AgentLogEntry {
   level: 'info' | 'warn' | 'error' | 'debug' | 'action'
   message: string
   details?: Record<string, unknown>
+  cycleId?: string
 }
 
 /**
@@ -139,6 +140,8 @@ export class AgentManager extends EventEmitter {
       autoApprove?: boolean
       maxConsecutiveResponses?: number
       decisionHistorySize?: number
+      promptRoles?: PromptRole[]
+      activeRoleId?: string
     } = {}
   ): Promise<Agent> {
     if (!this.stateManager) {
@@ -151,6 +154,8 @@ export class AgentManager extends EventEmitter {
       autoApprove: options.autoApprove || false,
       maxConsecutiveResponses: options.maxConsecutiveResponses || 5,
       decisionHistorySize: options.decisionHistorySize || 5,
+      promptRoles: options.promptRoles,
+      activeRoleId: options.activeRoleId,
     })
 
     this.emit('agentCreated', agent)
@@ -439,6 +444,15 @@ export class AgentManager extends EventEmitter {
       return
     }
 
+    // === SessionStart events are handled specially for session tracking ===
+    // After /compact or /clear, Claude Code may assign a new session_id.
+    // We must update the agent's claudeSessionId BEFORE subsequent Stop events
+    // arrive, otherwise the session_id filter would reject them permanently.
+    if (event.payload.event_type === 'SessionStart') {
+      await this.handleSessionStartEvent(event, agent)
+      return
+    }
+
     // Filter 1: Event type must be in agent's hookEvents
     if (!agent.hookEvents.includes(event.payload.event_type as AgentHookTrigger)) {
       logger.debug(`Ignoring ${event.payload.event_type} - not in agent ${event.agentId}'s hookEvents`)
@@ -487,6 +501,74 @@ export class AgentManager extends EventEmitter {
 
     // Handle the event
     await daemon.handleHookEvent(event, this)
+  }
+
+  /**
+   * Handle SessionStart events for session tracking.
+   *
+   * After /compact or /clear, Claude Code may start a new session with a
+   * different session_id. If we don't update the agent's claudeSessionId,
+   * all subsequent Stop events (which carry the new session_id) would be
+   * rejected by Filter 2, leaving the agent permanently stuck.
+   *
+   * This method runs BEFORE the normal filters and does NOT dispatch to
+   * the daemon — the subsequent Stop event (which fires right after
+   * SessionStart) will trigger the daemon's normal processing cycle.
+   */
+  private async handleSessionStartEvent(event: ProcessedHookEvent, agent: Agent): Promise<void> {
+    const source = event.payload.session_start_data?.source || 'unknown'
+    const newSessionId = event.payload.session_id
+    const oldSessionId = agent.connection?.claudeSessionId
+
+    this.addAgentLog(event.agentId, 'info', `SessionStart (source: ${source})`, {
+      eventType: 'SessionStart',
+      source,
+      oldSessionId: oldSessionId?.slice(0, 8),
+      newSessionId: newSessionId?.slice(0, 8),
+    })
+
+    // Update claudeSessionId if it changed
+    if (newSessionId && oldSessionId && newSessionId !== oldSessionId && agent.connection) {
+      await this.stateManager?.connectAgent(
+        event.agentId,
+        agent.connection.projectPath,
+        agent.connection.sessionId,
+        agent.connection.tmuxPaneId,
+        newSessionId,
+        agent.connection.branchId
+      )
+
+      this.addAgentLog(event.agentId, 'action',
+        `Session ID updated after ${source}: ${oldSessionId.slice(0, 8)}… → ${newSessionId.slice(0, 8)}…`
+      )
+    } else if (newSessionId && !oldSessionId && agent.connection) {
+      // Agent didn't have a claudeSessionId yet — set it now
+      await this.stateManager?.connectAgent(
+        event.agentId,
+        agent.connection.projectPath,
+        agent.connection.sessionId,
+        agent.connection.tmuxPaneId,
+        newSessionId,
+        agent.connection.branchId
+      )
+
+      this.addAgentLog(event.agentId, 'action',
+        `Session ID set: ${newSessionId.slice(0, 8)}…`
+      )
+    }
+
+    // After compact/clear, reset the daemon's decision history and state
+    // since the conversation context was wiped
+    if (source === 'compact' || source === 'clear') {
+      const daemon = this.daemons.get(event.agentId)
+      if (daemon) {
+        await daemon.refresh()
+        daemon.resetDecisionHistory()
+        this.addAgentLog(event.agentId, 'info',
+          `Decision history reset after ${source}`
+        )
+      }
+    }
   }
 
   /**
@@ -575,11 +657,36 @@ export class AgentManager extends EventEmitter {
 
       // Get current phase from most recent log
       if (currentPhase === 'idle') {
-        currentPhase = details.phase as AgentStatusSummary['currentPhase']
+        // Map detailed phase tags to summary phases
+        const phaseMap: Record<string, AgentStatusSummary['currentPhase']> = {
+          hook_received: 'capture',
+          terminal_capture: 'capture',
+          terminal_state: 'analyze',
+          llm_request: 'decide',
+          llm_response: 'decide',
+          decision: 'decide',
+          execution: 'execute',
+          cycle_done: 'done',
+          // Legacy phases
+          capture: 'capture',
+          analyze: 'analyze',
+          decide: 'decide',
+          execute: 'execute',
+          done: 'done',
+        }
+        currentPhase = phaseMap[details.phase as string] || (details.phase as AgentStatusSummary['currentPhase'])
       }
 
-      // Get last decision
-      if (!lastDecision && details.phase === 'decide' && details.decision) {
+      // Get last decision (new flat format with phase 'decision', or legacy nested format)
+      if (!lastDecision && details.phase === 'decision' && details.action) {
+        lastDecision = {
+          action: details.action as string,
+          reason: details.reason as string,
+          confidence: details.confidence as number,
+          response: details.response as string | undefined,
+          timestamp: log.timestamp,
+        }
+      } else if (!lastDecision && details.phase === 'decide' && details.decision) {
         const d = details.decision as Record<string, unknown>
         lastDecision = {
           action: d.action as string,
@@ -590,13 +697,20 @@ export class AgentManager extends EventEmitter {
         }
       }
 
-      // Get last terminal snapshot
-      if (!lastTerminalSnapshot && details.terminalSnapshot) {
-        lastTerminalSnapshot = details.terminalSnapshot as string
+      // Get last terminal snapshot (new 'snapshot' key or legacy 'terminalSnapshot')
+      if (!lastTerminalSnapshot && (details.snapshot || details.terminalSnapshot)) {
+        lastTerminalSnapshot = (details.snapshot || details.terminalSnapshot) as string
       }
 
-      // Get last terminal state
-      if (!lastTerminalState && details.terminalState) {
+      // Get last terminal state (new flat format with phase 'terminal_state', or legacy nested)
+      if (!lastTerminalState && details.phase === 'terminal_state') {
+        lastTerminalState = {
+          isProcessing: details.isProcessing as boolean,
+          isWaitingForInput: details.isWaitingForInput as boolean,
+          hasPermissionPrompt: details.hasPermissionPrompt as boolean,
+          hasError: details.hasError as boolean,
+        }
+      } else if (!lastTerminalState && details.terminalState) {
         lastTerminalState = details.terminalState as AgentStatusSummary['lastTerminalState']
       }
 
@@ -674,7 +788,8 @@ export class AgentManager extends EventEmitter {
     agentId: string,
     level: AgentLogEntry['level'],
     message: string,
-    details?: Record<string, unknown>
+    details?: Record<string, unknown>,
+    cycleId?: string
   ): void {
     if (!this.agentLogs.has(agentId)) {
       this.agentLogs.set(agentId, [])
@@ -687,6 +802,7 @@ export class AgentManager extends EventEmitter {
       level,
       message,
       details,
+      cycleId,
     }
 
     logs.push(entry)

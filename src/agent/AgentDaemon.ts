@@ -11,8 +11,9 @@
  */
 
 import { EventEmitter } from 'events'
+import { nanoid } from 'nanoid'
 import { logger } from '../utils'
-import { Agent } from '../models/Agent'
+import { Agent, getEffectivePrompt } from '../models/Agent'
 import { ProcessedHookEvent } from '../models/HookEvent'
 import { TerminalReader, TerminalState } from './TerminalReader'
 import { getAgentStateManager, AgentStateManager } from './AgentStateManager'
@@ -112,7 +113,8 @@ export class AgentDaemon extends EventEmitter {
    * Handle a hook event - main entry point
    */
   async handleHookEvent(event: ProcessedHookEvent, manager?: AgentManager): Promise<void> {
-    const log = this.createLogger(manager)
+    const cycleId = `cycle-${nanoid(8)}`
+    const log = this.createLogger(manager, cycleId)
 
     // === PHASE 1: Pre-flight checks ===
     if (!this.isRunning) {
@@ -144,10 +146,22 @@ export class AgentDaemon extends EventEmitter {
 
     const cycleStart = Date.now()
 
+    // Collect event-specific data for logging
+    const hookSpecificData: Record<string, unknown> = {
+      ...event.payload.stop_data,
+      ...event.payload.compact_data,
+      ...event.payload.session_start_data,
+      ...event.payload.session_end_data,
+      ...event.payload.notification_data,
+    }
+
     try {
       log('info', `📥 Hook: ${event.payload.event_type}`, {
-        phase: 'capture',
+        phase: 'hook_received',
         eventType: event.payload.event_type,
+        sessionId: event.payload.session_id,
+        cwd: event.payload.cwd,
+        hookData: Object.keys(hookSpecificData).length > 0 ? hookSpecificData : undefined,
       })
 
       // === PHASE 2: Capture terminal state ===
@@ -158,10 +172,13 @@ export class AgentDaemon extends EventEmitter {
         return
       }
 
-      const lastLines = terminalContent.content.split('\n').slice(-20).join('\n')
-      log('info', `📸 Terminal captured (${terminalContent.content.length} chars)`, {
-        phase: 'capture',
-        terminalSnapshot: lastLines,
+      const lines = terminalContent.content.split('\n')
+      const lastLines = lines.slice(-20).join('\n')
+      log('info', `📸 Terminal captured (${terminalContent.content.length} chars, ${lines.length} lines)`, {
+        phase: 'terminal_capture',
+        charCount: terminalContent.content.length,
+        lineCount: lines.length,
+        snapshot: lastLines,
       })
 
       // === PHASE 3: Quick checks before AI analysis ===
@@ -172,18 +189,20 @@ export class AgentDaemon extends EventEmitter {
         isWaitingForInput: terminalState.isWaitingForInput,
         hasPermissionPrompt: terminalState.hasPermissionPrompt,
         hasError: !!terminalState.error,
+        errorText: terminalState.error || undefined,
       }
 
       log('info', `🔍 State: ${terminalState.isWaitingForInput ? 'waiting for input' : terminalState.isProcessing ? 'processing' : terminalState.hasPermissionPrompt ? 'permission prompt' : 'other'}`, {
-        phase: 'analyze',
-        terminalState: terminalStateInfo,
+        phase: 'terminal_state',
+        ...terminalStateInfo,
       })
 
       // If Claude is still processing (spinner visible), don't interrupt
       if (ClaudeAnalyzer.isProcessing(terminalContent.content)) {
         log('info', '⏳ Claude still working (spinner) - waiting', {
-          phase: 'analyze',
-          terminalState: { ...terminalStateInfo, isProcessing: true },
+          phase: 'terminal_state',
+          ...terminalStateInfo,
+          isProcessing: true,
         })
         this.processingState.consecutiveWaits++
         return
@@ -213,19 +232,18 @@ export class AgentDaemon extends EventEmitter {
       // === PHASE 5: Execute the decision ===
       if (response.action !== 'wait') {
         log('action', `🎯 Executing: ${response.action}${response.response ? ` → "${response.response}"` : ''}`, {
-          phase: 'execute',
+          phase: 'execution',
           action: response.action,
-          reason: response.reason,
           response: response.response,
         })
 
-        await this.executeResponse(response, terminalContent.paneId, manager)
+        await this.executeResponse(response, terminalContent.paneId, log)
         this.processingState.lastResponseTime = Date.now()
         this.processingState.consecutiveWaits = 0
       } else {
         this.processingState.consecutiveWaits++
         log('debug', `😴 Waiting (${this.processingState.consecutiveWaits} consecutive)`, {
-          phase: 'execute',
+          phase: 'execution',
           action: 'wait',
           consecutiveWaits: this.processingState.consecutiveWaits,
         })
@@ -237,7 +255,7 @@ export class AgentDaemon extends EventEmitter {
             action: 'request_help',
             reason: 'Agent has been waiting too long without progress',
             notifyHuman: true,
-          }, terminalContent.paneId, manager)
+          }, terminalContent.paneId, log)
         }
       }
 
@@ -250,7 +268,7 @@ export class AgentDaemon extends EventEmitter {
     } finally {
       this.processingState.isProcessing = false
       const duration = Date.now() - cycleStart
-      log('debug', `Cycle complete (${duration}ms)`, { phase: 'done', durationMs: duration })
+      log('debug', `✅ Cycle complete (${duration}ms)`, { phase: 'cycle_done', durationMs: duration })
     }
   }
 
@@ -292,7 +310,7 @@ export class AgentDaemon extends EventEmitter {
 
     try {
       const analyzer = new ClaudeAnalyzer(
-        this.agent.masterPrompt,
+        getEffectivePrompt(this.agent),
         this.agent.connection?.projectPath || ''
       )
 
@@ -312,15 +330,34 @@ export class AgentDaemon extends EventEmitter {
         this.decisionHistory
       )
 
+      // Log LLM request metadata
+      if (analysis.meta) {
+        log('info', `🤖 LLM request`, {
+          phase: 'llm_request',
+          model: analysis.meta.model,
+          systemPromptLength: analysis.meta.systemPromptLength,
+          userPromptLength: analysis.meta.userPromptLength,
+        })
+
+        // Log LLM response metadata
+        log('info', `🤖 LLM response (${analysis.meta.latencyMs}ms)`, {
+          phase: 'llm_response',
+          latencyMs: analysis.meta.latencyMs,
+          rawResponse: analysis.meta.rawResponse.length > 500
+            ? analysis.meta.rawResponse.slice(0, 500) + '…'
+            : analysis.meta.rawResponse,
+          parseSuccess: true,
+        })
+      }
+
       // Log the AI's decision as a single structured entry
       log('action', `💭 Decision: ${analysis.action} (${(analysis.confidence * 100).toFixed(0)}%)${analysis.response ? ` → "${analysis.response}"` : ''} — ${analysis.reason}`, {
-        phase: 'decide',
-        decision: {
-          action: analysis.action,
-          reason: analysis.reason,
-          confidence: analysis.confidence,
-          response: analysis.response,
-        },
+        phase: 'decision',
+        action: analysis.action,
+        reason: analysis.reason,
+        confidence: analysis.confidence,
+        response: analysis.response,
+        notifyHuman: analysis.notifyHuman,
       })
 
       // Low confidence check
@@ -395,9 +432,8 @@ export class AgentDaemon extends EventEmitter {
   private async executeResponse(
     response: AgentResponse,
     paneId: string,
-    manager?: AgentManager
+    log: ReturnType<typeof this.createLogger>
   ): Promise<void> {
-    const log = this.createLogger(manager)
 
     switch (response.action) {
       case 'respond':
@@ -484,13 +520,13 @@ export class AgentDaemon extends EventEmitter {
   /**
    * Create a logger function bound to this agent
    */
-  private createLogger(manager?: AgentManager) {
+  private createLogger(manager?: AgentManager, cycleId?: string) {
     return (
       level: 'info' | 'warn' | 'error' | 'debug' | 'action',
       message: string,
       details?: Record<string, unknown>
     ) => {
-      manager?.addAgentLog(this.agent.id, level, message, details)
+      manager?.addAgentLog(this.agent.id, level, message, details, cycleId)
     }
   }
 
@@ -506,6 +542,19 @@ export class AgentDaemon extends EventEmitter {
 
     this.processingState.consecutiveWaits = 0
     logger.info(`Agent ${this.agent.id} resumed from waiting_human state`)
+  }
+
+  /**
+   * Reset decision history — called after compact/clear wipes context.
+   * Without this, the agent would carry stale context from before the reset.
+   */
+  resetDecisionHistory(): void {
+    const hadHistory = this.decisionHistory.length > 0
+    this.decisionHistory = []
+    this.processingState.consecutiveWaits = 0
+    if (hadHistory) {
+      logger.info(`Agent ${this.agent.id}: Decision history cleared (context was reset)`)
+    }
   }
 
   /**

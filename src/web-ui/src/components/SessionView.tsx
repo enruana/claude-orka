@@ -18,13 +18,10 @@ import {
   GitBranch,
   FolderOpen,
   Mic,
-  MicOff,
-  Send,
-  X,
-  Loader2,
 } from 'lucide-react'
 import { SessionCodeEditor, FileExplorer } from './code-editor'
 import { encodeProjectPath } from './ProjectDashboard'
+import { VoiceInputPopover } from './VoiceInputPopover'
 
 type RightPanelTab = 'terminal' | 'code' | 'files'
 
@@ -67,16 +64,9 @@ export function SessionView({
   const [showThreadsPopover, setShowThreadsPopover] = useState(false)
   const [isTerminalLoading, setIsTerminalLoading] = useState(true)
   const [isTerminalTabDragOver, setIsTerminalTabDragOver] = useState(false)
-  const [showVoiceModal, setShowVoiceModal] = useState(false)
-  const [isRecording, setIsRecording] = useState(false)
-  const [isTranscribing, setIsTranscribing] = useState(false)
-  const [transcribedText, setTranscribedText] = useState('')
-  const [voiceError, setVoiceError] = useState<string | null>(null)
-  const [voiceLanguage, setVoiceLanguage] = useState<'es' | 'en' | 'auto'>('auto')
+  const [showVoicePopover, setShowVoicePopover] = useState(false)
   const terminalIframeRef = useRef<HTMLIFrameElement>(null)
   const threadsPopoverRef = useRef<HTMLDivElement>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
 
   // Use controlled tab from props, or local state as fallback
   const [localTab, setLocalTab] = useState<RightPanelTab>(currentTab)
@@ -92,128 +82,6 @@ export function SessionView({
       )
     }
   }, [])
-
-  // Voice recording functions
-  const startRecording = useCallback(async () => {
-    try {
-      setVoiceError(null)
-      setTranscribedText('')
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 16000
-        }
-      })
-
-      // Detect supported format
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : 'audio/webm'
-
-      const mediaRecorder = new MediaRecorder(stream, { mimeType })
-      mediaRecorderRef.current = mediaRecorder
-      audioChunksRef.current = []
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunksRef.current.push(e.data)
-        }
-      }
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach(track => track.stop())
-
-        if (audioChunksRef.current.length === 0) {
-          setVoiceError('No audio recorded')
-          setIsRecording(false)
-          return
-        }
-
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
-        await transcribeAudio(audioBlob, mimeType, voiceLanguage)
-      }
-
-      mediaRecorder.start()
-      setIsRecording(true)
-    } catch (err: any) {
-      console.error('Failed to start recording:', err)
-      if (err.name === 'NotAllowedError') {
-        setVoiceError('Microphone access denied. Please allow microphone access.')
-      } else if (err.name === 'NotFoundError') {
-        setVoiceError('No microphone found.')
-      } else {
-        setVoiceError(`Recording failed: ${err.message}`)
-      }
-    }
-  }, [])
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-      setIsTranscribing(true)
-    }
-  }, [])
-
-  const transcribeAudio = useCallback(async (audioBlob: Blob, mimeType: string, language: 'es' | 'en' | 'auto' = 'auto') => {
-    try {
-      const response = await fetch(`/api/transcribe?language=${language}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': mimeType
-        },
-        body: audioBlob
-      })
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Transcription failed' }))
-        throw new Error(error.message || error.error || 'Transcription failed')
-      }
-
-      const result = await response.json()
-
-      if (!result.text || result.text.trim() === '') {
-        setVoiceError('No speech detected. Please try again.')
-      } else {
-        setTranscribedText(result.text.trim())
-      }
-    } catch (err: any) {
-      console.error('Transcription error:', err)
-      setVoiceError(`Transcription failed: ${err.message}`)
-    } finally {
-      setIsTranscribing(false)
-    }
-  }, [])
-
-  const handleSendTranscription = useCallback(() => {
-    if (transcribedText.trim()) {
-      sendInputToTerminal(transcribedText.trim())
-      setShowVoiceModal(false)
-      setTranscribedText('')
-      setVoiceError(null)
-      // Focus terminal after sending
-      setTimeout(() => {
-        terminalIframeRef.current?.focus()
-      }, 100)
-    }
-  }, [transcribedText, sendInputToTerminal])
-
-  const closeVoiceModal = useCallback(() => {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop()
-    }
-    setShowVoiceModal(false)
-    setIsRecording(false)
-    setIsTranscribing(false)
-    setTranscribedText('')
-    setVoiceError(null)
-  }, [isRecording])
 
   // Handle drop on terminal tab
   const handleTerminalTabDrop = useCallback((e: React.DragEvent) => {
@@ -865,14 +733,25 @@ export function SessionView({
                     }}
                     onContextMenu={(e) => e.preventDefault()}
                   />
-                  {/* Floating voice button */}
-                  <button
-                    className="voice-fab"
-                    onClick={() => setShowVoiceModal(true)}
-                    title="Voice input"
-                  >
-                    <Mic size={20} />
-                  </button>
+                  {/* Floating voice button + popover */}
+                  <div className="voice-fab-container">
+                    <VoiceInputPopover
+                      isOpen={showVoicePopover}
+                      onClose={() => setShowVoicePopover(false)}
+                      onSend={(text) => {
+                        sendInputToTerminal(text)
+                        setTimeout(() => terminalIframeRef.current?.focus(), 100)
+                      }}
+                      sendLabel="Send to Terminal"
+                    />
+                    <button
+                      className="voice-fab"
+                      onClick={() => setShowVoicePopover(!showVoicePopover)}
+                      title="Voice input"
+                    >
+                      <Mic size={20} />
+                    </button>
+                  </div>
                 </>
               ) : (
                 <div className="terminal-placeholder">
@@ -930,110 +809,6 @@ export function SessionView({
         </div>
       )}
 
-      {/* Voice Input Modal */}
-      {showVoiceModal && (
-        <div className="modal-overlay" onClick={closeVoiceModal}>
-          <div className="voice-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="voice-modal-header">
-              <h3>Voice Input</h3>
-              <button className="voice-modal-close" onClick={closeVoiceModal}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="voice-modal-content">
-              {/* Language selector - always visible except when recording/transcribing */}
-              {!isRecording && !isTranscribing && (
-                <div className="voice-language-selector">
-                  <button
-                    className={`voice-lang-btn ${voiceLanguage === 'es' ? 'active' : ''}`}
-                    onClick={() => setVoiceLanguage('es')}
-                  >
-                    🇪🇸 Español
-                  </button>
-                  <button
-                    className={`voice-lang-btn ${voiceLanguage === 'en' ? 'active' : ''}`}
-                    onClick={() => setVoiceLanguage('en')}
-                  >
-                    🇺🇸 English
-                  </button>
-                  <button
-                    className={`voice-lang-btn ${voiceLanguage === 'auto' ? 'active' : ''}`}
-                    onClick={() => setVoiceLanguage('auto')}
-                  >
-                    🌐 Auto
-                  </button>
-                </div>
-              )}
-
-              {/* Recording state */}
-              {!isRecording && !isTranscribing && !transcribedText && !voiceError && (
-                <div className="voice-modal-idle">
-                  <p>Click the microphone to start recording</p>
-                  <button className="voice-record-btn" onClick={startRecording}>
-                    <Mic size={32} />
-                  </button>
-                </div>
-              )}
-
-              {/* Recording in progress */}
-              {isRecording && (
-                <div className="voice-modal-recording">
-                  <div className="recording-indicator">
-                    <span className="recording-dot" />
-                    <span>Recording...</span>
-                  </div>
-                  <button className="voice-stop-btn" onClick={stopRecording}>
-                    <MicOff size={32} />
-                    <span>Stop Recording</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Transcribing */}
-              {isTranscribing && (
-                <div className="voice-modal-transcribing">
-                  <Loader2 size={32} className="spinner" />
-                  <p>Transcribing audio...</p>
-                </div>
-              )}
-
-              {/* Error state */}
-              {voiceError && (
-                <div className="voice-modal-error">
-                  <p className="error-text">{voiceError}</p>
-                  <button className="voice-retry-btn" onClick={() => { setVoiceError(null); startRecording(); }}>
-                    <Mic size={20} />
-                    <span>Try Again</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Transcription result */}
-              {transcribedText && !voiceError && (
-                <div className="voice-modal-result">
-                  <textarea
-                    className="transcription-text"
-                    value={transcribedText}
-                    onChange={(e) => setTranscribedText(e.target.value)}
-                    placeholder="Transcribed text..."
-                  />
-                  <div className="voice-modal-actions">
-                    <button className="voice-retry-btn" onClick={() => { setTranscribedText(''); startRecording(); }}>
-                      <Mic size={16} />
-                      <span>Re-record</span>
-                    </button>
-                    <button className="voice-send-btn" onClick={handleSendTranscription}>
-                      <Send size={16} />
-                      <span>Send to Terminal</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

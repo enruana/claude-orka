@@ -30,6 +30,14 @@ export interface AnalysisResult {
   confidence: number
   /** Whether to notify human */
   notifyHuman: boolean
+  /** LLM call metadata for logging */
+  meta?: {
+    model: string
+    systemPromptLength: number
+    userPromptLength: number
+    rawResponse: string
+    latencyMs: number
+  }
 }
 
 /**
@@ -225,6 +233,7 @@ Respond with a JSON object only, no other text.`
   }
 
   private async callClaudeInner(systemPrompt: string, userPrompt: string): Promise<AnalysisResult> {
+    const startTime = Date.now()
     try {
       // Use the Claude Agent SDK to query
       const conversation = query({
@@ -256,8 +265,18 @@ Respond with a JSON object only, no other text.`
         }
       }
 
+      const latencyMs = Date.now() - startTime
+
       // Parse the JSON response
-      return this.parseResponse(result)
+      const parsed = this.parseResponse(result)
+      parsed.meta = {
+        model: 'haiku',
+        systemPromptLength: systemPrompt.length,
+        userPromptLength: userPrompt.length,
+        rawResponse: result,
+        latencyMs,
+      }
+      return parsed
     } catch (error: any) {
       logger.error(`Claude API call failed: ${error.message}`)
       throw error

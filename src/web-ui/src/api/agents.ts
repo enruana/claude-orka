@@ -125,6 +125,8 @@ export interface CreateAgentOptions {
   autoApprove?: boolean
   maxConsecutiveResponses?: number
   decisionHistorySize?: number
+  promptRoles?: PromptRole[]
+  activeRoleId?: string
 }
 
 /**

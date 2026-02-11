@@ -175,6 +175,19 @@ export const DEFAULT_AGENT_STATE: AgentState = {
 }
 
 /**
+ * Resolve the effective prompt for an agent.
+ * If an activeRoleId is set and found in promptRoles, use that role's prompt;
+ * otherwise fall back to masterPrompt.
+ */
+export function getEffectivePrompt(agent: Agent): string {
+  if (agent.activeRoleId && agent.promptRoles?.length) {
+    const role = agent.promptRoles.find(r => r.id === agent.activeRoleId)
+    if (role) return role.prompt
+  }
+  return agent.masterPrompt
+}
+
+/**
  * Create a new agent with defaults
  */
 export function createAgent(

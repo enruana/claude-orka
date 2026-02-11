@@ -132,8 +132,12 @@ export class HookConfigGenerator {
     agentId: string,
     hookEvents: AgentHookTrigger[]
   ): Promise<void> {
+    // Always include SessionStart for session tracking after compact/clear.
+    // Without it, the agent can't detect session_id changes and gets stuck.
+    const effectiveEvents = [...new Set([...hookEvents, 'SessionStart' as AgentHookTrigger])] as AgentHookTrigger[]
+
     const settings = await this.readSettings(projectPath)
-    const hookConfig = this.generateHookConfig(agentId, hookEvents)
+    const hookConfig = this.generateHookConfig(agentId, effectiveEvents)
 
     // Merge hooks into existing settings
     if (!settings.hooks) {
@@ -141,7 +145,7 @@ export class HookConfigGenerator {
     }
 
     // Add our hooks to each event type
-    for (const event of hookEvents) {
+    for (const event of effectiveEvents) {
       if (!settings.hooks[event]) {
         settings.hooks[event] = []
       }

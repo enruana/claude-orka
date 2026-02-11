@@ -6,7 +6,7 @@
 import { Router } from 'express'
 import { getAgentManager } from '../../agent/AgentManager'
 import { logger } from '../../utils'
-import { AgentHookTrigger, NotificationConfig } from '../../models/Agent'
+import { AgentHookTrigger, NotificationConfig, PromptRole } from '../../models/Agent'
 
 export const agentsRouter = Router()
 
@@ -32,7 +32,7 @@ agentsRouter.get('/', async (_req, res) => {
  */
 agentsRouter.post('/', async (req, res) => {
   try {
-    const { name, masterPrompt, hookEvents, notifications, autoApprove, maxConsecutiveResponses, decisionHistorySize } = req.body
+    const { name, masterPrompt, hookEvents, notifications, autoApprove, maxConsecutiveResponses, decisionHistorySize, promptRoles, activeRoleId } = req.body
 
     if (!name || !masterPrompt) {
       res.status(400).json({ error: 'name and masterPrompt are required' })
@@ -46,6 +46,8 @@ agentsRouter.post('/', async (req, res) => {
       autoApprove,
       maxConsecutiveResponses,
       decisionHistorySize,
+      promptRoles: promptRoles as PromptRole[],
+      activeRoleId,
     })
 
     res.status(201).json(agent)
