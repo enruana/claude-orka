@@ -2,7 +2,7 @@
  * AgentDaemon - Individual agent process that monitors and responds to Claude Code sessions
  *
  * Delegates all event processing to EventStateMachine.
- * Owns lifecycle (start/stop/refresh) and logging.
+ * Owns lifecycle (start/stop/refresh), logging, and per-agent TelegramBot.
  */
 
 import { EventEmitter } from 'events'
@@ -10,7 +10,10 @@ import { logger } from '../utils'
 import { Agent } from '../models/Agent'
 import { ProcessedHookEvent } from '../models/HookEvent'
 import { getAgentStateManager, AgentStateManager } from './AgentStateManager'
+import { query } from '@anthropic-ai/claude-agent-sdk'
 import { EventStateMachine } from './EventStateMachine'
+import { TelegramBot } from './TelegramBot'
+import { TerminalReader } from './TerminalReader'
 import type { AgentManager } from './AgentManager'
 
 export class AgentDaemon extends EventEmitter {
@@ -18,11 +21,15 @@ export class AgentDaemon extends EventEmitter {
   private stateManager: AgentStateManager | null = null
   private isRunning: boolean = false
   private stateMachine: EventStateMachine
+  private telegramBot: TelegramBot | null = null
 
   constructor(agent: Agent) {
     super()
     this.agent = agent
-    this.stateMachine = new EventStateMachine(() => this.agent)
+    this.stateMachine = new EventStateMachine(
+      () => this.agent,
+      () => this.telegramBot
+    )
   }
 
   async start(): Promise<void> {
@@ -37,6 +44,10 @@ export class AgentDaemon extends EventEmitter {
     try {
       await this.stateManager.updateAgentStatus(this.agent.id, 'active')
       this.isRunning = true
+
+      // Start per-agent Telegram bot if configured
+      await this.startTelegramBot()
+
       this.emit('started')
       logger.info(`Agent daemon started: ${this.agent.id}`)
     } catch (error: any) {
@@ -50,6 +61,9 @@ export class AgentDaemon extends EventEmitter {
     if (!this.isRunning) return
 
     logger.info(`Stopping agent daemon: ${this.agent.id}`)
+
+    // Stop Telegram bot
+    await this.stopTelegramBot()
 
     if (this.stateManager) {
       await this.stateManager.updateAgentStatus(this.agent.id, 'idle')
@@ -89,6 +103,113 @@ export class AgentDaemon extends EventEmitter {
     }
   }
 
+  // -----------------------------------------------------------------------
+  // Telegram Bot lifecycle
+  // -----------------------------------------------------------------------
+
+  private async startTelegramBot(): Promise<void> {
+    if (!this.agent.telegram?.enabled) return
+
+    try {
+      this.telegramBot = new TelegramBot(this.agent.id, this.agent.name, this.agent.telegram)
+      this.telegramBot.setTerminalProvider({
+        captureTerminal: async (lines?: number) => {
+          const paneId = this.agent.connection?.tmuxPaneId
+          if (!paneId) return null
+          try {
+            const content = await TerminalReader.capture(paneId, this.agent.connection?.sessionId || 'unknown', lines || 50)
+            return content.content
+          } catch {
+            return null
+          }
+        },
+        sendText: async (text: string) => {
+          const paneId = this.agent.connection?.tmuxPaneId
+          if (!paneId) return false
+          try {
+            await TerminalReader.sendTextWithEnter(paneId, text)
+            return true
+          } catch {
+            return false
+          }
+        },
+      })
+
+      // QueryProvider: uses Haiku to answer questions about the agent
+      this.telegramBot.setQueryProvider({
+        ask: async (question: string, terminalContent: string): Promise<string> => {
+          return this.askLLM(question, terminalContent)
+        },
+      })
+
+      await this.telegramBot.start()
+    } catch (err: any) {
+      logger.error(`[${this.agent.id}] Failed to start Telegram bot: ${err.message}`)
+      this.telegramBot = null
+    }
+  }
+
+  private async stopTelegramBot(): Promise<void> {
+    if (this.telegramBot) {
+      await this.telegramBot.stop()
+      this.telegramBot = null
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // LLM Q&A for Telegram consultation
+  // -----------------------------------------------------------------------
+
+  private async askLLM(question: string, terminalContent: string): Promise<string> {
+    const lines = terminalContent.split('\n')
+    const trimmed = lines.slice(-200).join('\n')
+
+    const systemPrompt = `You are a developer assistant reporting on the status of a Claude Code agent.
+You have access to the agent's terminal output and its master prompt (objectives).
+Answer the user's question based on what you can see in the terminal.
+
+## Agent Master Prompt
+${this.agent.masterPrompt}
+
+## Guidelines
+- Be concise and direct — this is a Telegram message, keep it short.
+- Use plain text, no markdown (Telegram uses HTML). You can use <b>bold</b> and <i>italic</i>.
+- If the terminal shows errors, mention them.
+- If you can't determine something from the terminal, say so.
+- Answer in the same language the user writes in.`
+
+    const userMessage = `## Terminal Output (last ${Math.min(lines.length, 200)} lines)
+\`\`\`
+${trimmed}
+\`\`\`
+
+## Question
+${question}`
+
+    let resultText = ''
+
+    for await (const message of query({
+      prompt: userMessage,
+      options: {
+        model: 'claude-haiku-4-5-20251001',
+        systemPrompt,
+        maxTurns: 3,
+        allowedTools: [],
+      },
+    })) {
+      const msg = message as Record<string, unknown>
+      if (msg.type === 'result' && msg.result) {
+        resultText = msg.result as string
+      }
+    }
+
+    return resultText || 'No pude generar una respuesta.'
+  }
+
+  // -----------------------------------------------------------------------
+  // Accessors
+  // -----------------------------------------------------------------------
+
   getAgent(): Agent {
     return this.agent
   }
@@ -99,6 +220,10 @@ export class AgentDaemon extends EventEmitter {
 
   getStateMachine(): EventStateMachine {
     return this.stateMachine
+  }
+
+  getTelegramBot(): TelegramBot | null {
+    return this.telegramBot
   }
 
   isActive(): boolean {

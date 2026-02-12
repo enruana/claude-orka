@@ -25,6 +25,9 @@ export function AgentConfigModal({ agent, isOpen, onClose, onSave }: AgentConfig
   const [customPrompt, setCustomPrompt] = useState('')
   const [hookEvents, setHookEvents] = useState<AgentHookTrigger[]>(['Stop'])
   const [autoApprove, setAutoApprove] = useState(false)
+  const [telegramEnabled, setTelegramEnabled] = useState(false)
+  const [telegramToken, setTelegramToken] = useState('')
+  const [telegramChatId, setTelegramChatId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,11 +40,17 @@ export function AgentConfigModal({ agent, isOpen, onClose, onSave }: AgentConfig
       setCustomPrompt(agent.masterPrompt)
       setHookEvents(agent.hookEvents)
       setAutoApprove(agent.autoApprove)
+      setTelegramEnabled(agent.telegram?.enabled ?? false)
+      setTelegramToken(agent.telegram?.botToken ?? '')
+      setTelegramChatId(agent.telegram?.chatId ? String(agent.telegram.chatId) : '')
     } else {
       setName('')
       setCustomPrompt('')
       setHookEvents(['Stop'])
       setAutoApprove(false)
+      setTelegramEnabled(false)
+      setTelegramToken('')
+      setTelegramChatId('')
     }
     setError(null)
     setActiveTab('config')
@@ -67,6 +76,9 @@ export function AgentConfigModal({ agent, isOpen, onClose, onSave }: AgentConfig
         masterPrompt: customPrompt,
         hookEvents,
         autoApprove,
+        ...(telegramToken && telegramChatId ? {
+          telegram: { botToken: telegramToken, chatId: parseInt(telegramChatId), enabled: telegramEnabled },
+        } : {}),
       }
 
       await onSave(options)
@@ -163,6 +175,45 @@ export function AgentConfigModal({ agent, isOpen, onClose, onSave }: AgentConfig
                     <input type="checkbox" id="autoApprove" checked={autoApprove} onChange={e => setAutoApprove(e.target.checked)} />
                     <label htmlFor="autoApprove">Auto-approve tool permissions</label>
                   </div>
+                </div>
+
+                <div className="form-group" style={{ borderTop: '1px solid var(--border-color, #313244)', paddingTop: '16px', marginTop: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    Telegram Bot
+                  </label>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', padding: '8px', background: 'var(--bg-tertiary, #313244)', borderRadius: '4px' }}>
+                    Cada agente tiene su propio bot de Telegram. Crea uno con <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" style={{ color: '#89b4fa' }}>@BotFather</a> y pega el token aqui.
+                  </div>
+                  <div className="checkbox-group" style={{ marginBottom: '12px' }}>
+                    <input type="checkbox" id="telegramEnabled" checked={telegramEnabled} onChange={e => setTelegramEnabled(e.target.checked)} />
+                    <label htmlFor="telegramEnabled">Habilitar Telegram para este agente</label>
+                  </div>
+                  {telegramEnabled && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', background: 'var(--bg-tertiary, #11111b)', borderRadius: '8px', border: '1px solid var(--border-color, #313244)' }}>
+                      <div>
+                        <label htmlFor="telegramToken" style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'block' }}>Bot Token</label>
+                        <input
+                          id="telegramToken"
+                          type="password"
+                          value={telegramToken}
+                          onChange={e => setTelegramToken(e.target.value)}
+                          placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                          style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.8rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="telegramChatId" style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'block' }}>Chat ID</label>
+                        <input
+                          id="telegramChatId"
+                          type="text"
+                          value={telegramChatId}
+                          onChange={e => setTelegramChatId(e.target.value.replace(/\D/g, ''))}
+                          placeholder="Tu Telegram user ID (usa @userinfobot)"
+                          style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.8rem' }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             )}

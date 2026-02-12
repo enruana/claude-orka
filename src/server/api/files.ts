@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import fs from 'fs-extra'
 import path from 'path'
+import multer from 'multer'
 
 export const filesRouter = Router()
 
@@ -381,6 +382,62 @@ filesRouter.get('/image', async (req, res) => {
 
     const fileStream = fs.createReadStream(filePath)
     fileStream.pipe(res)
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/files/upload?project=<base64>
+ * Uploads a file to .claude-orka/uploads/ and returns the absolute path
+ */
+const upload = multer({
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+})
+
+filesRouter.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    const projectEncoded = req.query.project as string
+    if (!projectEncoded) {
+      res.status(400).json({ error: 'Project path required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(projectEncoded)
+
+    if (!await fs.pathExists(projectPath)) {
+      res.status(404).json({ error: 'Project path not found' })
+      return
+    }
+
+    const file = req.file
+    if (!file) {
+      res.status(400).json({ error: 'No file provided' })
+      return
+    }
+
+    // Sanitize filename: remove path separators and null bytes
+    const sanitizedName = file.originalname
+      .replace(/[/\\]/g, '_')
+      .replace(/\0/g, '')
+      .replace(/\.\./g, '_')
+
+    const timestamp = Date.now()
+    const fileName = `${timestamp}-${sanitizedName}`
+    const uploadsDir = path.join(projectPath, '.claude-orka', 'uploads')
+    await fs.ensureDir(uploadsDir)
+
+    const destPath = path.join(uploadsDir, fileName)
+
+    // Verify the resolved path is within the uploads directory
+    if (!path.resolve(destPath).startsWith(path.resolve(uploadsDir))) {
+      res.status(403).json({ error: 'Invalid file name' })
+      return
+    }
+
+    await fs.writeFile(destPath, file.buffer)
+
+    res.json({ success: true, absolutePath: destPath })
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }

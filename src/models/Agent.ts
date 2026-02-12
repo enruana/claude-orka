@@ -93,6 +93,9 @@ export interface Agent {
   /** Auto-approve tool calls in monitored sessions */
   autoApprove: boolean
 
+  /** Telegram bot configuration for this agent */
+  telegram?: TelegramConfig
+
   /** Creation timestamp */
   createdAt: string
 
@@ -101,6 +104,18 @@ export interface Agent {
 
   /** Last error message (if status is 'error') */
   lastError?: string
+}
+
+/**
+ * Telegram bot configuration
+ */
+export interface TelegramConfig {
+  /** Bot token from BotFather */
+  botToken: string
+  /** Authorized chat ID (your Telegram user ID) */
+  chatId: number
+  /** Whether the bot is enabled */
+  enabled: boolean
 }
 
 /**

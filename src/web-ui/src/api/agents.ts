@@ -27,6 +27,12 @@ export interface AgentConnection {
   connectedAt: string
 }
 
+export interface TelegramConfig {
+  botToken: string
+  chatId: number
+  enabled: boolean
+}
+
 export interface Agent {
   id: string
   name: string
@@ -35,6 +41,7 @@ export interface Agent {
   connection?: AgentConnection
   hookEvents: AgentHookTrigger[]
   autoApprove: boolean
+  telegram?: TelegramConfig
   createdAt: string
   lastActivity?: string
   lastError?: string
@@ -53,6 +60,7 @@ export interface CreateAgentOptions {
   masterPrompt: string
   hookEvents?: AgentHookTrigger[]
   autoApprove?: boolean
+  telegram?: TelegramConfig
 }
 
 export const agentsApi = {

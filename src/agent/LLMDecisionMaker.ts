@@ -127,9 +127,7 @@ export class LLMDecisionMaker {
 
       const prompt = buildUserMessage(input)
       let structuredOutput: unknown = null
-
       let resultText: string | undefined
-      let resultSubtype: string | undefined
 
       for await (const message of query({
         prompt,
@@ -145,28 +143,23 @@ export class LLMDecisionMaker {
         },
       })) {
         const msg = message as Record<string, unknown>
-        log('debug', `SDK message: type=${msg.type} subtype=${msg.subtype} keys=[${Object.keys(msg).join(',')}]`)
-
         if (msg.type === 'result') {
-          resultSubtype = msg.subtype as string
           resultText = msg.result as string | undefined
           structuredOutput = msg.structured_output
-          log('debug', `SDK result: subtype=${resultSubtype} hasStructured=${!!structuredOutput} result=${(resultText || '').substring(0, 200)}`)
         }
       }
 
       // Try structured output first, fall back to parsing result text as JSON
       if (!structuredOutput && resultText) {
-        log('debug', 'No structured_output, trying to parse result text as JSON...')
         try {
           structuredOutput = JSON.parse(resultText)
         } catch {
-          log('warn', `Could not parse result as JSON: ${resultText.substring(0, 200)}`)
+          log('warn', `LLM result not parseable: ${resultText.substring(0, 100)}`)
         }
       }
 
       if (!structuredOutput) {
-        log('warn', `LLM returned no usable output (subtype=${resultSubtype}) - falling back`)
+        log('warn', 'LLM returned no usable output - falling back')
         return null
       }
 

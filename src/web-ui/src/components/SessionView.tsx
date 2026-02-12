@@ -84,18 +84,18 @@ export function SessionView({
   }, [])
 
   // Handle drop on terminal tab
-  const handleTerminalTabDrop = useCallback((e: React.DragEvent) => {
+  const handleTerminalTabDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
     setIsTerminalTabDragOver(false)
 
     // Get the path from the drag data
     const internalPath = e.dataTransfer.getData('text/x-orka-path')
     const textPath = e.dataTransfer.getData('text/plain')
-    const path = internalPath || textPath
+    const filePath = internalPath || textPath
 
-    if (path) {
+    if (filePath) {
       // Quote path if it has spaces
-      const quotedPath = path.includes(' ') ? `"${path}"` : path
+      const quotedPath = filePath.includes(' ') ? `"${filePath}"` : filePath
 
       // Switch to terminal tab
       setRightPanelTab('terminal')
@@ -111,8 +111,40 @@ export function SessionView({
           terminalIframeRef.current?.focus()
         }
       }, 100)
+      return
     }
-  }, [setRightPanelTab, sendInputToTerminal])
+
+    // Handle external file drops (from OS file manager)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = Array.from(e.dataTransfer.files)
+      const encodedProject = btoa(project.path)
+      const paths: string[] = []
+
+      for (const file of files) {
+        const formData = new FormData()
+        formData.append('file', file)
+        try {
+          const res = await fetch(`/api/files/upload?project=${encodedProject}`, {
+            method: 'POST',
+            body: formData,
+          })
+          const data = await res.json()
+          if (data.success) {
+            paths.push(data.absolutePath.includes(' ') ? `"${data.absolutePath}"` : data.absolutePath)
+          }
+        } catch (err) {
+          console.error('Upload failed:', err)
+        }
+      }
+
+      if (paths.length > 0) {
+        setRightPanelTab('terminal')
+        setTimeout(() => {
+          sendInputToTerminal(paths.join(' '))
+        }, 100)
+      }
+    }
+  }, [project.path, setRightPanelTab, sendInputToTerminal])
 
   // Focus terminal iframe when switching to terminal tab (desktop only)
   useEffect(() => {
@@ -330,7 +362,8 @@ export function SessionView({
   // Get terminal URL - uses our custom wrapper with virtual keyboard disabled for desktop
   const getTerminalUrl = () => {
     // Always use our wrapper to have consistent styling and disabled context menu
-    return `/terminal/${session.ttydPort}?desktop=1`
+    // Include project path so the terminal can upload files
+    return `/terminal/${session.ttydPort}?desktop=1&project=${btoa(project.path)}`
   }
 
   // Get mobile terminal URL - uses our custom wrapper with virtual keyboard

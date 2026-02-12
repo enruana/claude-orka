@@ -20,6 +20,7 @@ import { Agent } from '../models/Agent'
 import { ProcessedHookEvent } from '../models/HookEvent'
 import { TerminalReader, TerminalState } from './TerminalReader'
 import { LLMDecisionMaker } from './LLMDecisionMaker'
+import type { TelegramBot } from './TelegramBot'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,8 +126,12 @@ export class EventStateMachine {
   /** LLM for intelligent decisions (Phase 2) */
   private llm: LLMDecisionMaker
 
-  constructor(getAgent: () => Agent) {
+  /** Telegram bot for notifications (optional) */
+  private getTelegramBot: (() => TelegramBot | null) | null = null
+
+  constructor(getAgent: () => Agent, getTelegramBot?: () => TelegramBot | null) {
     this.getAgent = getAgent
+    this.getTelegramBot = getTelegramBot || null
     this.llm = new LLMDecisionMaker()
     this.registerDefaultNodes()
   }
@@ -207,6 +212,15 @@ export class EventStateMachine {
         return { next: 'end' }
       }
       log('warn', `Processing stuck for ${Math.round(elapsed / 1000)}s, force-resetting`)
+      // Notify via Telegram about stuck processing
+      const bot = this.getTelegramBot?.()
+      if (ctx.agent.telegram?.enabled && bot?.isRunning()) {
+        await bot.sendNotification({
+          level: 'error',
+          title: 'Agente bloqueado',
+          body: `El procesamiento lleva ${Math.round(elapsed / 1000)}s sin respuesta. Se reinicio automaticamente.`,
+        })
+      }
       this.processingState.isProcessing = false
     }
 
@@ -417,6 +431,7 @@ export class EventStateMachine {
       log('warn', 'Context exhausted! Sending /clear.')
       ctx.decision = { action: 'clear', reason: 'Context exhausted (0% or compact failed)' }
       await TerminalReader.sendClear(paneId)
+      await this.notifyTelegram(ctx, ctx.decision)
     } else {
       log('warn', 'Context limit reached! Sending /compact.')
       ctx.decision = { action: 'compact', reason: 'Context limit reached' }
@@ -513,10 +528,35 @@ export class EventStateMachine {
         break
       case 'request_help':
         log('warn', `Help requested: ${decision.reason}`)
+        await this.notifyTelegram(ctx, decision)
         break
     }
 
     this.processingState.lastResponseTime = Date.now()
     return { next: 'end' }
+  }
+
+  // -----------------------------------------------------------------------
+  // Telegram Integration
+  // -----------------------------------------------------------------------
+
+  /** Send a notification to Telegram if configured and enabled for this agent */
+  private async notifyTelegram(ctx: EventContext, decision: Decision): Promise<void> {
+    if (!ctx.agent.telegram?.enabled) return
+    const bot = this.getTelegramBot?.()
+    if (!bot?.isRunning()) return
+
+    const lastLines = ctx.terminalContent
+      ? ctx.terminalContent.split('\n').slice(-20).join('\n')
+      : undefined
+
+    await bot.sendNotification({
+      level: decision.action === 'request_help' ? 'warn' : 'info',
+      title: decision.action === 'request_help'
+        ? 'Agente necesita ayuda'
+        : `Accion: ${decision.action}`,
+      body: decision.reason,
+      terminalSnippet: lastLines,
+    })
   }
 }

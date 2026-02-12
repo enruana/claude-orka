@@ -12,6 +12,7 @@ import { mergeCommand } from './commands/merge'
 import { doctorCommand } from './commands/doctor'
 import { prepareCommand } from './commands/prepare'
 import { startCommand } from './commands/start'
+import { telegramCommand } from './commands/telegram'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -45,6 +46,7 @@ statusCommand(program)
 sessionCommand(program)
 forkCommand(program)
 mergeCommand(program)
+telegramCommand(program)
 
 // Parse arguments
 program.parse()

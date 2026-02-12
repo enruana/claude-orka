@@ -53,13 +53,34 @@
     }
 
     #terminal-container.drag-over::after {
-      content: 'Drop file to paste path';
+      content: 'Drop file to upload';
       position: absolute;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
       background: rgba(30, 30, 46, 0.9);
       color: #89b4fa;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    #terminal-container.uploading {
+      outline: 2px solid #f9e2af;
+      outline-offset: -2px;
+    }
+
+    #terminal-container.uploading::after {
+      content: 'Uploading file...';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(30, 30, 46, 0.9);
+      color: #f9e2af;
       padding: 12px 24px;
       border-radius: 8px;
       font-size: 14px;
@@ -1986,7 +2007,7 @@
         });
 
         // Handle drop
-        terminalContainer.addEventListener('drop', (e) => {
+        terminalContainer.addEventListener('drop', async (e) => {
           const dataTransfer = e.dataTransfer;
 
           // Check for custom data from our FileTree (internal drag)
@@ -2013,26 +2034,49 @@
             }
           }
 
-          // Handle external file drops
+          // Handle external file drops - upload to server and send absolute path
           if (dataTransfer.files && dataTransfer.files.length > 0) {
             const files = Array.from(dataTransfer.files);
-            const paths = files.map(file => {
-              // Web browsers only give us the filename, not the full path
-              // But we can still provide the name for reference
-              const name = file.name;
-              return name.includes(' ') ? `"${name}"` : name;
-            });
+            const projectEncoded = new URLSearchParams(window.location.search).get('project');
 
-            // Join multiple files with space
-            const pathsStr = paths.join(' ');
-            this.sendInput(pathsStr);
-            this.term.focus();
+            if (!projectEncoded) {
+              // No project context - fall back to sending filename
+              const names = files.map(f => f.name.includes(' ') ? `"${f.name}"` : f.name);
+              this.sendInput(names.join(' '));
+              this.term.focus();
+              console.log('No project context, sent filenames only');
+              return;
+            }
 
-            // Show hint that full paths aren't available in web
-            if (files.length === 1) {
-              console.log('Dropped file (name only, full path not available in web):', files[0].name);
-            } else {
-              console.log('Dropped', files.length, 'files (names only)');
+            terminalContainer.classList.add('uploading');
+            const paths = [];
+
+            for (const file of files) {
+              const formData = new FormData();
+              formData.append('file', file);
+
+              try {
+                const res = await fetch(`/api/files/upload?project=${projectEncoded}`, {
+                  method: 'POST',
+                  body: formData
+                });
+                const data = await res.json();
+                if (data.success) {
+                  paths.push(data.absolutePath.includes(' ') ? `"${data.absolutePath}"` : data.absolutePath);
+                } else {
+                  console.error('Upload failed:', data.error);
+                }
+              } catch (err) {
+                console.error('Upload failed:', err);
+              }
+            }
+
+            terminalContainer.classList.remove('uploading');
+
+            if (paths.length > 0) {
+              this.sendInput(paths.join(' '));
+              this.term.focus();
+              console.log('Uploaded and sent paths:', paths);
             }
             return;
           }

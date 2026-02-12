@@ -30,7 +30,7 @@ agentsRouter.get('/', async (_req, res) => {
  */
 agentsRouter.post('/', async (req, res) => {
   try {
-    const { name, masterPrompt, hookEvents, autoApprove } = req.body
+    const { name, masterPrompt, hookEvents, autoApprove, telegram } = req.body
 
     if (!name || !masterPrompt) {
       res.status(400).json({ error: 'name and masterPrompt are required' })
@@ -42,6 +42,11 @@ agentsRouter.post('/', async (req, res) => {
       hookEvents: hookEvents as AgentHookTrigger[],
       autoApprove,
     })
+
+    // Set telegram config if provided
+    if (telegram) {
+      await manager.updateAgent(agent.id, { telegram })
+    }
 
     res.status(201).json(agent)
   } catch (error: any) {
