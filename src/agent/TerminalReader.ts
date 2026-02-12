@@ -71,7 +71,13 @@ export class TerminalReader {
    * Parse terminal content to understand Claude's state
    */
   static parseState(content: string): TerminalState {
-    const lines = content.split('\n')
+    // Strip trailing empty lines — tmux panes pad with blanks below actual content
+    const rawLines = content.split('\n')
+    let lastNonEmpty = rawLines.length - 1
+    while (lastNonEmpty >= 0 && rawLines[lastNonEmpty].trim() === '') {
+      lastNonEmpty--
+    }
+    const lines = rawLines.slice(0, lastNonEmpty + 1)
     const lastLines = lines.slice(-50) // Check last 50 lines
     const lastContent = lastLines.join('\n')
     const veryLastLines = lines.slice(-10).join('\n')

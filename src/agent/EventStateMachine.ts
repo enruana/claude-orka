@@ -19,6 +19,7 @@
 import { Agent } from '../models/Agent'
 import { ProcessedHookEvent } from '../models/HookEvent'
 import { TerminalReader, TerminalState } from './TerminalReader'
+import { LLMDecisionMaker } from './LLMDecisionMaker'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,6 +30,7 @@ export type NodeName =
   | 'guard'
   | 'route_event'
   | 'log_only'
+  | 'handle_session_restart'
   | 'capture_terminal'
   | 'parse_terminal'
   | 'fast_path'
@@ -89,6 +91,8 @@ export interface ProcessingState {
   processingStartedAt: number
   lastResponseTime: number
   lastEventType: string | null
+  /** When true, the next SessionStart bypasses cooldown (after /clear or /compact) */
+  pendingFollowUp: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -112,13 +116,18 @@ export class EventStateMachine {
     processingStartedAt: 0,
     lastResponseTime: 0,
     lastEventType: null,
+    pendingFollowUp: false,
   }
 
   /** Provides the latest agent reference (may change after refresh) */
   private getAgent: () => Agent
 
+  /** LLM for intelligent decisions (Phase 2) */
+  private llm: LLMDecisionMaker
+
   constructor(getAgent: () => Agent) {
     this.getAgent = getAgent
+    this.llm = new LLMDecisionMaker()
     this.registerDefaultNodes()
   }
 
@@ -173,6 +182,7 @@ export class EventStateMachine {
     this.nodes.set('guard', this.guard.bind(this))
     this.nodes.set('route_event', this.routeEvent.bind(this))
     this.nodes.set('log_only', this.logOnly.bind(this))
+    this.nodes.set('handle_session_restart', this.handleSessionRestart.bind(this))
     this.nodes.set('capture_terminal', this.captureTerminal.bind(this))
     this.nodes.set('parse_terminal', this.parseTerminal.bind(this))
     this.nodes.set('fast_path', this.fastPath.bind(this))
@@ -200,9 +210,13 @@ export class EventStateMachine {
       this.processingState.isProcessing = false
     }
 
-    // Cooldown active?
+    // Cooldown active? (bypass for SessionStart follow-ups after /clear or /compact)
     const timeSinceLastResponse = Date.now() - this.processingState.lastResponseTime
-    if (timeSinceLastResponse < MIN_RESPONSE_INTERVAL && this.processingState.lastResponseTime > 0) {
+    const isFollowUp = this.processingState.pendingFollowUp && ctx.event.payload.event_type === 'SessionStart'
+    if (isFollowUp) {
+      log('info', 'Follow-up after context management - bypassing cooldown')
+      this.processingState.pendingFollowUp = false
+    } else if (timeSinceLastResponse < MIN_RESPONSE_INTERVAL && this.processingState.lastResponseTime > 0) {
       log('debug', 'Cooldown active, waiting...')
       return { next: 'end' }
     }
@@ -217,12 +231,20 @@ export class EventStateMachine {
     return { next: 'route_event' }
   }
 
-  /** Route event: send log-only events to log_only, others to capture_terminal */
+  /** Route event: send log-only events to log_only, session restarts to handle_session_restart, others to capture_terminal */
   private async routeEvent(ctx: EventContext, _log: LogFn): Promise<NodeResult> {
     const eventType = ctx.event.payload.event_type
 
     if (LOG_ONLY_EVENTS.has(eventType)) {
       return { next: 'log_only' }
+    }
+
+    // SessionStart after clear/compact → special handling (terminal is in transitional state)
+    if (eventType === 'SessionStart') {
+      const source = ctx.event.payload.session_start_data?.source
+      if (source === 'clear' || source === 'compact') {
+        return { next: 'handle_session_restart' }
+      }
     }
 
     return { next: 'capture_terminal' }
@@ -251,6 +273,61 @@ export class EventStateMachine {
     }
 
     return { next: 'end' }
+  }
+
+  /**
+   * Handle SessionStart after clear/compact.
+   * Terminal is in transitional state — wait for Claude to be ready,
+   * then route to LLM so it can decide what to send based on masterPrompt.
+   */
+  private async handleSessionRestart(ctx: EventContext, log: LogFn): Promise<NodeResult> {
+    const source = ctx.event.payload.session_start_data?.source || 'unknown'
+    const paneId = ctx.agent.connection?.tmuxPaneId
+    const sessionName = ctx.agent.connection?.sessionId || 'unknown'
+
+    log('info', `Session restarted (source: ${source}) - waiting for Claude to be ready...`)
+
+    if (!paneId) {
+      log('error', 'No pane ID - cannot wait for terminal')
+      return { next: 'end' }
+    }
+
+    // Wait for Claude to show the prompt (up to 15s, poll every 1s)
+    // After clear/compact the UI takes a moment to render
+    const timeoutMs = 15000
+    const pollMs = 1000
+    const startTime = Date.now()
+    let ready = false
+
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const content = await TerminalReader.capture(paneId, sessionName)
+        const state = TerminalReader.parseState(content.content)
+        const elapsed = Math.round((Date.now() - startTime) / 1000)
+
+        if (state.isWaitingForInput && !state.isProcessing) {
+          ctx.paneId = paneId
+          ctx.terminalContent = content.content
+          ctx.terminalState = state
+          log('info', `Terminal ready after ${source} (${elapsed}s, ${content.content.length} chars)`)
+          ready = true
+          break
+        }
+
+        log('debug', `Waiting for prompt... (${elapsed}s) processing=${state.isProcessing} waiting=${state.isWaitingForInput}`)
+      } catch {
+        // Ignore capture errors during polling
+      }
+      await new Promise(resolve => setTimeout(resolve, pollMs))
+    }
+
+    if (!ready) {
+      log('warn', `Claude not ready after ${timeoutMs / 1000}s - skipping`)
+      return { next: 'end' }
+    }
+
+    // Go directly to LLM decision — masterPrompt knows what to do after clear/compact
+    return { next: 'handle_ambiguous' }
   }
 
   /** Capture terminal content from tmux pane */
@@ -346,6 +423,9 @@ export class EventStateMachine {
       await TerminalReader.sendCompact(paneId)
     }
 
+    // Schedule follow-up: when SessionStart arrives after clear/compact,
+    // bypass cooldown so the agent can re-engage Claude with next instructions
+    this.processingState.pendingFollowUp = true
     this.processingState.lastResponseTime = Date.now()
     return { next: 'end' }
   }
@@ -359,31 +439,41 @@ export class EventStateMachine {
     return { next: 'execute' }
   }
 
-  /** Handle waiting for input: Phase 1 sends "continue", Phase 2 will route to handle_ambiguous */
-  private async handleWaiting(ctx: EventContext, _log: LogFn): Promise<NodeResult> {
-    // Phase 1: hardcoded response
-    ctx.decision = {
-      action: 'respond',
-      response: 'continue',
-      reason: 'Claude waiting for input',
-    }
-    return { next: 'execute' }
+  /** Handle waiting for input: route to LLM decision (Phase 2) */
+  private async handleWaiting(_ctx: EventContext, _log: LogFn): Promise<NodeResult> {
+    return { next: 'handle_ambiguous' }
   }
 
   /**
-   * Handle ambiguous situations (Phase 2 placeholder)
+   * Handle ambiguous situations with LLM (Phase 2)
    *
-   * In Phase 2, this node will:
-   * 1. Build a prompt from masterPrompt + terminal state + event context
-   * 2. Call Claude Haiku for a structured decision
-   * 3. Set ctx.decision based on LLM response
-   * 4. Route to 'execute' or 'end'
+   * Calls Claude Haiku with masterPrompt + terminal context to decide what to do.
+   * Falls back to Phase 1 hardcoded "continue" if LLM is unavailable or fails.
    */
   private async handleAmbiguous(ctx: EventContext, log: LogFn): Promise<NodeResult> {
-    // Phase 2: LLM decision will go here
-    log('info', 'Ambiguous state - no LLM available yet (Phase 1), waiting')
-    ctx.decision = { action: 'wait', reason: 'Ambiguous state (Phase 1: no LLM)' }
-    return { next: 'end' }
+    // Try LLM decision
+    if (this.llm.isAvailable() && ctx.terminalContent && ctx.terminalState) {
+      const decision = await this.llm.decide({
+        masterPrompt: ctx.agent.masterPrompt,
+        terminalContent: ctx.terminalContent,
+        terminalState: ctx.terminalState,
+        hookEvent: ctx.event.payload.event_type,
+      }, log)
+
+      if (decision) {
+        ctx.decision = decision
+        return { next: 'execute' }
+      }
+    }
+
+    // Fallback: Phase 1 hardcoded response
+    log('info', 'LLM unavailable - falling back to hardcoded "continue"')
+    ctx.decision = {
+      action: 'respond',
+      response: 'continue',
+      reason: 'Fallback: Claude waiting for input (no LLM)',
+    }
+    return { next: 'execute' }
   }
 
   /** Execute the decided action on the terminal */
