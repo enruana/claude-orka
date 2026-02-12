@@ -339,6 +339,10 @@
       background: linear-gradient(135deg, #89b4fa 0%, #74c7ec 100%);
     }
 
+    .quick-action-item .action-icon.cancel {
+      background: linear-gradient(135deg, #fab387 0%, #f9e2af 100%);
+    }
+
     .quick-action-item .action-icon.clear {
       background: linear-gradient(135deg, #f38ba8 0%, #eba0ac 100%);
     }
@@ -830,6 +834,15 @@
                 </svg>
               </span>
               <span class="action-text">Scroll to Bottom</span>
+            </button>
+            <button class="quick-action-item" data-action="cancel">
+              <span class="action-icon cancel">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M8 12h8"/>
+                </svg>
+              </span>
+              <span class="action-text">Cancel (Ctrl+C)</span>
             </button>
             <button class="quick-action-item" data-action="clear">
               <span class="action-icon clear">
@@ -2437,6 +2450,10 @@
           case 'scroll-bottom':
             // Send Ctrl+End or tmux scroll to bottom
             this.sendMouseScroll('down', 100);
+            break;
+          case 'cancel':
+            // Send Ctrl+C to interrupt running process
+            this.sendInput('\x03');
             break;
           case 'clear':
             // Send Ctrl+L to clear terminal

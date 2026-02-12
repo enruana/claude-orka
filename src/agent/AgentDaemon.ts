@@ -1,77 +1,58 @@
 /**
  * AgentDaemon - Individual agent process that monitors and responds to Claude Code sessions
  *
+ * Phase 1: Minimal hardcoded decision logic (no AI analysis)
+ *
  * FLOW:
  * 1. Hook event received (Stop, SessionStart, etc.)
- * 2. Check if we should act (cooldown, not already processing, etc.)
+ * 2. Check guards (isRunning, cooldown, not already processing)
  * 3. Capture terminal content
- * 4. Analyze with Claude AI (show reasoning in logs)
- * 5. Execute decision
- * 6. Wait for next event
+ * 4. Parse terminal state
+ * 5. Hardcoded decision: waiting → "continue", permission → approve, processing → wait
+ * 6. Execute decision
  */
 
 import { EventEmitter } from 'events'
-import { nanoid } from 'nanoid'
 import { logger } from '../utils'
-import { Agent, getEffectivePrompt } from '../models/Agent'
+import { Agent } from '../models/Agent'
 import { ProcessedHookEvent } from '../models/HookEvent'
 import { TerminalReader, TerminalState } from './TerminalReader'
 import { getAgentStateManager, AgentStateManager } from './AgentStateManager'
-import { NotificationService } from './NotificationService'
-import { ClaudeAnalyzer, DecisionRecord } from './ClaudeAnalyzer'
 import type { AgentManager } from './AgentManager'
 
-/**
- * Response from agent analysis
- */
 export interface AgentResponse {
   action: 'respond' | 'approve' | 'reject' | 'wait' | 'request_help' | 'compact' | 'escape'
   response?: string
   reason: string
-  notifyHuman: boolean
 }
 
-/**
- * Agent processing state
- */
 interface ProcessingState {
   isProcessing: boolean
   processingStartedAt: number
   lastResponseTime: number
   lastEventType: string | null
-  consecutiveWaits: number
 }
 
 // Minimum time between responses (ms) to avoid loops
 const MIN_RESPONSE_INTERVAL = 3000
 
-// Maximum consecutive "wait" decisions before requesting help
-const MAX_CONSECUTIVE_WAITS = 10
-
-// Maximum time (ms) an event can be processing before auto-reset (2 minutes)
+// Maximum time (ms) an event can be processing before auto-reset
 const MAX_PROCESSING_TIME = 120_000
 
-/**
- * AgentDaemon runs an individual agent that monitors and controls Claude Code sessions
- */
 export class AgentDaemon extends EventEmitter {
   private agent: Agent
   private stateManager: AgentStateManager | null = null
-  private notificationService: NotificationService
   private isRunning: boolean = false
-  private decisionHistory: DecisionRecord[] = []
   private processingState: ProcessingState = {
     isProcessing: false,
     processingStartedAt: 0,
     lastResponseTime: 0,
     lastEventType: null,
-    consecutiveWaits: 0,
   }
 
   constructor(agent: Agent) {
     super()
     this.agent = agent
-    this.notificationService = new NotificationService()
   }
 
   async start(): Promise<void> {
@@ -109,34 +90,29 @@ export class AgentDaemon extends EventEmitter {
     logger.info(`Agent daemon stopped: ${this.agent.id}`)
   }
 
-  /**
-   * Handle a hook event - main entry point
-   */
   async handleHookEvent(event: ProcessedHookEvent, manager?: AgentManager): Promise<void> {
-    const cycleId = `cycle-${nanoid(8)}`
-    const log = this.createLogger(manager, cycleId)
+    const log = this.createLogger(manager)
 
-    // === PHASE 1: Pre-flight checks ===
+    // === Guard checks ===
     if (!this.isRunning) {
-      log('warn', '⚠️ Agent is not running, ignoring event')
+      log('warn', 'Agent is not running, ignoring event')
       return
     }
 
     if (this.processingState.isProcessing) {
       const elapsed = Date.now() - this.processingState.processingStartedAt
       if (elapsed < MAX_PROCESSING_TIME) {
-        log('warn', `⚠️ Already processing an event (${Math.round(elapsed / 1000)}s), ignoring`)
+        log('warn', `Already processing an event (${Math.round(elapsed / 1000)}s), ignoring`)
         return
       }
-      // Processing has been stuck for too long - force reset
-      log('warn', `⚠️ Processing stuck for ${Math.round(elapsed / 1000)}s, force-resetting`)
+      log('warn', `Processing stuck for ${Math.round(elapsed / 1000)}s, force-resetting`)
       this.processingState.isProcessing = false
     }
 
     // Check cooldown
     const timeSinceLastResponse = Date.now() - this.processingState.lastResponseTime
     if (timeSinceLastResponse < MIN_RESPONSE_INTERVAL && this.processingState.lastResponseTime > 0) {
-      log('debug', `⏳ Cooldown active (${Math.round(timeSinceLastResponse/1000)}s since last response), waiting...`)
+      log('debug', `Cooldown active, waiting...`)
       return
     }
 
@@ -144,359 +120,150 @@ export class AgentDaemon extends EventEmitter {
     this.processingState.processingStartedAt = Date.now()
     this.processingState.lastEventType = event.payload.event_type
 
-    const cycleStart = Date.now()
-
-    // Collect event-specific data for logging
-    const hookSpecificData: Record<string, unknown> = {
-      ...event.payload.stop_data,
-      ...event.payload.compact_data,
-      ...event.payload.session_start_data,
-      ...event.payload.session_end_data,
-      ...event.payload.notification_data,
-    }
-
     try {
-      log('info', `📥 Hook: ${event.payload.event_type}`, {
-        phase: 'hook_received',
-        eventType: event.payload.event_type,
-        sessionId: event.payload.session_id,
-        cwd: event.payload.cwd,
-        hookData: Object.keys(hookSpecificData).length > 0 ? hookSpecificData : undefined,
-      })
+      log('info', `Hook: ${event.payload.event_type} [session: ${(event.payload.session_id || 'none').slice(0, 8)}]`)
 
-      // === PHASE 2: Capture terminal state ===
+      // === Handle PreCompact ===
+      if (event.payload.event_type === 'PreCompact') {
+        const trigger = event.payload.compact_data?.trigger || 'manual'
+        log('info', `PreCompact event (trigger: ${trigger})`)
+        return
+      }
+
+      // === Handle SessionEnd ===
+      if (event.payload.event_type === 'SessionEnd') {
+        log('warn', `Session ended: ${event.payload.session_end_data?.reason || 'unknown'}`)
+        return
+      }
+
+      // === Handle PostToolUseFailure ===
+      if (event.payload.event_type === 'PostToolUseFailure') {
+        log('warn', `Tool failed: ${event.payload.tool_failure_data?.tool_name || 'unknown'}`)
+        return
+      }
+
+      // === Capture terminal ===
       const terminalContent = await this.captureTargetTerminal()
 
       if (!terminalContent) {
-        log('error', '❌ Could not capture terminal - no pane ID or connection')
+        log('error', 'Could not capture terminal - no pane ID or connection')
         return
       }
 
       const lines = terminalContent.content.split('\n')
-      const lastLines = lines.slice(-20).join('\n')
-      log('info', `📸 Terminal captured (${terminalContent.content.length} chars, ${lines.length} lines)`, {
-        phase: 'terminal_capture',
-        charCount: terminalContent.content.length,
-        lineCount: lines.length,
-        snapshot: lastLines,
-      })
+      log('info', `Terminal captured (${terminalContent.content.length} chars, ${lines.length} lines)`)
 
-      // === PHASE 3: Quick checks before AI analysis ===
+      // === Parse terminal state ===
       const terminalState = TerminalReader.parseState(terminalContent.content)
 
-      const terminalStateInfo = {
-        isProcessing: terminalState.isProcessing,
-        isWaitingForInput: terminalState.isWaitingForInput,
-        hasPermissionPrompt: terminalState.hasPermissionPrompt,
-        hasError: !!terminalState.error,
-        errorText: terminalState.error || undefined,
-      }
+      log('info', `State: ${terminalState.isWaitingForInput ? 'waiting' : terminalState.isProcessing ? 'processing' : terminalState.hasPermissionPrompt ? 'permission' : 'other'}`)
 
-      log('info', `🔍 State: ${terminalState.isWaitingForInput ? 'waiting for input' : terminalState.isProcessing ? 'processing' : terminalState.hasPermissionPrompt ? 'permission prompt' : 'other'}`, {
-        phase: 'terminal_state',
-        ...terminalStateInfo,
-      })
+      // === Context limit fast-path ===
+      if (terminalState.hasContextLimit) {
+        const isZeroPercent = /0%\s*remaining/i.test(terminalContent.content)
+        const compactFailed = /compaction.*error|conversation too long/i.test(terminalContent.content)
 
-      // If Claude is still processing (spinner visible), don't interrupt
-      if (ClaudeAnalyzer.isProcessing(terminalContent.content)) {
-        log('info', '⏳ Claude still working (spinner) - waiting', {
-          phase: 'terminal_state',
-          ...terminalStateInfo,
-          isProcessing: true,
-        })
-        this.processingState.consecutiveWaits++
+        if (isZeroPercent || compactFailed) {
+          log('warn', 'Context exhausted! Sending /clear.')
+          await TerminalReader.sendClear(terminalContent.paneId)
+        } else {
+          log('warn', 'Context limit reached! Sending /compact.')
+          await TerminalReader.sendCompact(terminalContent.paneId)
+        }
+        this.processingState.lastResponseTime = Date.now()
         return
       }
 
-      // === PHASE 4: Decision making ===
-      const response = await this.makeDecision(
-        terminalState,
-        terminalContent.content,
-        event,
-        log
-      )
-
-      // Record decision in rolling history
-      this.decisionHistory.push({
-        timestamp: new Date(),
-        eventType: event.payload.event_type,
-        action: response.action,
-        reason: response.reason,
-        response: response.response,
-      })
-      const maxHistory = this.agent.decisionHistorySize || 5
-      if (this.decisionHistory.length > maxHistory) {
-        this.decisionHistory = this.decisionHistory.slice(-maxHistory)
+      // === If processing, wait ===
+      if (terminalState.isProcessing) {
+        log('info', 'Claude still working - waiting')
+        return
       }
 
-      // === PHASE 5: Execute the decision ===
+      // === If not waiting for input, skip ===
+      if (!terminalState.isWaitingForInput && !terminalState.hasPermissionPrompt) {
+        log('info', 'Terminal state unclear - skipping')
+        return
+      }
+
+      // === Hardcoded decision ===
+      const response = this.makeHardcodedDecision(terminalState, terminalContent.content)
+
+      // === Execute ===
       if (response.action !== 'wait') {
-        log('action', `🎯 Executing: ${response.action}${response.response ? ` → "${response.response}"` : ''}`, {
-          phase: 'execution',
-          action: response.action,
-          response: response.response,
-        })
-
-        await this.executeResponse(response, terminalContent.paneId, log)
+        log('action', `Executing: ${response.action}${response.response ? ` -> "${response.response}"` : ''} (${response.reason})`)
+        await this.executeResponse(response, terminalContent.paneId)
         this.processingState.lastResponseTime = Date.now()
-        this.processingState.consecutiveWaits = 0
       } else {
-        this.processingState.consecutiveWaits++
-        log('debug', `😴 Waiting (${this.processingState.consecutiveWaits} consecutive)`, {
-          phase: 'execution',
-          action: 'wait',
-          consecutiveWaits: this.processingState.consecutiveWaits,
-        })
-
-        // If we've waited too many times, something might be wrong
-        if (this.processingState.consecutiveWaits >= MAX_CONSECUTIVE_WAITS) {
-          log('warn', `⚠️ Too many consecutive waits (${MAX_CONSECUTIVE_WAITS}), requesting human help`)
-          await this.executeResponse({
-            action: 'request_help',
-            reason: 'Agent has been waiting too long without progress',
-            notifyHuman: true,
-          }, terminalContent.paneId, log)
-        }
+        log('debug', `Waiting: ${response.reason}`)
       }
 
     } catch (error: any) {
-      log('error', `❌ Error: ${error.message}`)
+      log('error', `Error: ${error.message}`)
       this.emit('error', error)
       if (this.stateManager) {
         await this.stateManager.updateAgentStatus(this.agent.id, 'error', error.message)
       }
     } finally {
       this.processingState.isProcessing = false
-      const duration = Date.now() - cycleStart
-      log('debug', `✅ Cycle complete (${duration}ms)`, { phase: 'cycle_done', durationMs: duration })
     }
   }
 
-  /**
-   * Make a decision about what to do
-   */
-  private async makeDecision(
+  private makeHardcodedDecision(
     terminalState: TerminalState,
-    terminalContent: string,
-    event: ProcessedHookEvent,
-    log: ReturnType<typeof this.createLogger>
-  ): Promise<AgentResponse> {
-
-    // Check response limit
-    if (this.agent.maxConsecutiveResponses !== -1 &&
-        this.agent.consecutiveResponses >= this.agent.maxConsecutiveResponses) {
-      log('warn', `🛑 Reached max responses (${this.agent.maxConsecutiveResponses})`)
-      return {
-        action: 'request_help',
-        reason: `Reached maximum consecutive responses (${this.agent.maxConsecutiveResponses})`,
-        notifyHuman: true,
-      }
-    }
-
-    // Fast path: Auto-approve permission prompts
-    if (terminalState.hasPermissionPrompt && this.agent.autoApprove) {
-      if (ClaudeAnalyzer.isSimpleApprovalPrompt(terminalContent)) {
-        log('action', '✅ Auto-approving permission prompt (fast path)')
-        return {
-          action: 'approve',
-          reason: 'Auto-approve enabled for permission prompts',
-          notifyHuman: false,
-        }
-      }
-    }
-
-    // === AI Analysis ===
-    log('info', '🤖 Analyzing with Claude AI...', { phase: 'decide' })
-
-    try {
-      const analyzer = new ClaudeAnalyzer(
-        getEffectivePrompt(this.agent),
-        this.agent.connection?.projectPath || ''
-      )
-
-      // Get event-specific data
-      const eventData: Record<string, unknown> = {
-        ...event.payload.stop_data,
-        ...event.payload.compact_data,
-        ...event.payload.session_start_data,
-        ...event.payload.session_end_data,
-        ...event.payload.notification_data,
-      }
-
-      const analysis = await analyzer.analyze(
-        terminalContent,
-        event.payload.event_type,
-        eventData,
-        this.decisionHistory
-      )
-
-      // Log LLM request metadata
-      if (analysis.meta) {
-        log('info', `🤖 LLM request`, {
-          phase: 'llm_request',
-          model: analysis.meta.model,
-          systemPromptLength: analysis.meta.systemPromptLength,
-          userPromptLength: analysis.meta.userPromptLength,
-        })
-
-        // Log LLM response metadata
-        log('info', `🤖 LLM response (${analysis.meta.latencyMs}ms)`, {
-          phase: 'llm_response',
-          latencyMs: analysis.meta.latencyMs,
-          rawResponse: analysis.meta.rawResponse.length > 500
-            ? analysis.meta.rawResponse.slice(0, 500) + '…'
-            : analysis.meta.rawResponse,
-          parseSuccess: true,
-        })
-      }
-
-      // Log the AI's decision as a single structured entry
-      log('action', `💭 Decision: ${analysis.action} (${(analysis.confidence * 100).toFixed(0)}%)${analysis.response ? ` → "${analysis.response}"` : ''} — ${analysis.reason}`, {
-        phase: 'decision',
-        action: analysis.action,
-        reason: analysis.reason,
-        confidence: analysis.confidence,
-        response: analysis.response,
-        notifyHuman: analysis.notifyHuman,
-      })
-
-      // Low confidence check
-      if (analysis.confidence < 0.3 && analysis.action !== 'wait') {
-        log('warn', `⚠️ Low confidence (${(analysis.confidence * 100).toFixed(0)}%), requesting human help`)
-        return {
-          action: 'request_help',
-          reason: `Low confidence: ${analysis.reason}`,
-          notifyHuman: true,
-        }
-      }
-
-      return {
-        action: analysis.action === 'escape' ? 'wait' : analysis.action,
-        response: analysis.response,
-        reason: analysis.reason,
-        notifyHuman: analysis.notifyHuman,
-      }
-
-    } catch (error: any) {
-      log('error', `❌ AI analysis failed: ${error.message}`)
-      return this.fallbackDecision(terminalState, terminalContent, log)
-    }
-  }
-
-  /**
-   * Fallback decision when AI fails
-   */
-  private fallbackDecision(
-    terminalState: TerminalState,
-    terminalContent: string,
-    log: ReturnType<typeof this.createLogger>
+    _terminalContent: string
   ): AgentResponse {
-    log('warn', '🔧 Using fallback heuristics...')
-
-    if (terminalState.error) {
-      return {
-        action: 'request_help',
-        reason: `Error detected: ${terminalState.error}`,
-        notifyHuman: true,
-      }
-    }
-
-    if (terminalState.hasPermissionPrompt && this.agent.autoApprove) {
+    // Permission prompt → approve
+    if (terminalState.hasPermissionPrompt) {
       return {
         action: 'approve',
-        reason: 'Fallback: Auto-approve permission',
-        notifyHuman: false,
+        reason: 'Permission prompt detected',
       }
     }
 
-    const lastLines = terminalContent.split('\n').slice(-20).join('\n').toLowerCase()
-    if (lastLines.includes('continue') || lastLines.includes('proceed')) {
+    // Waiting for input → send "continue"
+    if (terminalState.isWaitingForInput) {
       return {
         action: 'respond',
         response: 'continue',
-        reason: 'Fallback: Detected continuation prompt',
-        notifyHuman: false,
+        reason: 'Claude waiting for input',
       }
     }
 
     return {
-      action: 'request_help',
-      reason: 'Fallback: Could not determine action',
-      notifyHuman: true,
+      action: 'wait',
+      reason: 'No action needed',
     }
   }
 
-  /**
-   * Execute the decided response
-   */
   private async executeResponse(
     response: AgentResponse,
-    paneId: string,
-    log: ReturnType<typeof this.createLogger>
+    paneId: string
   ): Promise<void> {
-
     switch (response.action) {
       case 'respond':
         if (response.response) {
-          log('action', `📤 Sending: "${response.response}"`)
           await TerminalReader.sendTextWithEnter(paneId, response.response)
-          this.emit('responseGenerated', response.response)
-
-          if (this.stateManager) {
-            await this.stateManager.incrementResponseCount(this.agent.id)
-            const newCount = this.agent.consecutiveResponses + 1
-            const max = this.agent.maxConsecutiveResponses
-            log('info', `📊 Response count: ${newCount}/${max === -1 ? '∞' : max}`)
-          }
         }
         break
-
       case 'approve':
-        log('action', '✅ Sending: y (approve)')
         await TerminalReader.sendApproval(paneId)
         break
-
       case 'reject':
-        log('action', '❌ Sending: n (reject)')
         await TerminalReader.sendRejection(paneId)
         break
-
       case 'compact':
-        log('action', '📦 Sending: /compact')
         await TerminalReader.sendCompact(paneId)
         break
-
       case 'escape':
-        log('action', '⎋ Sending: Escape')
         await TerminalReader.sendEscape(paneId)
         break
-
       case 'request_help':
-        log('warn', `🆘 REQUESTING HUMAN HELP: ${response.reason}`)
-        this.emit('humanHelpRequested', response.reason)
-        if (this.stateManager) {
-          await this.stateManager.updateAgentStatus(this.agent.id, 'waiting_human')
-        }
-        break
-
       case 'wait':
-        log('debug', '💤 No action needed')
         break
-    }
-
-    if (response.notifyHuman) {
-      log('info', '🔔 Sending notification to human')
-      await this.notificationService.sendNotification(
-        this.agent,
-        `Agent ${this.agent.name}`,
-        response.reason
-      )
     }
   }
 
-  /**
-   * Capture terminal content
-   */
   private async captureTargetTerminal(): Promise<{ content: string; paneId: string } | null> {
     if (!this.agent.connection?.tmuxPaneId) {
       return null
@@ -517,57 +284,14 @@ export class AgentDaemon extends EventEmitter {
     }
   }
 
-  /**
-   * Create a logger function bound to this agent
-   */
-  private createLogger(manager?: AgentManager, cycleId?: string) {
+  private createLogger(manager?: AgentManager) {
     return (
       level: 'info' | 'warn' | 'error' | 'debug' | 'action',
       message: string,
       details?: Record<string, unknown>
     ) => {
-      manager?.addAgentLog(this.agent.id, level, message, details, cycleId)
+      manager?.addAgentLog(this.agent.id, level, message, details)
     }
-  }
-
-  async resumeFromHuman(): Promise<void> {
-    if (this.agent.status !== 'waiting_human') {
-      return
-    }
-
-    if (this.stateManager) {
-      await this.stateManager.resetResponseCount(this.agent.id)
-      await this.stateManager.updateAgentStatus(this.agent.id, 'active')
-    }
-
-    this.processingState.consecutiveWaits = 0
-    logger.info(`Agent ${this.agent.id} resumed from waiting_human state`)
-  }
-
-  /**
-   * Reset decision history — called after compact/clear wipes context.
-   * Without this, the agent would carry stale context from before the reset.
-   */
-  resetDecisionHistory(): void {
-    const hadHistory = this.decisionHistory.length > 0
-    this.decisionHistory = []
-    this.processingState.consecutiveWaits = 0
-    if (hadHistory) {
-      logger.info(`Agent ${this.agent.id}: Decision history cleared (context was reset)`)
-    }
-  }
-
-  /**
-   * Force-reset the processing state so the agent can accept new events.
-   * Used by manual trigger when the agent is stuck.
-   */
-  forceResetProcessing(): void {
-    if (this.processingState.isProcessing) {
-      const elapsed = Date.now() - this.processingState.processingStartedAt
-      logger.warn(`Force-resetting processing state for agent ${this.agent.id} (was processing for ${Math.round(elapsed / 1000)}s)`)
-    }
-    this.processingState.isProcessing = false
-    this.processingState.processingStartedAt = 0
   }
 
   getAgent(): Agent {
@@ -576,10 +300,6 @@ export class AgentDaemon extends EventEmitter {
 
   getProcessingState(): ProcessingState {
     return { ...this.processingState }
-  }
-
-  getDecisionHistory(): DecisionRecord[] {
-    return [...this.decisionHistory]
   }
 
   isActive(): boolean {

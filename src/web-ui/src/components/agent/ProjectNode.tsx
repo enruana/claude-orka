@@ -3,7 +3,7 @@
  */
 
 import { memo, useState, useEffect, useRef, useCallback } from 'react'
-import { Handle, Position, NodeProps } from '@xyflow/react'
+import { Handle, Position } from '@xyflow/react'
 import { Terminal, Code, FolderOpen } from 'lucide-react'
 import type { RegisteredProject, Session } from '../../api/client'
 
@@ -18,7 +18,7 @@ function encodePathForUrl(path: string): string {
   return btoa(path).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-function ProjectNodeComponent({ data, selected }: NodeProps<{ data: ProjectNodeData }>) {
+function ProjectNodeComponent({ data, selected }: { data: { data: ProjectNodeData }; selected?: boolean }) {
   const { project, sessions, onSelect } = data.data
   const [activeSession, setActiveSession] = useState<Session | undefined>()
   const [isTerminalLoading, setIsTerminalLoading] = useState(true)

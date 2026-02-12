@@ -357,17 +357,18 @@ export class TmuxCommands {
   }
 
   /**
-   * Enviar texto a un pane (SIN Enter)
-   * IMPORTANTE: No envía Enter, debe llamarse a sendEnter() por separado
+   * Enviar texto LITERAL a un pane (SIN Enter)
+   * Usa -l para que tmux no interprete el texto como nombres de tecla.
+   * IMPORTANTE: No envía Enter, debe llamarse a sendEnter() por separado.
    */
   static async sendKeys(paneId: string, text: string): Promise<void> {
     try {
       logger.debug(`Sending keys to pane ${paneId}: ${text.substring(0, 50)}...`)
-      await execa('tmux', ['send-keys', '-t', paneId, text], { timeout: 10000 })
+      await execa('tmux', ['send-keys', '-l', '-t', paneId, text], { timeout: 10000 })
     } catch (error: any) {
       throw new TmuxError(
         `Failed to send keys to pane: ${paneId}`,
-        `tmux send-keys -t ${paneId} "${text}"`,
+        `tmux send-keys -l -t ${paneId} "${text}"`,
         error
       )
     }
@@ -375,6 +376,7 @@ export class TmuxCommands {
 
   /**
    * Enviar SOLO Enter a un pane
+   * No usa -l porque Enter es un nombre de tecla especial.
    */
   static async sendEnter(paneId: string): Promise<void> {
     try {

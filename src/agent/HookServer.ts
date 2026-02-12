@@ -1,5 +1,7 @@
 /**
  * HookServer - HTTP server that receives Claude Code hook events
+ *
+ * Phase 1: Simplified Express server with POST /api/hooks/:agentId
  */
 
 import express, { Express, Request, Response } from 'express'
@@ -9,14 +11,8 @@ import { logger } from '../utils'
 import { HookEventPayload, ProcessedHookEvent } from '../models/HookEvent'
 import { getAgentStateManager } from './AgentStateManager'
 
-/**
- * Hook event handler function type
- */
 export type HookEventHandler = (event: ProcessedHookEvent) => Promise<void>
 
-/**
- * HookServer receives hook events from Claude Code sessions
- */
 export class HookServer {
   private app: Express
   private server: Server | null = null
@@ -53,14 +49,12 @@ export class HookServer {
 
       try {
         // Parse the payload - could be JSON string or already parsed
-        let payload: HookEventPayload
         let rawPayload: Record<string, unknown> = {}
 
         if (typeof req.body === 'string') {
           try {
             rawPayload = JSON.parse(req.body)
           } catch {
-            // If not valid JSON, wrap it
             rawPayload = { raw_stdin: req.body }
           }
         } else {
@@ -70,7 +64,7 @@ export class HookServer {
         // Normalize the payload - Claude Code uses hook_event_name
         const eventType = (rawPayload.hook_event_name || rawPayload.event_type || 'Stop') as string
 
-        payload = {
+        const payload: HookEventPayload = {
           event_type: eventType as HookEventPayload['event_type'],
           timestamp: (rawPayload.timestamp as string) || new Date().toISOString(),
           session_id: rawPayload.session_id as string,
@@ -115,6 +109,21 @@ export class HookServer {
               stop_hook_active: rawPayload.stop_hook_active as boolean ?? true,
             }
             break
+          case 'PostToolUseFailure':
+            payload.tool_failure_data = {
+              tool_name: rawPayload.tool_name as string || 'unknown',
+              tool_input: rawPayload.tool_input as Record<string, unknown>,
+              tool_use_id: rawPayload.tool_use_id as string,
+              error: rawPayload.error as string || 'unknown error',
+              is_interrupt: rawPayload.is_interrupt as boolean ?? false,
+            }
+            break
+          case 'PermissionRequest':
+            payload.permission_request_data = {
+              tool_name: rawPayload.tool_name as string || 'unknown',
+              tool_input: rawPayload.tool_input as Record<string, unknown>,
+            }
+            break
         }
 
         // Get agent info
@@ -137,10 +146,9 @@ export class HookServer {
           status: 'pending',
         }
 
-        logger.info(`Hook received for agent ${agentId}: ${payload.event_type}`)
-        logger.debug('Hook payload:', JSON.stringify(payload, null, 2))
+        logger.info(`[HookServer] ${eventType} for ${agentId} [session: ${(payload.session_id || 'none').slice(0, 8)}]`)
 
-        // Call handlers
+        // Dispatch to handlers
         await this.dispatchEvent(processedEvent)
 
         res.json({
@@ -150,59 +158,21 @@ export class HookServer {
           timestamp: processedEvent.receivedAt,
         })
       } catch (error: any) {
-        logger.error(`Error processing hook for agent ${agentId}:`, error)
-        res.status(500).json({ error: error.message })
-      }
-    })
-
-    // Generic hook endpoint (for testing)
-    this.app.post('/api/hooks', async (req: Request, res: Response) => {
-      try {
-        let payload: HookEventPayload
-
-        if (typeof req.body === 'string') {
-          try {
-            payload = JSON.parse(req.body)
-          } catch {
-            payload = {
-              event_type: 'Stop',
-              timestamp: new Date().toISOString(),
-              raw_stdin: req.body,
-            }
-          }
-        } else {
-          payload = req.body
-        }
-
-        logger.info(`Generic hook received: ${payload.event_type}`)
-        logger.debug('Hook payload:', JSON.stringify(payload, null, 2))
-
-        res.json({
-          status: 'received',
-          eventType: payload.event_type,
-          timestamp: new Date().toISOString(),
-        })
-      } catch (error: any) {
-        logger.error('Error processing generic hook:', error)
+        logger.error(`[HookServer] Error processing hook for ${agentId}: ${error.message}`)
         res.status(500).json({ error: error.message })
       }
     })
   }
 
-  /**
-   * Dispatch event to handlers
-   */
   private async dispatchEvent(event: ProcessedHookEvent): Promise<void> {
     event.status = 'processing'
 
     try {
-      // Call agent-specific handlers
       const agentHandlers = this.eventHandlers.get(event.agentId) || []
       for (const handler of agentHandlers) {
         await handler(event)
       }
 
-      // Call global handlers
       for (const handler of this.globalHandlers) {
         await handler(event)
       }
@@ -215,9 +185,6 @@ export class HookServer {
     }
   }
 
-  /**
-   * Register a handler for a specific agent
-   */
   onAgentEvent(agentId: string, handler: HookEventHandler): void {
     if (!this.eventHandlers.has(agentId)) {
       this.eventHandlers.set(agentId, [])
@@ -225,23 +192,14 @@ export class HookServer {
     this.eventHandlers.get(agentId)!.push(handler)
   }
 
-  /**
-   * Remove handlers for an agent
-   */
   removeAgentHandlers(agentId: string): void {
     this.eventHandlers.delete(agentId)
   }
 
-  /**
-   * Register a global handler (receives all events)
-   */
   onEvent(handler: HookEventHandler): void {
     this.globalHandlers.push(handler)
   }
 
-  /**
-   * Start the server
-   */
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
@@ -262,9 +220,6 @@ export class HookServer {
     })
   }
 
-  /**
-   * Stop the server
-   */
   async stop(): Promise<void> {
     if (this.server) {
       return new Promise((resolve, reject) => {
@@ -281,23 +236,14 @@ export class HookServer {
     }
   }
 
-  /**
-   * Check if server is running
-   */
   isRunning(): boolean {
     return this.server !== null
   }
 
-  /**
-   * Get server port
-   */
   getPort(): number {
     return this.port
   }
 
-  /**
-   * Get Express app (for testing)
-   */
   getApp(): Express {
     return this.app
   }

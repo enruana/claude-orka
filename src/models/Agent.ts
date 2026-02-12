@@ -1,57 +1,52 @@
 /**
  * Agent model - represents a Master Agent that monitors and controls Claude Code sessions
+ *
+ * Phase 1: Minimal viable agent
  */
 
 /**
  * Agent status
  */
-export type AgentStatus = 'idle' | 'active' | 'paused' | 'waiting_human' | 'error'
+export type AgentStatus = 'idle' | 'active' | 'error'
 
 /**
  * Hook event types that can trigger an agent
- * Based on Claude Code's available hooks
+ * Based on Claude Code's available hooks (complete list as of 2026)
  */
 export type AgentHookTrigger =
-  | 'Stop'              // Claude Code stopped, waiting for input
-  | 'Notification'      // Notification sent (including errors)
-  | 'SubagentStop'      // A subagent stopped
-  | 'PreCompact'        // About to compact (trigger: 'auto' = context full)
-  | 'SessionStart'      // Session started (source: 'compact'|'clear'|'resume'|'startup')
-  | 'SessionEnd'        // Session ended (reason: error, user exit, etc)
-  | 'PreToolUse'        // Before a tool is used
-  | 'PostToolUse'       // After a tool is used
+  | 'Stop'                // Claude Code stopped, waiting for input
+  | 'Notification'        // Notification sent (including errors, permission prompts)
+  | 'SubagentStop'        // A subagent stopped
+  | 'PreCompact'          // About to compact (trigger: 'auto' = context full)
+  | 'SessionStart'        // Session started (source: 'compact'|'clear'|'resume'|'startup')
+  | 'SessionEnd'          // Session ended (reason: error, user exit, etc)
+  | 'PreToolUse'          // Before a tool is used
+  | 'PostToolUse'         // After a tool is used
+  | 'PostToolUseFailure'  // After a tool use fails (errors, interrupts)
+  | 'PermissionRequest'   // When a permission dialog appears
+  | 'UserPromptSubmit'    // When user submits a prompt (before processing)
+  | 'SubagentStart'       // When a subagent is spawned
+  | 'TeammateIdle'        // When an agent team teammate is about to go idle
+  | 'TaskCompleted'       // When a task is being marked as completed
 
 /**
  * Description of each hook event for UI display
  */
 export const HOOK_EVENT_DESCRIPTIONS: Record<AgentHookTrigger, string> = {
-  Stop: 'When Claude Code stops and waits for input',
-  Notification: 'When a notification is sent (including errors)',
+  Stop: 'When Claude Code stops and waits for input (NOT on user interrupt)',
+  Notification: 'When a notification is sent (errors, permission prompts, etc)',
   SubagentStop: 'When a subagent (Task) stops',
   PreCompact: 'Before compacting context (auto = context window full)',
   SessionStart: 'After session starts (compact/clear finished, or resume)',
   SessionEnd: 'When session ends (error, user exit, etc)',
   PreToolUse: 'Before any tool is executed',
   PostToolUse: 'After any tool is executed',
-}
-
-/**
- * Notification channel configuration
- */
-export interface NotificationConfig {
-  /** Enable Telegram notifications */
-  telegram?: {
-    enabled: boolean
-    botToken?: string
-    chatId?: string
-  }
-  /** Enable Web Push notifications */
-  webPush?: {
-    enabled: boolean
-    endpoint?: string
-    p256dh?: string
-    auth?: string
-  }
+  PostToolUseFailure: 'After a tool use fails (errors, interrupts, context limit)',
+  PermissionRequest: 'When a permission dialog appears',
+  UserPromptSubmit: 'When user submits a prompt (before processing)',
+  SubagentStart: 'When a subagent is spawned',
+  TeammateIdle: 'When an agent team teammate is about to go idle',
+  TaskCompleted: 'When a task is being marked as completed',
 }
 
 /**
@@ -70,18 +65,6 @@ export interface AgentConnection {
   branchId?: string
   /** Connected at timestamp */
   connectedAt: string
-}
-
-/**
- * A named prompt preset (role) that an agent can switch between
- */
-export interface PromptRole {
-  /** Unique role ID */
-  id: string
-  /** Display name (e.g., "Workflow Guide", "Documentation", "Deployment") */
-  name: string
-  /** The prompt text (markdown) */
-  prompt: string
 }
 
 /**
@@ -104,38 +87,11 @@ export interface Agent {
   /** Connection to a project (if connected) */
   connection?: AgentConnection
 
-  /** Agent's own Claude session ID (for its Claude Code instance) */
-  claudeSessionId?: string
-
-  /** Agent's own tmux session ID (orka-agent-{id}) */
-  tmuxSessionId?: string
-
-  /** Agent's own tmux pane ID */
-  tmuxPaneId?: string
-
   /** Hook events that trigger this agent */
   hookEvents: AgentHookTrigger[]
 
-  /** Notification configuration */
-  notifications: NotificationConfig
-
   /** Auto-approve tool calls in monitored sessions */
   autoApprove: boolean
-
-  /** Maximum consecutive responses before requiring human input */
-  maxConsecutiveResponses: number
-
-  /** Current consecutive response count */
-  consecutiveResponses: number
-
-  /** Number of recent decisions to include as context (rolling window) */
-  decisionHistorySize: number
-
-  /** Saved prompt roles/presets */
-  promptRoles?: PromptRole[]
-
-  /** Currently active role ID (if using roles) */
-  activeRoleId?: string
 
   /** Creation timestamp */
   createdAt: string
@@ -175,19 +131,6 @@ export const DEFAULT_AGENT_STATE: AgentState = {
 }
 
 /**
- * Resolve the effective prompt for an agent.
- * If an activeRoleId is set and found in promptRoles, use that role's prompt;
- * otherwise fall back to masterPrompt.
- */
-export function getEffectivePrompt(agent: Agent): string {
-  if (agent.activeRoleId && agent.promptRoles?.length) {
-    const role = agent.promptRoles.find(r => r.id === agent.activeRoleId)
-    if (role) return role.prompt
-  }
-  return agent.masterPrompt
-}
-
-/**
  * Create a new agent with defaults
  */
 export function createAgent(
@@ -202,11 +145,7 @@ export function createAgent(
     status: 'idle',
     masterPrompt,
     hookEvents: ['Stop'],
-    notifications: {},
     autoApprove: false,
-    maxConsecutiveResponses: 5,
-    consecutiveResponses: 0,
-    decisionHistorySize: 5,
     createdAt: new Date().toISOString(),
     ...options,
   }

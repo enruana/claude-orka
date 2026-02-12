@@ -18,6 +18,8 @@ import {
   BackgroundVariant,
   NodeChange,
   NodePositionChange,
+  type NodeTypes,
+  type EdgeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -30,19 +32,23 @@ import { agentsApi, Agent, CreateAgentOptions } from '../../api/agents'
 import { api, RegisteredProject, Session } from '../../api/client'
 
 // Custom node types
-const nodeTypes = {
-  agent: AgentNode,
-  project: ProjectNode,
+const nodeTypes: NodeTypes = {
+  agent: AgentNode as any,
+  project: ProjectNode as any,
 }
 
 // Custom edge types
-const edgeTypes = {
-  connection: ConnectionEdge,
+const edgeTypes: EdgeTypes = {
+  connection: ConnectionEdge as any,
 }
 
 interface AgentCanvasProps {
   className?: string
 }
+
+// Detect mobile/tablet (iPad, iPhone, Android)
+const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent) ||
+  (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) // iPad with desktop UA
 
 // Store positions in localStorage
 const POSITIONS_KEY = 'orka-agent-canvas-positions'
@@ -65,8 +71,8 @@ function savePositions(positions: Record<string, { x: number; y: number }>) {
 }
 
 function AgentCanvasInner({ className }: AgentCanvasProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const { setCenter } = useReactFlow()
   const [agents, setAgents] = useState<Agent[]>([])
   const [projects, setProjects] = useState<RegisteredProject[]>([])
@@ -85,7 +91,7 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
   const initialLoadDone = useRef(false)
 
   // Handle node position changes - save to ref and localStorage
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+  const handleNodesChange = useCallback((changes: NodeChange<Node>[]) => {
     // Call the original handler
     onNodesChange(changes)
 
@@ -126,28 +132,6 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
     []
   )
 
-  const handlePauseAgent = useCallback(
-    async (agentId: string) => {
-      try {
-        await agentsApi.pause(agentId)
-      } catch (err: any) {
-        setError(`Failed to pause agent: ${err.message}`)
-      }
-    },
-    []
-  )
-
-  const handleResumeAgent = useCallback(
-    async (agentId: string) => {
-      try {
-        await agentsApi.resume(agentId)
-      } catch (err: any) {
-        setError(`Failed to resume agent: ${err.message}`)
-      }
-    },
-    []
-  )
-
   const handleEditAgent = useCallback((agent: Agent) => {
     setEditingAgent(agent)
     setModalOpen(true)
@@ -157,17 +141,6 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
     setViewingLogsAgent(agent)
     setLogsModalOpen(true)
   }, [])
-
-  const handleTriggerAgent = useCallback(
-    async (agentId: string) => {
-      try {
-        await agentsApi.trigger(agentId)
-      } catch (err: any) {
-        setError(`Failed to trigger agent: ${err.message}`)
-      }
-    },
-    []
-  )
 
   const handleDeleteAgent = useCallback(
     async (agentId: string) => {
@@ -261,12 +234,9 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
               agent,
               onStart: handleStartAgent,
               onStop: handleStopAgent,
-              onPause: handlePauseAgent,
-              onResume: handleResumeAgent,
               onEdit: handleEditAgent,
               onDelete: handleDeleteAgent,
               onViewLogs: handleViewLogs,
-              onTrigger: handleTriggerAgent,
             },
           },
         })
@@ -302,7 +272,7 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
       setNodes(newNodes)
       setEdges(newEdges)
     },
-    [handleStartAgent, handleStopAgent, handlePauseAgent, handleResumeAgent, handleEditAgent, handleDeleteAgent, handleDisconnectAgent, handleViewLogs, handleTriggerAgent, handleProjectSelect, setNodes, setEdges]
+    [handleStartAgent, handleStopAgent, handleEditAgent, handleDeleteAgent, handleDisconnectAgent, handleViewLogs, handleProjectSelect, setNodes, setEdges]
   )
 
   // Load data without rebuilding positions
@@ -349,8 +319,9 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
   }, [loadData])
 
   // Refresh periodically - only update data, not positions
+  // Use slower interval on mobile to reduce memory pressure
   useEffect(() => {
-    const interval = setInterval(loadData, 5000)
+    const interval = setInterval(loadData, isMobile ? 15000 : 5000)
     return () => clearInterval(interval)
   }, [loadData])
 
@@ -560,11 +531,11 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
         onNodeDoubleClick={handleNodeDoubleClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        fitView={!initialLoadDone.current}
+        fitView
         snapToGrid
         snapGrid={[15, 15]}
-        minZoom={0.1}
-        maxZoom={8}
+        minZoom={isMobile ? 0.3 : 0.1}
+        maxZoom={isMobile ? 2 : 4}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#313244" />
         <Controls />

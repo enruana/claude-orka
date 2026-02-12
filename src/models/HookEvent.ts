@@ -3,7 +3,7 @@
  */
 
 /**
- * Hook event type (matches Claude Code hook names)
+ * Hook event type (matches Claude Code hook names — complete list as of 2026)
  */
 export type HookEventType =
   | 'Stop'
@@ -11,9 +11,15 @@ export type HookEventType =
   | 'SubagentStop'
   | 'PreToolUse'
   | 'PostToolUse'
+  | 'PostToolUseFailure'
   | 'PreCompact'
   | 'SessionStart'
   | 'SessionEnd'
+  | 'PermissionRequest'
+  | 'UserPromptSubmit'
+  | 'SubagentStart'
+  | 'TeammateIdle'
+  | 'TaskCompleted'
 
 /**
  * Tool use information for PreToolUse/PostToolUse hooks
@@ -78,6 +84,32 @@ export interface SessionEndHookPayload {
 }
 
 /**
+ * PostToolUseFailure hook payload — fires when a tool execution fails
+ */
+export interface PostToolUseFailurePayload {
+  /** Tool that failed */
+  tool_name: string
+  /** Input that was passed to the tool */
+  tool_input?: Record<string, unknown>
+  /** Tool use ID */
+  tool_use_id?: string
+  /** Error message */
+  error: string
+  /** Whether the failure was due to a user interrupt */
+  is_interrupt: boolean
+}
+
+/**
+ * PermissionRequest hook payload — fires when a permission dialog appears
+ */
+export interface PermissionRequestPayload {
+  /** Tool requesting permission */
+  tool_name: string
+  /** Tool input parameters */
+  tool_input?: Record<string, unknown>
+}
+
+/**
  * Generic hook event payload received from Claude Code
  */
 export interface HookEventPayload {
@@ -110,6 +142,12 @@ export interface HookEventPayload {
 
   /** SessionEnd specific data */
   session_end_data?: SessionEndHookPayload
+
+  /** PostToolUseFailure specific data */
+  tool_failure_data?: PostToolUseFailurePayload
+
+  /** PermissionRequest specific data */
+  permission_request_data?: PermissionRequestPayload
 
   /** Raw stdin data if available */
   raw_stdin?: string

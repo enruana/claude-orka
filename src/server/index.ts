@@ -11,7 +11,6 @@ import { filesRouter } from './api/files'
 import { gitRouter } from './api/git'
 import { transcribeRouter } from './api/transcribe'
 import { agentsRouter } from './api/agents'
-import { hooksRouter } from './api/hooks'
 import { getAgentManager } from '../agent/AgentManager'
 import { logger } from '../utils'
 
@@ -43,7 +42,6 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/git', gitRouter)
   app.use('/api/transcribe', transcribeRouter)
   app.use('/api/agents', agentsRouter)
-  app.use('/api/hooks', hooksRouter)
 
   // Health check
   app.get('/api/health', (_req, res) => {
@@ -182,6 +180,19 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
     await agentManager.startHookServer()
     const hookPort = 9999 // Default hook server port
     logger.info(`Hook server started on port ${hookPort}`)
+
+    // Auto-start daemons for agents that are connected and active
+    const agents = agentManager.getAgents()
+    for (const agent of agents) {
+      if (agent.connection && agent.status === 'active') {
+        try {
+          await agentManager.startAgent(agent.id)
+          logger.info(`Auto-started daemon for agent: ${agent.name} (${agent.id})`)
+        } catch (err: any) {
+          logger.warn(`Failed to auto-start agent ${agent.id}: ${err.message}`)
+        }
+      }
+    }
   } catch (error: any) {
     logger.error(`Failed to start hook server: ${error.message}`)
   }

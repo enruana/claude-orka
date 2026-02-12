@@ -2,7 +2,7 @@
  * ConnectionEdge - Custom edge with disconnect button
  */
 
-import { BaseEdge, EdgeProps, getBezierPath, EdgeLabelRenderer } from '@xyflow/react'
+import { BaseEdge, getBezierPath, EdgeLabelRenderer } from '@xyflow/react'
 import { X } from 'lucide-react'
 
 interface ConnectionEdgeData {
@@ -11,8 +11,20 @@ interface ConnectionEdgeData {
   isActive?: boolean
 }
 
+interface ConnectionEdgeProps {
+  id: string
+  sourceX: number
+  sourceY: number
+  targetX: number
+  targetY: number
+  sourcePosition: any
+  targetPosition: any
+  style?: Record<string, any>
+  markerEnd?: string
+  data?: ConnectionEdgeData
+}
+
 export function ConnectionEdge({
-  id,
   sourceX,
   sourceY,
   targetX,
@@ -22,7 +34,7 @@ export function ConnectionEdge({
   style = {},
   markerEnd,
   data,
-}: EdgeProps<ConnectionEdgeData>) {
+}: ConnectionEdgeProps) {
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,

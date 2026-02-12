@@ -1,10 +1,12 @@
 /**
- * AgentLogsModal - Modal for viewing agent logs, status, and decisions
+ * AgentLogsModal - Modal for viewing agent logs
+ *
+ * Phase 1: Simple timeline of log entries grouped by cycle
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, RefreshCw, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
-import type { Agent, AgentStatusSummary } from '../../api/agents'
+import type { Agent } from '../../api/agents'
 
 interface AgentLog {
   id: string
@@ -21,8 +23,6 @@ interface AgentLogsModalProps {
   onClose: () => void
 }
 
-type TabId = 'overview' | 'timeline' | 'decisions'
-
 const getApiBase = () => `${window.location.origin}/api`
 
 const actionIcons: Record<string, string> = {
@@ -35,15 +35,6 @@ const actionIcons: Record<string, string> = {
   escape: '⎋',
 }
 
-const phaseLabels: Record<string, string> = {
-  idle: 'Idle',
-  capture: 'Capturing',
-  analyze: 'Analyzing',
-  decide: 'Deciding',
-  execute: 'Executing',
-  done: 'Done',
-}
-
 function timeAgo(timestamp: string): string {
   const diff = Date.now() - new Date(timestamp).getTime()
   const seconds = Math.floor(diff / 1000)
@@ -54,227 +45,18 @@ function timeAgo(timestamp: string): string {
   return `${hours}h ago`
 }
 
-function ConfidenceBar({ confidence }: { confidence: number }) {
-  const pct = confidence * 100
-  const color = confidence >= 0.7 ? '#a6e3a1' : confidence >= 0.4 ? '#f9e2af' : '#f38ba8'
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-      <div
-        style={{
-          width: '60px',
-          height: '6px',
-          background: '#313244',
-          borderRadius: '3px',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            width: `${pct}%`,
-            height: '100%',
-            background: color,
-            borderRadius: '3px',
-          }}
-        />
-      </div>
-      <span style={{ fontSize: '0.8rem', color: '#a6adc8' }}>{pct.toFixed(0)}%</span>
-    </div>
-  )
-}
-
-// --- Overview Tab ---
-function OverviewTab({ status, logs }: { status: AgentStatusSummary | null; logs: AgentLog[] }) {
-  if (!status) {
-    return (
-      <div style={{ textAlign: 'center', color: '#6c7086', padding: '40px' }}>
-        Loading status...
-      </div>
-    )
-  }
-
-  // Extract decision logs from all logs
-  const decisionLogs = logs
-    .filter(l => l.details && (l.details as Record<string, unknown>).phase === 'decide' && (l.details as Record<string, unknown>).decision)
-    .slice(-10)
-    .reverse()
-
-  const snapshotLines = status.lastTerminalSnapshot?.split('\n') || []
-
-  return (
-    <div style={{ padding: '16px 20px', overflow: 'auto', flex: 1 }}>
-      {/* Current Status Card */}
-      <div
-        style={{
-          background: '#181825',
-          borderRadius: '8px',
-          padding: '16px',
-          marginBottom: '16px',
-          border: '1px solid #313244',
-        }}
-      >
-        <div style={{ fontSize: '0.75rem', color: '#6c7086', textTransform: 'uppercase', fontWeight: 600, marginBottom: '12px' }}>
-          Current Status
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <div>
-            <span style={{ color: '#6c7086', fontSize: '0.8rem' }}>Phase: </span>
-            <span style={{ color: '#cdd6f4', fontWeight: 500 }}>
-              {phaseLabels[status.currentPhase] || status.currentPhase}
-            </span>
-          </div>
-          {status.processingDuration != null && status.processingDuration > 0 && (
-            <div>
-              <span style={{ color: '#6c7086', fontSize: '0.8rem' }}>Processing: </span>
-              <span style={{ color: '#cdd6f4' }}>{(status.processingDuration / 1000).toFixed(1)}s</span>
-            </div>
-          )}
-          {status.lastDecision && (
-            <>
-              <div>
-                <span style={{ color: '#6c7086', fontSize: '0.8rem' }}>Last action: </span>
-                <span style={{ color: '#cdd6f4' }}>
-                  {actionIcons[status.lastDecision.action] || ''} {status.lastDecision.action}
-                </span>
-              </div>
-              <div>
-                <span style={{ color: '#6c7086', fontSize: '0.8rem' }}>Confidence: </span>
-                <ConfidenceBar confidence={status.lastDecision.confidence} />
-              </div>
-            </>
-          )}
-        </div>
-        {status.lastDecision?.response && (
-          <div style={{ marginTop: '10px', padding: '8px 12px', background: '#11111b', borderRadius: '6px' }}>
-            <span style={{ color: '#6c7086', fontSize: '0.75rem' }}>Response: </span>
-            <span style={{ color: '#a6adc8', fontStyle: 'italic' }}>"{status.lastDecision.response}"</span>
-          </div>
-        )}
-      </div>
-
-      {/* Terminal Snapshot */}
-      {snapshotLines.length > 0 && (
-        <div
-          style={{
-            borderRadius: '8px',
-            overflow: 'hidden',
-            marginBottom: '16px',
-            border: '1px solid #313244',
-          }}
-        >
-          <div
-            style={{
-              padding: '8px 16px',
-              background: '#181825',
-              fontSize: '0.75rem',
-              color: '#6c7086',
-              textTransform: 'uppercase',
-              fontWeight: 600,
-              borderBottom: '1px solid #313244',
-            }}
-          >
-            Terminal Snapshot
-          </div>
-          <div
-            style={{
-              background: '#11111b',
-              padding: '12px 16px',
-              fontFamily: 'monospace',
-              fontSize: '0.8rem',
-              lineHeight: '1.5',
-              color: '#a6adc8',
-              maxHeight: '250px',
-              overflow: 'auto',
-              whiteSpace: 'pre',
-            }}
-          >
-            {snapshotLines.join('\n')}
-          </div>
-        </div>
-      )}
-
-      {/* Recent Decisions */}
-      <div
-        style={{
-          borderRadius: '8px',
-          overflow: 'hidden',
-          border: '1px solid #313244',
-        }}
-      >
-        <div
-          style={{
-            padding: '8px 16px',
-            background: '#181825',
-            fontSize: '0.75rem',
-            color: '#6c7086',
-            textTransform: 'uppercase',
-            fontWeight: 600,
-            borderBottom: '1px solid #313244',
-          }}
-        >
-          Recent Decisions ({decisionLogs.length})
-        </div>
-        <div style={{ background: '#181825' }}>
-          {decisionLogs.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#6c7086', fontSize: '0.85rem' }}>
-              No decisions yet
-            </div>
-          ) : (
-            decisionLogs.map(log => {
-              const decision = (log.details as Record<string, unknown>).decision as Record<string, unknown>
-              return (
-                <div
-                  key={log.id}
-                  style={{
-                    padding: '10px 16px',
-                    borderBottom: '1px solid #1e1e2e',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                  }}
-                >
-                  <span style={{ color: '#6c7086', fontSize: '0.75rem', flexShrink: 0, width: '50px' }}>
-                    {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  <span style={{ flexShrink: 0 }}>
-                    {actionIcons[decision.action as string] || '❓'}
-                  </span>
-                  <span style={{ color: '#cdd6f4', fontWeight: 500, fontSize: '0.85rem', flexShrink: 0 }}>
-                    {decision.action as string}
-                  </span>
-                  {decision.response && (
-                    <span style={{ color: '#a6adc8', fontSize: '0.8rem', fontStyle: 'italic', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      "{decision.response as string}"
-                    </span>
-                  )}
-                  {!decision.response && (
-                    <span style={{ color: '#6c7086', fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {decision.reason as string}
-                    </span>
-                  )}
-                  <span style={{ flexShrink: 0 }}>
-                    <ConfidenceBar confidence={decision.confidence as number} />
-                  </span>
-                </div>
-              )
-            })
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // Phase emoji mapping
 const phaseIcons: Record<string, string> = {
+  hook_incoming: '📨',
+  hook_filter: '🚫',
+  hook_accepted: '✅',
+  hook_session_start: '🔄',
   hook_received: '📥',
   terminal_capture: '📸',
   terminal_state: '🔍',
-  llm_request: '🤖',
-  llm_response: '🤖',
   decision: '💭',
   execution: '🎯',
   cycle_done: '✅',
-  // Legacy phases
   capture: '📸',
   analyze: '🔍',
   decide: '💭',
@@ -315,20 +97,16 @@ function getCycleBorderColor(action?: string): string {
 function groupLogsByCycle(logs: AgentLog[]): Array<{ type: 'cycle'; cycleId: string; logs: AgentLog[] } | { type: 'standalone'; log: AgentLog }> {
   const groups: Array<{ type: 'cycle'; cycleId: string; logs: AgentLog[] } | { type: 'standalone'; log: AgentLog }> = []
   const cycleMap = new Map<string, AgentLog[]>()
-  // Track insertion order of cycles
-  const cycleOrder: string[] = []
 
   for (const log of logs) {
     if (log.cycleId) {
       if (!cycleMap.has(log.cycleId)) {
         cycleMap.set(log.cycleId, [])
-        cycleOrder.push(log.cycleId)
       }
       cycleMap.get(log.cycleId)!.push(log)
     }
   }
 
-  // Build ordered list: walk through logs, emit standalone or cycle-group on first encounter
   const emittedCycles = new Set<string>()
   for (const log of logs) {
     if (log.cycleId) {
@@ -348,19 +126,17 @@ function groupLogsByCycle(logs: AgentLog[]): Array<{ type: 'cycle'; cycleId: str
 function getCycleSummary(cycleLogs: AgentLog[]) {
   let eventType = ''
   let action = ''
-  let confidence = 0
   let durationMs = 0
   let response = ''
 
   for (const log of cycleLogs) {
     const d = log.details as Record<string, unknown> | undefined
     if (!d?.phase) continue
-    if (d.phase === 'hook_received' || d.phase === 'capture') {
+    if (d.phase === 'hook_received' || d.phase === 'hook_incoming' || d.phase === 'hook_accepted' || d.phase === 'capture') {
       eventType = (d.eventType as string) || eventType
     }
     if (d.phase === 'decision' || d.phase === 'decide') {
       action = (d.action as string) || (d.decision as Record<string, unknown>)?.action as string || action
-      confidence = (d.confidence as number) || (d.decision as Record<string, unknown>)?.confidence as number || confidence
       response = (d.response as string) || (d.decision as Record<string, unknown>)?.response as string || response
     }
     if (d.phase === 'cycle_done' || d.phase === 'done') {
@@ -368,11 +144,11 @@ function getCycleSummary(cycleLogs: AgentLog[]) {
     }
   }
 
-  return { eventType, action, confidence, durationMs, response }
+  return { eventType, action, durationMs, response }
 }
 
 // --- Cycle Card Component ---
-function CycleCard({ cycleLogs, defaultExpanded, filter }: { cycleLogs: AgentLog[]; defaultExpanded: boolean; filter: 'all' | 'action' | 'error' }) {
+function CycleCard({ cycleLogs, defaultExpanded, filter }: { cycleLogs: AgentLog[]; defaultExpanded: boolean; filter: 'all' | 'action' | 'error' | 'hooks' }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const summary = getCycleSummary(cycleLogs)
@@ -382,10 +158,13 @@ function CycleCard({ cycleLogs, defaultExpanded, filter }: { cycleLogs: AgentLog
     if (filter === 'all') return true
     if (filter === 'action') return log.level === 'action'
     if (filter === 'error') return log.level === 'error' || log.level === 'warn'
+    if (filter === 'hooks') {
+      const p = (log.details as Record<string, unknown>)?.phase as string | undefined
+      return p === 'hook_incoming' || p === 'hook_filter' || p === 'hook_accepted' || p === 'hook_received' || p === 'hook_session_start'
+    }
     return true
   })
 
-  // If filtering removes all logs in this cycle, don't render
   if (filter !== 'all' && filteredLogs.length === 0) return null
 
   return (
@@ -398,7 +177,7 @@ function CycleCard({ cycleLogs, defaultExpanded, filter }: { cycleLogs: AgentLog
         overflow: 'hidden',
       }}
     >
-      {/* Header - always visible */}
+      {/* Header */}
       <div
         onClick={() => setExpanded(!expanded)}
         style={{
@@ -435,11 +214,6 @@ function CycleCard({ cycleLogs, defaultExpanded, filter }: { cycleLogs: AgentLog
             {actionIcons[summary.action] || '❓'} {summary.action}
           </span>
         )}
-        {summary.confidence > 0 && (
-          <span style={{ flexShrink: 0 }}>
-            <ConfidenceBar confidence={summary.confidence} />
-          </span>
-        )}
         {summary.response && (
           <span style={{
             color: '#a6adc8',
@@ -461,7 +235,7 @@ function CycleCard({ cycleLogs, defaultExpanded, filter }: { cycleLogs: AgentLog
         )}
       </div>
 
-      {/* Body - expandable */}
+      {/* Body */}
       {expanded && (
         <div style={{ padding: '0 14px 10px 14px' }}>
           {filteredLogs.map(log => {
@@ -525,44 +299,58 @@ function CycleCard({ cycleLogs, defaultExpanded, filter }: { cycleLogs: AgentLog
 // --- Standalone Log Row ---
 function StandaloneLogRow({ log }: { log: AgentLog }) {
   const [expanded, setExpanded] = useState(false)
+  const phase = (log.details as Record<string, unknown>)?.phase as string | undefined
+  const isHookEvent = phase === 'hook_incoming' || phase === 'hook_filter' || phase === 'hook_accepted' || phase === 'hook_session_start'
+  const isFiltered = phase === 'hook_filter'
+
   return (
     <div
       style={{
-        background: '#11111b',
+        background: isHookEvent ? '#1e1e2e' : '#11111b',
         borderRadius: '6px',
-        marginBottom: '4px',
-        borderLeft: `3px solid ${getLevelColor(log.level)}`,
+        marginBottom: isHookEvent ? '8px' : '4px',
+        marginTop: isHookEvent ? '8px' : '0',
+        borderLeft: `3px solid ${isFiltered ? '#f38ba8' : getLevelColor(log.level)}`,
         fontSize: '0.8rem',
+        border: isHookEvent ? '1px solid #313244' : undefined,
       }}
     >
       <div
         onClick={() => log.details && setExpanded(!expanded)}
         style={{
-          padding: '6px 12px',
+          padding: isHookEvent ? '8px 12px' : '6px 12px',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
           cursor: log.details ? 'pointer' : 'default',
         }}
       >
+        {isHookEvent && (
+          <span style={{ flexShrink: 0 }}>{phaseIcons[phase!] || '📨'}</span>
+        )}
         <span style={{ color: '#6c7086', fontSize: '0.75rem', flexShrink: 0 }}>
           {new Date(log.timestamp).toLocaleTimeString()}
         </span>
-        <span style={{ color: getLevelColor(log.level), flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        <span style={{ color: isFiltered ? '#f38ba8' : getLevelColor(log.level), flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontWeight: isHookEvent ? 500 : 400 }}>
           {log.message}
         </span>
+        {log.details && (
+          <span style={{ color: '#45475a', fontSize: '0.7rem', flexShrink: 0 }}>
+            {expanded ? '▼' : '▶'}
+          </span>
+        )}
       </div>
       {expanded && log.details && (
         <pre
           style={{
             background: '#181825',
-            padding: '6px 12px',
-            margin: '0 12px 6px 12px',
+            padding: '8px 12px',
+            margin: '0 12px 8px 12px',
             borderRadius: '4px',
             overflow: 'auto',
             fontSize: '0.7rem',
             color: '#a6adc8',
-            maxHeight: '200px',
+            maxHeight: '300px',
           }}
         >
           {JSON.stringify(log.details, null, 2)}
@@ -572,159 +360,26 @@ function StandaloneLogRow({ log }: { log: AgentLog }) {
   )
 }
 
-// --- Timeline Tab (grouped cycle view) ---
-function TimelineTab({ logs, filter }: { logs: AgentLog[]; filter: 'all' | 'action' | 'error' }) {
-  const logsEndRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs])
-
-  const groups = groupLogsByCycle(logs)
-
-  // Determine which cycles to auto-expand (last 3)
-  const cycleGroups = groups.filter(g => g.type === 'cycle')
-  const lastThreeCycleIds = new Set(
-    cycleGroups.slice(-3).map(g => g.type === 'cycle' ? g.cycleId : '')
-  )
-
-  // Filter standalone logs
-  const filteredGroups = groups.filter(g => {
-    if (g.type === 'cycle') return true // cycles filter internally
-    const log = g.log
-    if (filter === 'all') return true
-    if (filter === 'action') return log.level === 'action'
-    if (filter === 'error') return log.level === 'error' || log.level === 'warn'
-    return true
-  })
-
-  return (
-    <div style={{ flex: 1, overflow: 'auto', padding: '12px 20px' }}>
-      {filteredGroups.length === 0 ? (
-        <div style={{ textAlign: 'center', color: '#6c7086', padding: '40px' }}>
-          No logs yet. Start the agent to see activity.
-        </div>
-      ) : (
-        filteredGroups.map((group, i) => {
-          if (group.type === 'cycle') {
-            return (
-              <CycleCard
-                key={group.cycleId}
-                cycleLogs={group.logs}
-                defaultExpanded={lastThreeCycleIds.has(group.cycleId)}
-                filter={filter}
-              />
-            )
-          } else {
-            return <StandaloneLogRow key={group.log.id} log={group.log} />
-          }
-        })
-      )}
-      <div ref={logsEndRef} />
-    </div>
-  )
-}
-
-// --- Decisions Tab ---
-function DecisionsTab({ logs }: { logs: AgentLog[] }) {
-  const decisionLogs = logs
-    .filter(l => l.details && (l.details as Record<string, unknown>).phase === 'decide' && (l.details as Record<string, unknown>).decision)
-    .reverse()
-
-  if (decisionLogs.length === 0) {
-    return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6c7086' }}>
-        No decisions yet. The agent will make decisions when it receives hook events.
-      </div>
-    )
-  }
-
-  return (
-    <div style={{ flex: 1, overflow: 'auto', padding: '12px 20px' }}>
-      {decisionLogs.map(log => {
-        const decision = (log.details as Record<string, unknown>).decision as Record<string, unknown>
-        return (
-          <div
-            key={log.id}
-            style={{
-              padding: '14px 16px',
-              marginBottom: '8px',
-              background: '#181825',
-              borderRadius: '8px',
-              borderLeft: '3px solid #89b4fa',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <span style={{ fontSize: '1.1rem' }}>
-                {actionIcons[decision.action as string] || '❓'}
-              </span>
-              <span style={{ color: '#cdd6f4', fontWeight: 600, fontSize: '1rem' }}>
-                {(decision.action as string).toUpperCase()}
-              </span>
-              <div style={{ marginLeft: 'auto' }}>
-                <ConfidenceBar confidence={decision.confidence as number} />
-              </div>
-              <span style={{ color: '#6c7086', fontSize: '0.8rem', flexShrink: 0 }}>
-                {timeAgo(log.timestamp)}
-              </span>
-            </div>
-
-            {decision.response && (
-              <div
-                style={{
-                  padding: '8px 12px',
-                  background: '#11111b',
-                  borderRadius: '6px',
-                  marginBottom: '8px',
-                  color: '#a6adc8',
-                  fontStyle: 'italic',
-                  fontSize: '0.9rem',
-                }}
-              >
-                "{decision.response as string}"
-              </div>
-            )}
-
-            <div style={{ color: '#6c7086', fontSize: '0.85rem' }}>
-              {decision.reason as string}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 // --- Main Modal ---
 export function AgentLogsModal({ agent, isOpen, onClose }: AgentLogsModalProps) {
   const [logs, setLogs] = useState<AgentLog[]>([])
-  const [status, setStatus] = useState<AgentStatusSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
-  const [activeTab, setActiveTab] = useState<TabId>('overview')
-  const [timelineFilter, setTimelineFilter] = useState<'all' | 'action' | 'error'>('all')
+  const [filter, setFilter] = useState<'all' | 'action' | 'error' | 'hooks'>('all')
+  const logsEndRef = useRef<HTMLDivElement>(null)
 
   const fetchData = useCallback(async () => {
     if (!agent) return
 
     try {
       setLoading(true)
-      const [logsRes, statusRes] = await Promise.all([
-        fetch(`${getApiBase()}/agents/${agent.id}/logs`),
-        fetch(`${getApiBase()}/agents/${agent.id}/status`),
-      ])
-
-      if (logsRes.ok) {
-        const data = await logsRes.json()
+      const res = await fetch(`${getApiBase()}/agents/${agent.id}/logs`)
+      if (res.ok) {
+        const data = await res.json()
         setLogs(data.logs || [])
       }
-
-      if (statusRes.ok) {
-        const data = await statusRes.json()
-        setStatus(data)
-      }
     } catch (err) {
-      console.error('Failed to fetch data:', err)
+      console.error('Failed to fetch logs:', err)
     } finally {
       setLoading(false)
     }
@@ -754,13 +409,32 @@ export function AgentLogsModal({ agent, isOpen, onClose }: AgentLogsModalProps) 
     return () => clearInterval(interval)
   }, [isOpen, autoRefresh, agent, fetchData])
 
+  // Scroll to bottom on new logs
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logs])
+
   if (!isOpen || !agent) return null
 
-  const tabs: { id: TabId; label: string }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'timeline', label: 'Timeline' },
-    { id: 'decisions', label: 'Decisions' },
-  ]
+  const groups = groupLogsByCycle(logs)
+  const cycleGroups = groups.filter(g => g.type === 'cycle')
+  const lastThreeCycleIds = new Set(
+    cycleGroups.slice(-3).map(g => g.type === 'cycle' ? g.cycleId : '')
+  )
+
+  // Filter standalone logs
+  const filteredGroups = groups.filter(g => {
+    if (g.type === 'cycle') return true
+    const log = g.log
+    if (filter === 'all') return true
+    if (filter === 'action') return log.level === 'action'
+    if (filter === 'error') return log.level === 'error' || log.level === 'warn'
+    if (filter === 'hooks') {
+      const p = (log.details as Record<string, unknown>)?.phase as string | undefined
+      return p === 'hook_incoming' || p === 'hook_filter' || p === 'hook_accepted' || p === 'hook_received' || p === 'hook_session_start'
+    }
+    return true
+  })
 
   return (
     <div
@@ -814,9 +488,6 @@ export function AgentLogsModal({ agent, isOpen, onClose }: AgentLogsModalProps) 
                 </>
               ) : ''}
               {logs.length} events
-              {status?.stats && (
-                <> | {status.stats.totalActions} actions | {status.stats.totalErrors} errors</>
-              )}
             </span>
           </div>
           <button
@@ -833,61 +504,37 @@ export function AgentLogsModal({ agent, isOpen, onClose }: AgentLogsModalProps) 
           </button>
         </div>
 
-        {/* Tab bar + toolbar */}
+        {/* Toolbar */}
         <div
           style={{
-            padding: '0 20px',
+            padding: '8px 20px',
             borderBottom: '1px solid #313244',
             display: 'flex',
             alignItems: 'center',
-            gap: '0',
+            gap: '8px',
           }}
         >
-          {/* Tabs */}
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                borderBottom: activeTab === tab.id ? '2px solid #89b4fa' : '2px solid transparent',
-                padding: '12px 16px',
-                cursor: 'pointer',
-                color: activeTab === tab.id ? '#89b4fa' : '#6c7086',
-                fontSize: '0.9rem',
-                fontWeight: activeTab === tab.id ? 600 : 400,
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
+          <select
+            value={filter}
+            onChange={e => setFilter(e.target.value as typeof filter)}
+            style={{
+              background: '#313244',
+              color: '#cdd6f4',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '4px 8px',
+              fontSize: '0.8rem',
+            }}
+          >
+            <option value="all">All</option>
+            <option value="hooks">Hooks</option>
+            <option value="action">Actions</option>
+            <option value="error">Errors</option>
+          </select>
 
           <div style={{ flex: 1 }} />
 
-          {/* Timeline filter (only show on timeline tab) */}
-          {activeTab === 'timeline' && (
-            <select
-              value={timelineFilter}
-              onChange={e => setTimelineFilter(e.target.value as typeof timelineFilter)}
-              style={{
-                background: '#313244',
-                color: '#cdd6f4',
-                border: 'none',
-                borderRadius: '6px',
-                padding: '4px 8px',
-                fontSize: '0.8rem',
-                marginRight: '8px',
-              }}
-            >
-              <option value="all">All</option>
-              <option value="action">Actions</option>
-              <option value="error">Errors</option>
-            </select>
-          )}
-
-          {/* Auto-refresh toggle */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', color: '#a6adc8', marginRight: '8px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', color: '#a6adc8' }}>
             <input
               type="checkbox"
               checked={autoRefresh}
@@ -896,7 +543,6 @@ export function AgentLogsModal({ agent, isOpen, onClose }: AgentLogsModalProps) 
             Auto
           </label>
 
-          {/* Refresh button */}
           <button
             onClick={fetchData}
             disabled={loading}
@@ -911,13 +557,11 @@ export function AgentLogsModal({ agent, isOpen, onClose }: AgentLogsModalProps) 
               alignItems: 'center',
               gap: '4px',
               fontSize: '0.8rem',
-              marginRight: '4px',
             }}
           >
             <RefreshCw size={12} className={loading ? 'spinning' : ''} />
           </button>
 
-          {/* Clear button */}
           <button
             onClick={clearLogs}
             style={{
@@ -937,11 +581,29 @@ export function AgentLogsModal({ agent, isOpen, onClose }: AgentLogsModalProps) 
           </button>
         </div>
 
-        {/* Tab content */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {activeTab === 'overview' && <OverviewTab status={status} logs={logs} />}
-          {activeTab === 'timeline' && <TimelineTab logs={logs} filter={timelineFilter} />}
-          {activeTab === 'decisions' && <DecisionsTab logs={logs} />}
+        {/* Log content */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '12px 20px' }}>
+          {filteredGroups.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#6c7086', padding: '40px' }}>
+              No logs yet. Start the agent to see activity.
+            </div>
+          ) : (
+            filteredGroups.map((group) => {
+              if (group.type === 'cycle') {
+                return (
+                  <CycleCard
+                    key={group.cycleId}
+                    cycleLogs={group.logs}
+                    defaultExpanded={lastThreeCycleIds.has(group.cycleId)}
+                    filter={filter}
+                  />
+                )
+              } else {
+                return <StandaloneLogRow key={group.log.id} log={group.log} />
+              }
+            })
+          )}
+          <div ref={logsEndRef} />
         </div>
 
         {/* Footer */}
@@ -955,13 +617,13 @@ export function AgentLogsModal({ agent, isOpen, onClose }: AgentLogsModalProps) 
             gap: '20px',
           }}
         >
-          <span>Responses: {agent.consecutiveResponses}/{agent.maxConsecutiveResponses === -1 ? '∞' : agent.maxConsecutiveResponses}</span>
+          <span>Status: {agent.status}</span>
           {agent.lastActivity && (
             <span>Last activity: {timeAgo(agent.lastActivity)}</span>
           )}
-          {status?.stats.consecutiveWaits != null && status.stats.consecutiveWaits > 0 && (
-            <span>Consecutive waits: {status.stats.consecutiveWaits}</span>
-          )}
+          <span style={{ marginLeft: 'auto' }}>
+            hooks: [{agent.hookEvents.join(', ')}]
+          </span>
         </div>
       </div>
 

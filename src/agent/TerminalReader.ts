@@ -37,6 +37,8 @@ export interface TerminalState {
   isProcessing: boolean
   /** Error if detected */
   error?: string
+  /** Whether context limit was reached (needs /compact or /clear) */
+  hasContextLimit: boolean
 }
 
 /**
@@ -73,19 +75,33 @@ export class TerminalReader {
     const lastLines = lines.slice(-50) // Check last 50 lines
     const lastContent = lastLines.join('\n')
     const veryLastLines = lines.slice(-10).join('\n')
-
-    // Check for processing indicators FIRST (spinner characters)
+    // === PROCESSING DETECTION ===
+    // Check spinner characters (Claude Code's animated progress indicator)
     const spinnerChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
     const hasSpinner = spinnerChars.some(char => veryLastLines.includes(char))
-    const isProcessing =
-      hasSpinner ||
-      veryLastLines.includes('Thinking') ||
-      veryLastLines.includes('Processing') ||
-      veryLastLines.includes('Reading') ||
-      veryLastLines.includes('Writing') ||
-      veryLastLines.includes('Searching')
 
-    // Check for permission prompts - be more specific
+    // Claude Code status line words that appear while working
+    // These appear at the start of a line during active processing
+    const processingIndicators = [
+      'Thinking', 'Processing', 'Reading', 'Writing', 'Searching',
+      'Analyzing', 'Running', 'Editing', 'Creating', 'Installing',
+      'Building', 'Compiling', 'Fetching', 'Downloading', 'Updating',
+      'Compacting', 'Resuming',
+    ]
+    const hasProcessingWord = processingIndicators.some(word => {
+      // Must appear as a status indicator (start of a line in last few lines),
+      // not just mentioned in Claude's output text
+      const lastFew = lines.slice(-5)
+      return lastFew.some(l => l.trimStart().startsWith(word))
+    })
+
+    // Progress bar pattern — only thick bar ━ (actual progress indicator).
+    // NOT thin bar ─ which is Claude Code's UI chrome/separator lines.
+    const hasProgressBar = /━{4,}/.test(veryLastLines)
+
+    const isProcessing = hasSpinner || hasProcessingWord || hasProgressBar
+
+    // === PERMISSION PROMPT DETECTION ===
     const permissionPatterns = [
       /Allow\s+\w+\s+to/i,
       /Do you want to (allow|proceed|continue)/i,
@@ -95,7 +111,7 @@ export class TerminalReader {
       /Press\s+y\s+to\s+allow/i,
       /Allow\s+.*\?/i,
     ]
-    const hasPermissionPrompt = permissionPatterns.some(pattern => pattern.test(lastContent))
+    const hasPermissionPrompt = !isProcessing && permissionPatterns.some(pattern => pattern.test(lastContent))
 
     // Detect permission type
     let permissionType: 'bash' | 'edit' | 'write' | 'other' | undefined
@@ -111,25 +127,25 @@ export class TerminalReader {
       }
     }
 
-    // Check for waiting for input - only if NOT processing
-    // Look for Claude's input prompt at the very end
-    const inputPromptPatterns = [
-      /^>\s*$/m,           // Claude Code's typical prompt
-      /❯\s*$/m,            // Alternative prompt
-      /\$\s*$/m,           // Shell prompt (shouldn't happen inside Claude)
-      /\?\s*$/m,           // Question ending
-    ]
+    // === WAITING FOR INPUT DETECTION ===
+    // Claude Code shows "❯" on a line when ready for input.
+    // The status bar (username@host, context %) sits BELOW the prompt,
+    // so we can't just check the very last line — we check the last ~8 lines.
+    const lastFewForPrompt = lines.slice(-8)
+    const hasPromptLine = lastFewForPrompt.some(l => {
+      const t = l.trim()
+      return t === '>' || t === '❯'
+    })
 
-    // Claude Code typically shows ">" on a new line when waiting for input
-    const trimmedEnd = content.trim()
-    const lastLine = trimmedEnd.split('\n').pop() || ''
+    // Also check for the idle notification pattern
+    const hasIdleIndicator = veryLastLines.includes('waiting for your input') ||
+      veryLastLines.includes('idle_prompt')
+
     const isWaitingForInput =
       !isProcessing && (
-        lastLine === '>' ||
-        lastLine === '❯' ||
-        lastLine.endsWith('>') ||
+        hasPromptLine ||
         hasPermissionPrompt ||
-        inputPromptPatterns.some(pattern => pattern.test(veryLastLines))
+        hasIdleIndicator
       )
 
     // Extract last message (non-empty lines, excluding prompts)
@@ -138,8 +154,16 @@ export class TerminalReader {
       .filter(l => !['>', '❯', '$'].includes(l.trim()))
     const lastMessage = nonEmptyLines.slice(-10).join('\n')
 
-    // Check for errors
+    // === CONTEXT LIMIT DETECTION ===
+    const hasContextLimit =
+      lastContent.includes('Context limit reached') ||
+      lastContent.includes('0% remaining') ||
+      /context\s+(limit|full|exhausted)/i.test(lastContent)
+
+    // === ERROR DETECTION ===
+    // Only check errors in the very last lines to avoid matching old output
     let error: string | undefined
+    const errorCheckLines = lines.slice(-10).join('\n')
     const errorPatterns = [
       /Error:\s*(.+)/i,
       /error:\s*(.+)/i,
@@ -148,7 +172,7 @@ export class TerminalReader {
       /ENOENT|EPERM|EACCES/,
     ]
     for (const pattern of errorPatterns) {
-      const match = lastContent.match(pattern)
+      const match = errorCheckLines.match(pattern)
       if (match) {
         error = match[1]?.trim() || match[0]?.trim() || 'Unknown error'
         break
@@ -162,6 +186,7 @@ export class TerminalReader {
       lastMessage,
       isProcessing,
       error,
+      hasContextLimit,
     }
   }
 
@@ -175,9 +200,11 @@ export class TerminalReader {
 
   /**
    * Send text and press Enter
+   * Small delay between text and Enter to ensure tmux processes the text first.
    */
   static async sendTextWithEnter(paneId: string, text: string): Promise<void> {
     await this.sendText(paneId, text)
+    await new Promise(resolve => setTimeout(resolve, 50))
     await TmuxCommands.sendEnter(paneId)
   }
 
@@ -209,10 +236,11 @@ export class TerminalReader {
 
   /**
    * Send Ctrl+C to interrupt
+   * Uses sendSpecialKey because C-c is a key name, not literal text.
    */
   static async sendInterrupt(paneId: string): Promise<void> {
     logger.debug(`Sending Ctrl+C to ${paneId}`)
-    await TmuxCommands.sendKeys(paneId, 'C-c')
+    await TmuxCommands.sendSpecialKey(paneId, 'C-c')
   }
 
   /**
@@ -221,6 +249,14 @@ export class TerminalReader {
   static async sendCompact(paneId: string): Promise<void> {
     logger.debug(`Sending /compact to ${paneId}`)
     await this.sendTextWithEnter(paneId, '/compact')
+  }
+
+  /**
+   * Send /clear command to Claude (full context reset)
+   */
+  static async sendClear(paneId: string): Promise<void> {
+    logger.debug(`Sending /clear to ${paneId}`)
+    await this.sendTextWithEnter(paneId, '/clear')
   }
 
   /**
