@@ -96,6 +96,12 @@ export interface Agent {
   /** Telegram bot configuration for this agent */
   telegram?: TelegramConfig
 
+  /** Terminal watchdog configuration */
+  watchdog?: WatchdogConfig
+
+  /** Number of recent decisions to inject as context in LLM calls (default: 5) */
+  decisionHistorySize: number
+
   /** Creation timestamp */
   createdAt: string
 
@@ -116,6 +122,20 @@ export interface TelegramConfig {
   chatId: number
   /** Whether the bot is enabled */
   enabled: boolean
+}
+
+/**
+ * Terminal watchdog configuration per agent
+ */
+export interface WatchdogConfig {
+  /** Whether the watchdog is enabled */
+  enabled: boolean
+  /** Poll interval in seconds (default: 30) */
+  pollIntervalSec: number
+  /** Cooldown between actions in seconds (default: 60) */
+  actionCooldownSec: number
+  /** Consecutive polls before acting (default: 2) */
+  attentionThreshold: number
 }
 
 /**
@@ -161,6 +181,8 @@ export function createAgent(
     masterPrompt,
     hookEvents: ['Stop'],
     autoApprove: false,
+    watchdog: { enabled: true, pollIntervalSec: 30, actionCooldownSec: 60, attentionThreshold: 2 },
+    decisionHistorySize: 5,
     createdAt: new Date().toISOString(),
     ...options,
   }

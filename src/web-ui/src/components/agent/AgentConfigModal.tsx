@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Eye, Pencil } from 'lucide-react'
-import type { Agent, CreateAgentOptions, AgentHookTrigger } from '../../api/agents'
+import type { Agent, CreateAgentOptions, AgentHookTrigger, WatchdogConfig } from '../../api/agents'
 
 interface AgentConfigModalProps {
   agent?: Agent | null
@@ -28,6 +28,10 @@ export function AgentConfigModal({ agent, isOpen, onClose, onSave }: AgentConfig
   const [telegramEnabled, setTelegramEnabled] = useState(false)
   const [telegramToken, setTelegramToken] = useState('')
   const [telegramChatId, setTelegramChatId] = useState('')
+  const [watchdogEnabled, setWatchdogEnabled] = useState(true)
+  const [watchdogPollInterval, setWatchdogPollInterval] = useState(30)
+  const [watchdogCooldown, setWatchdogCooldown] = useState(60)
+  const [watchdogThreshold, setWatchdogThreshold] = useState(2)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,6 +47,10 @@ export function AgentConfigModal({ agent, isOpen, onClose, onSave }: AgentConfig
       setTelegramEnabled(agent.telegram?.enabled ?? false)
       setTelegramToken(agent.telegram?.botToken ?? '')
       setTelegramChatId(agent.telegram?.chatId ? String(agent.telegram.chatId) : '')
+      setWatchdogEnabled(agent.watchdog?.enabled ?? true)
+      setWatchdogPollInterval(agent.watchdog?.pollIntervalSec ?? 30)
+      setWatchdogCooldown(agent.watchdog?.actionCooldownSec ?? 60)
+      setWatchdogThreshold(agent.watchdog?.attentionThreshold ?? 2)
     } else {
       setName('')
       setCustomPrompt('')
@@ -51,6 +59,10 @@ export function AgentConfigModal({ agent, isOpen, onClose, onSave }: AgentConfig
       setTelegramEnabled(false)
       setTelegramToken('')
       setTelegramChatId('')
+      setWatchdogEnabled(true)
+      setWatchdogPollInterval(30)
+      setWatchdogCooldown(60)
+      setWatchdogThreshold(2)
     }
     setError(null)
     setActiveTab('config')
@@ -71,11 +83,19 @@ export function AgentConfigModal({ agent, isOpen, onClose, onSave }: AgentConfig
     setSaving(true)
 
     try {
+      const watchdog: WatchdogConfig = {
+        enabled: watchdogEnabled,
+        pollIntervalSec: watchdogPollInterval,
+        actionCooldownSec: watchdogCooldown,
+        attentionThreshold: watchdogThreshold,
+      }
+
       const options: CreateAgentOptions | Partial<Agent> = {
         name,
         masterPrompt: customPrompt,
         hookEvents,
         autoApprove,
+        watchdog,
         ...(telegramToken && telegramChatId ? {
           telegram: { botToken: telegramToken, chatId: parseInt(telegramChatId), enabled: telegramEnabled },
         } : {}),
@@ -211,6 +231,62 @@ export function AgentConfigModal({ agent, isOpen, onClose, onSave }: AgentConfig
                           placeholder="Tu Telegram user ID (usa @userinfobot)"
                           style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.8rem' }}
                         />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="form-group" style={{ borderTop: '1px solid var(--border-color, #313244)', paddingTop: '16px', marginTop: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    Terminal Watchdog
+                  </label>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', padding: '8px', background: 'var(--bg-tertiary, #313244)', borderRadius: '4px' }}>
+                    Monitorea periodicamente la terminal para detectar sesiones estancadas (context limits, prompts de permisos, espera de input) y actua automaticamente.
+                  </div>
+                  <div className="checkbox-group" style={{ marginBottom: '12px' }}>
+                    <input type="checkbox" id="watchdogEnabled" checked={watchdogEnabled} onChange={e => setWatchdogEnabled(e.target.checked)} />
+                    <label htmlFor="watchdogEnabled">Habilitar Terminal Watchdog</label>
+                  </div>
+                  {watchdogEnabled && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', background: 'var(--bg-tertiary, #11111b)', borderRadius: '8px', border: '1px solid var(--border-color, #313244)' }}>
+                      <div>
+                        <label htmlFor="watchdogPoll" style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'block' }}>Poll interval (seconds)</label>
+                        <input
+                          id="watchdogPoll"
+                          type="number"
+                          min={10}
+                          max={120}
+                          value={watchdogPollInterval}
+                          onChange={e => setWatchdogPollInterval(Math.max(10, Math.min(120, parseInt(e.target.value) || 10)))}
+                          style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.8rem' }}
+                        />
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Cada cuanto revisar la terminal (10-120s)</div>
+                      </div>
+                      <div>
+                        <label htmlFor="watchdogCooldown" style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'block' }}>Action cooldown (seconds)</label>
+                        <input
+                          id="watchdogCooldown"
+                          type="number"
+                          min={10}
+                          max={300}
+                          value={watchdogCooldown}
+                          onChange={e => setWatchdogCooldown(Math.max(10, Math.min(300, parseInt(e.target.value) || 10)))}
+                          style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.8rem' }}
+                        />
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Tiempo minimo entre acciones (10-300s)</div>
+                      </div>
+                      <div>
+                        <label htmlFor="watchdogThreshold" style={{ fontSize: '0.8rem', marginBottom: '4px', display: 'block' }}>Attention threshold</label>
+                        <input
+                          id="watchdogThreshold"
+                          type="number"
+                          min={1}
+                          max={5}
+                          value={watchdogThreshold}
+                          onChange={e => setWatchdogThreshold(Math.max(1, Math.min(5, parseInt(e.target.value) || 1)))}
+                          style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.8rem' }}
+                        />
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Polls consecutivos antes de actuar (1-5)</div>
                       </div>
                     </div>
                   )}

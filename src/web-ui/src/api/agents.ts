@@ -33,6 +33,13 @@ export interface TelegramConfig {
   enabled: boolean
 }
 
+export interface WatchdogConfig {
+  enabled: boolean
+  pollIntervalSec: number
+  actionCooldownSec: number
+  attentionThreshold: number
+}
+
 export interface Agent {
   id: string
   name: string
@@ -42,6 +49,7 @@ export interface Agent {
   hookEvents: AgentHookTrigger[]
   autoApprove: boolean
   telegram?: TelegramConfig
+  watchdog?: WatchdogConfig
   createdAt: string
   lastActivity?: string
   lastError?: string
@@ -61,6 +69,7 @@ export interface CreateAgentOptions {
   hookEvents?: AgentHookTrigger[]
   autoApprove?: boolean
   telegram?: TelegramConfig
+  watchdog?: WatchdogConfig
 }
 
 export const agentsApi = {

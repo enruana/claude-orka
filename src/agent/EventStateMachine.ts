@@ -179,6 +179,11 @@ export class EventStateMachine {
     return { ...this.processingState }
   }
 
+  /** Called by TerminalWatchdog after it takes an action, to sync cooldown */
+  recordExternalAction(): void {
+    this.processingState.lastResponseTime = Date.now()
+  }
+
   // -----------------------------------------------------------------------
   // Node Registration
   // -----------------------------------------------------------------------

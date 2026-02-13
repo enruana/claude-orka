@@ -1,12 +1,29 @@
 /**
- * AgentNode - ReactFlow node for displaying an Agent
+ * AgentNode - Rich ReactFlow node for displaying an Agent
  *
- * Phase 1: Name, status dot, connection info, Start/Stop/Edit/Delete buttons
+ * Shows: status accent bar, Bot icon, status badge, connection info,
+ * master prompt preview, hook event pills, feature badges, error box,
+ * and an icon action toolbar.
  */
 
 import { memo } from 'react'
 import { Handle, Position } from '@xyflow/react'
-import type { Agent, AgentStatus } from '../../api/agents'
+import {
+  Bot,
+  Play,
+  Square,
+  RotateCcw,
+  Pencil,
+  Trash2,
+  ScrollText,
+  Link,
+  Unlink,
+  Send,
+  ShieldCheck,
+  ScanSearch,
+  AlertTriangle,
+} from 'lucide-react'
+import type { Agent, AgentStatus, AgentHookTrigger } from '../../api/agents'
 
 export interface AgentNodeData {
   agent: Agent
@@ -29,8 +46,20 @@ const statusColors: Record<AgentStatus, string> = {
   error: '#f38ba8',
 }
 
+const hookShortNames: Record<AgentHookTrigger, string> = {
+  Stop: 'Stop',
+  Notification: 'Notif',
+  SubagentStop: 'SubStop',
+  PreCompact: 'Compact',
+  SessionStart: 'SessStart',
+  SessionEnd: 'SessEnd',
+  PreToolUse: 'PreTool',
+  PostToolUse: 'PostTool',
+}
+
 function AgentNodeComponent({ data, selected }: { data: { data: AgentNodeData }; selected?: boolean }) {
   const { agent, onStart, onStop, onEdit, onDelete, onViewLogs } = data.data
+  const accentColor = statusColors[agent.status]
 
   const handleStart = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -59,96 +88,145 @@ function AgentNodeComponent({ data, selected }: { data: { data: AgentNodeData };
     onViewLogs?.(agent)
   }
 
+  const promptPreview = agent.masterPrompt
+    ? agent.masterPrompt.length > 80
+      ? `"${agent.masterPrompt.slice(0, 80)}..."`
+      : `"${agent.masterPrompt}"`
+    : null
+
+  const projectName = agent.connection?.projectPath.split('/').pop()
+
   return (
     <div className={`agent-node ${selected ? 'selected' : ''}`} style={{ width: '280px' }}>
+      {/* Status accent bar */}
+      <div className="agent-node-accent" style={{ background: accentColor }} />
+
       {/* Input handle */}
       <Handle type="target" position={Position.Left} />
 
-      {/* Header */}
+      {/* Header: Bot icon + name + status badge */}
       <div className="node-header">
-        <span className="icon">🤖</span>
+        <Bot size={18} style={{ color: accentColor, flexShrink: 0 }} />
         <span className="title">{agent.name}</span>
         <span
+          className="status-badge"
           style={{
-            marginLeft: 'auto',
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: statusColors[agent.status],
-            boxShadow: agent.status === 'active' ? `0 0 8px ${statusColors[agent.status]}` : 'none',
+            background: `${accentColor}22`,
+            color: accentColor,
+            borderColor: `${accentColor}44`,
           }}
-        />
+        >
+          {statusLabels[agent.status]}
+        </span>
       </div>
 
-      {/* Status + connection info */}
-      <div className="node-status">
-        <span>{statusLabels[agent.status]}</span>
-        {agent.connection && (
-          <span style={{ marginLeft: '8px', color: '#89b4fa', fontSize: '0.6rem' }}>
-            → {agent.connection.projectPath.split('/').pop()}
-            {agent.connection.branchId && (
-              <span style={{ color: '#a6e3a1' }}> ({agent.connection.branchId})</span>
-            )}
-          </span>
+      {/* Connection info */}
+      <div className="agent-node-connection">
+        {agent.connection ? (
+          <>
+            <Link size={12} style={{ flexShrink: 0 }} />
+            <span className="connection-text">
+              {projectName}
+              {agent.connection.branchId && (
+                <span className="connection-branch"> ({agent.connection.branchId})</span>
+              )}
+            </span>
+          </>
+        ) : (
+          <>
+            <Unlink size={12} style={{ flexShrink: 0, opacity: 0.5 }} />
+            <span style={{ opacity: 0.5 }}>Not connected</span>
+          </>
         )}
       </div>
 
-      {agent.lastError && (
-        <div
-          style={{
-            marginTop: '4px',
-            padding: '4px 6px',
-            background: 'rgba(243, 139, 168, 0.1)',
-            borderRadius: '4px',
-            color: '#f38ba8',
-            fontSize: '0.55rem',
-          }}
-        >
-          {agent.lastError}
+      {/* Master prompt preview */}
+      {promptPreview && (
+        <div className="master-prompt-preview">
+          {promptPreview}
         </div>
       )}
 
-      {/* Action buttons */}
-      <div
-        style={{
-          marginTop: '8px',
-          display: 'flex',
-          gap: '4px',
-          alignItems: 'center',
-        }}
-      >
+      {/* Hook event pills */}
+      {agent.hookEvents.length > 0 && (
+        <div className="hook-pills">
+          {agent.hookEvents.map((evt) => (
+            <span key={evt} className="hook-pill">
+              {hookShortNames[evt]}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Feature badges */}
+      {(agent.telegram?.enabled || agent.autoApprove || agent.watchdog?.enabled) && (
+        <div className="feature-badges">
+          {agent.telegram?.enabled && (
+            <span className="feature-badge">
+              <Send size={11} />
+              Telegram
+            </span>
+          )}
+          {agent.autoApprove && (
+            <span className="feature-badge">
+              <ShieldCheck size={11} />
+              Auto-approve
+            </span>
+          )}
+          {agent.watchdog?.enabled && (
+            <span className="feature-badge">
+              <ScanSearch size={11} />
+              Watchdog
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Error box */}
+      {agent.lastError && (
+        <div className="error-box">
+          <AlertTriangle size={12} style={{ flexShrink: 0 }} />
+          <span>{agent.lastError}</span>
+        </div>
+      )}
+
+      {/* Action toolbar */}
+      <div className="action-toolbar">
         <button
           onClick={handleViewLogs}
           className="nodrag node-action-btn secondary"
+          title="View logs"
         >
+          <ScrollText size={13} />
           Logs
         </button>
 
         <div style={{ flex: 1 }} />
 
         {agent.status === 'idle' && (
-          <button className="node-action-btn primary" onClick={handleStart}>
+          <button className="nodrag node-action-btn primary" onClick={handleStart} title="Start agent">
+            <Play size={13} />
             Start
           </button>
         )}
         {agent.status === 'active' && (
-          <button className="node-action-btn danger" onClick={handleStop}>
+          <button className="nodrag node-action-btn danger" onClick={handleStop} title="Stop agent">
+            <Square size={13} />
             Stop
           </button>
         )}
         {agent.status === 'error' && (
-          <button className="node-action-btn primary" onClick={handleStart}>
+          <button className="nodrag node-action-btn primary" onClick={handleStart} title="Retry agent">
+            <RotateCcw size={13} />
             Retry
           </button>
         )}
-      </div>
 
-      <div className="node-actions" style={{ marginTop: '4px' }}>
-        <button className="node-action-btn secondary" onClick={handleEdit}>
-          Edit
+        <button className="nodrag icon-btn secondary" onClick={handleEdit} title="Edit agent">
+          <Pencil size={13} />
         </button>
-        <button className="node-action-btn danger" onClick={handleDelete}>
-          Delete
+        <button className="nodrag icon-btn danger" onClick={handleDelete} title="Delete agent">
+          <Trash2 size={13} />
         </button>
       </div>
     </div>

@@ -14,6 +14,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import { EventStateMachine } from './EventStateMachine'
 import { TelegramBot } from './TelegramBot'
 import { TerminalReader } from './TerminalReader'
+import { TerminalWatchdog } from './TerminalWatchdog'
 import type { AgentManager } from './AgentManager'
 
 export class AgentDaemon extends EventEmitter {
@@ -22,6 +23,8 @@ export class AgentDaemon extends EventEmitter {
   private isRunning: boolean = false
   private stateMachine: EventStateMachine
   private telegramBot: TelegramBot | null = null
+  private watchdog: TerminalWatchdog | null = null
+  private manager: AgentManager | null = null
 
   constructor(agent: Agent) {
     super()
@@ -48,6 +51,9 @@ export class AgentDaemon extends EventEmitter {
       // Start per-agent Telegram bot if configured
       await this.startTelegramBot()
 
+      // Start terminal watchdog for stall detection
+      this.startWatchdog()
+
       this.emit('started')
       logger.info(`Agent daemon started: ${this.agent.id}`)
     } catch (error: any) {
@@ -62,6 +68,9 @@ export class AgentDaemon extends EventEmitter {
 
     logger.info(`Stopping agent daemon: ${this.agent.id}`)
 
+    // Stop watchdog before Telegram bot (watchdog may send notifications)
+    this.stopWatchdog()
+
     // Stop Telegram bot
     await this.stopTelegramBot()
 
@@ -75,6 +84,8 @@ export class AgentDaemon extends EventEmitter {
   }
 
   async handleHookEvent(event: ProcessedHookEvent, manager?: AgentManager): Promise<void> {
+    if (manager) this.manager = manager
+
     if (!this.isRunning) {
       this.createLogger(manager)('warn', 'Agent is not running, ignoring event')
       return
@@ -207,6 +218,38 @@ ${question}`
   }
 
   // -----------------------------------------------------------------------
+  // Terminal Watchdog lifecycle
+  // -----------------------------------------------------------------------
+
+  private startWatchdog(): void {
+    if (this.agent.watchdog?.enabled === false) return
+
+    const log = this.createLogger(this.manager ?? undefined)
+    const wc = this.agent.watchdog
+
+    this.watchdog = new TerminalWatchdog({
+      getAgent: () => this.agent,
+      getProcessingState: () => this.stateMachine.getProcessingState(),
+      onAction: () => this.stateMachine.recordExternalAction(),
+      getTelegramBot: () => this.telegramBot,
+      logFn: log,
+    }, {
+      pollIntervalMs: (wc?.pollIntervalSec ?? 30) * 1000,
+      actionCooldownMs: (wc?.actionCooldownSec ?? 60) * 1000,
+      attentionThreshold: wc?.attentionThreshold ?? 2,
+    })
+
+    this.watchdog.start()
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdog) {
+      this.watchdog.stop()
+      this.watchdog = null
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Accessors
   // -----------------------------------------------------------------------
 
@@ -224,6 +267,10 @@ ${question}`
 
   getTelegramBot(): TelegramBot | null {
     return this.telegramBot
+  }
+
+  getWatchdog(): TerminalWatchdog | null {
+    return this.watchdog
   }
 
   isActive(): boolean {

@@ -94,11 +94,23 @@ export class AgentManager extends EventEmitter {
   }
 
   getAgent(agentId: string): Agent | null {
-    return this.stateManager?.getAgent(agentId) || null
+    const agent = this.stateManager?.getAgent(agentId) || null
+    // Sync status with actual daemon state
+    if (agent && this.daemons.has(agentId) && agent.status !== 'active') {
+      agent.status = 'active'
+    }
+    return agent
   }
 
   getAgents(): Agent[] {
-    return this.stateManager?.getAgents() || []
+    const agents = this.stateManager?.getAgents() || []
+    // Sync status with actual daemon state
+    for (const agent of agents) {
+      if (this.daemons.has(agent.id) && agent.status !== 'active') {
+        agent.status = 'active'
+      }
+    }
+    return agents
   }
 
   async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
@@ -137,6 +149,11 @@ export class AgentManager extends EventEmitter {
 
     if (this.daemons.has(agentId)) {
       logger.warn(`Agent ${agentId} is already running`)
+      // Ensure status reflects the running daemon (fixes desync after state edits)
+      const current = this.stateManager.getAgent(agentId)
+      if (current && current.status !== 'active') {
+        await this.stateManager.updateAgentStatus(agentId, 'active')
+      }
       return
     }
 

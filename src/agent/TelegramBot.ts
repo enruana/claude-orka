@@ -184,12 +184,8 @@ export class TelegramBot {
     this.bot.command('start', async (ctx) => {
       await ctx.reply(
         `<b>🎭 ${esc(this.agentName)}</b>\n\n` +
-        `Comandos:\n` +
-        `/status - Estado del agente\n` +
-        `/log - Ultimas lineas del terminal\n` +
-        `/tell [mensaje] - Enviar comando al terminal\n` +
-        `/help - Mostrar esta ayuda\n\n` +
-        `Escribe cualquier texto para preguntarme sobre el estado del proyecto.`,
+        `Hola! Soy el bot de este agente. Puedes preguntarme sobre el estado del proyecto o enviar comandos al terminal.\n\n` +
+        `Escribe /help para ver todos los comandos disponibles.`,
         { parse_mode: 'HTML' }
       )
     })
@@ -197,11 +193,21 @@ export class TelegramBot {
     this.bot.command('help', async (ctx) => {
       await ctx.reply(
         `<b>🎭 ${esc(this.agentName)} - Ayuda</b>\n\n` +
-        `<b>/status</b> - Ver estado del agente\n` +
-        `<b>/log</b> - Ver ultimas lineas del terminal\n` +
-        `<b>/tell [msg]</b> - Enviar comando directo al terminal\n\n` +
-        `<b>Texto libre</b> - Preguntame lo que quieras sobre el proyecto. ` +
-        `Leo el terminal y te respondo con contexto.`,
+        `<b>📋 Comandos disponibles:</b>\n\n` +
+        `<b>/status</b>\n` +
+        `Estado actual del agente (ID, conexion).\n\n` +
+        `<b>/log</b>\n` +
+        `Muestra las ultimas 50 lineas del terminal del agente.\n\n` +
+        `<b>/tell [mensaje]</b>\n` +
+        `Envia un mensaje directo al terminal de Claude Code. Util para dar instrucciones, responder preguntas o enviar comandos.\n` +
+        `Ejemplo: <code>/tell haz un commit con los cambios</code>\n\n` +
+        `<b>/help</b>\n` +
+        `Muestra este mensaje de ayuda.\n\n` +
+        `<b>💬 Texto libre</b>\n` +
+        `Escribe cualquier mensaje y usare IA para leer el terminal del agente y responderte con contexto sobre lo que esta haciendo. Ideal para preguntar cosas como:\n` +
+        `• <i>"Como va el proyecto?"</i>\n` +
+        `• <i>"Que esta haciendo ahora?"</i>\n` +
+        `• <i>"Hay algun error?"</i>`,
         { parse_mode: 'HTML' }
       )
     })
