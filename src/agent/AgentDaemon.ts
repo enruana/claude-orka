@@ -15,6 +15,7 @@ import { EventStateMachine } from './EventStateMachine'
 import { TelegramBot } from './TelegramBot'
 import { TerminalReader } from './TerminalReader'
 import { TerminalWatchdog } from './TerminalWatchdog'
+import { terminalScreenshot } from './TerminalScreenshot'
 import type { AgentManager } from './AgentManager'
 
 export class AgentDaemon extends EventEmitter {
@@ -70,6 +71,9 @@ export class AgentDaemon extends EventEmitter {
 
     // Stop watchdog before Telegram bot (watchdog may send notifications)
     this.stopWatchdog()
+
+    // Dispose screenshot browser
+    await terminalScreenshot.dispose()
 
     // Stop Telegram bot
     await this.stopTelegramBot()
@@ -134,6 +138,11 @@ export class AgentDaemon extends EventEmitter {
             return null
           }
         },
+        captureScreenshot: async (lines?: number) => {
+          const paneId = this.agent.connection?.tmuxPaneId
+          if (!paneId) return null
+          return terminalScreenshot.capture(paneId, lines ?? 50)
+        },
         sendText: async (text: string) => {
           const paneId = this.agent.connection?.tmuxPaneId
           if (!paneId) return false
@@ -150,6 +159,21 @@ export class AgentDaemon extends EventEmitter {
       this.telegramBot.setQueryProvider({
         ask: async (question: string, terminalContent: string): Promise<string> => {
           return this.askLLM(question, terminalContent)
+        },
+      })
+
+      // InstructionProvider: human instructions go through LLM decision pipeline
+      this.telegramBot.setInstructionProvider({
+        instruct: async (instruction: string) => {
+          const log = this.createLogger(this.manager ?? undefined)
+          const decision = await this.stateMachine.handleInstruction(instruction, log)
+          if (!decision) return null
+          return {
+            action: decision.action,
+            response: decision.response,
+            reason: decision.reason,
+            notification: decision.notification,
+          }
         },
       })
 
@@ -224,7 +248,6 @@ ${question}`
   private startWatchdog(): void {
     if (this.agent.watchdog?.enabled === false) return
 
-    const log = this.createLogger(this.manager ?? undefined)
     const wc = this.agent.watchdog
 
     this.watchdog = new TerminalWatchdog({
@@ -232,7 +255,9 @@ ${question}`
       getProcessingState: () => this.stateMachine.getProcessingState(),
       onAction: () => this.stateMachine.recordExternalAction(),
       getTelegramBot: () => this.telegramBot,
-      logFn: log,
+      logFn: (level, message, details) => {
+        this.manager?.addAgentLog(this.agent.id, level, message, details)
+      },
     }, {
       pollIntervalMs: (wc?.pollIntervalSec ?? 30) * 1000,
       actionCooldownMs: (wc?.actionCooldownSec ?? 60) * 1000,

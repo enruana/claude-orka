@@ -437,6 +437,32 @@ export class TmuxCommands {
   }
 
   /**
+   * Capture pane content with ANSI escape codes preserved (-e flag)
+   * Used for terminal screenshots that preserve colors and formatting.
+   */
+  static async capturePaneAnsi(paneId: string, startLine: number = -50): Promise<string> {
+    try {
+      logger.debug(`Capturing pane ${paneId} with ANSI codes from line ${startLine}`)
+      const { stdout } = await execa('tmux', [
+        'capture-pane',
+        '-t',
+        paneId,
+        '-p',
+        '-e',
+        '-S',
+        startLine.toString(),
+      ], { timeout: 10000 })
+      return stdout
+    } catch (error: any) {
+      throw new TmuxError(
+        `Failed to capture pane with ANSI: ${paneId}`,
+        `tmux capture-pane -t ${paneId} -p -e -S ${startLine}`,
+        error
+      )
+    }
+  }
+
+  /**
    * Listar todas las sesiones tmux
    */
   static async listSessions(): Promise<Array<{ id: string; name: string }>> {

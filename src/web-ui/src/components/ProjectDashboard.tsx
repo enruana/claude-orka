@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { api, RegisteredProject, Session } from '../api/client'
 import {
   FolderOpen,
@@ -208,7 +208,7 @@ export function ProjectDashboard() {
       {/* Header */}
       <div className="dashboard-header">
         <div className="header-left">
-          <h1>Claude Orka</h1>
+          <h1><Link to="/" style={{ color: 'inherit', textDecoration: 'none' }}>Claude Orka</Link></h1>
         </div>
         <div className="header-right">
           <button className="icon-button" onClick={loadAllData} title="Refresh">

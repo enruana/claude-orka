@@ -58,6 +58,10 @@ export interface Decision {
   action: ActionType
   response?: string
   reason: string
+  notification?: {
+    message: string
+    level: 'info' | 'warn' | 'error'
+  }
 }
 
 /** Mutable context that flows through the state machine */
@@ -105,6 +109,48 @@ const MAX_PROCESSING_TIME = 120_000
 
 /** Events that only need to be logged (no terminal action) */
 const LOG_ONLY_EVENTS = new Set(['PreCompact', 'SessionEnd', 'PostToolUseFailure'])
+
+// ---------------------------------------------------------------------------
+// Shared terminal action executor
+// ---------------------------------------------------------------------------
+
+/**
+ * Execute a decision's terminal action. Shared by EventStateMachine and TerminalWatchdog
+ * to avoid duplicating the action switch logic.
+ */
+export async function executeTerminalAction(
+  decision: Decision,
+  paneId: string,
+  log: LogFn,
+): Promise<void> {
+  switch (decision.action) {
+    case 'respond':
+      if (decision.response) {
+        await TerminalReader.sendTextWithEnter(paneId, decision.response)
+      }
+      break
+    case 'approve':
+      await TerminalReader.sendApproval(paneId)
+      break
+    case 'reject':
+      await TerminalReader.sendRejection(paneId)
+      break
+    case 'compact':
+      await TerminalReader.sendCompact(paneId)
+      break
+    case 'clear':
+      await TerminalReader.sendClear(paneId)
+      break
+    case 'escape':
+      await TerminalReader.sendEscape(paneId)
+      break
+    case 'request_help':
+      log('warn', `Help requested: ${decision.reason}`)
+      break
+    case 'wait':
+      break
+  }
+}
 
 // ---------------------------------------------------------------------------
 // EventStateMachine
@@ -505,36 +551,25 @@ export class EventStateMachine {
 
     if (decision.action === 'wait') {
       log('debug', `Waiting: ${decision.reason}`)
+      // Even on wait, send notification if present (e.g., milestone reached, nothing to do on terminal)
+      if (decision.notification) {
+        await this.sendDecisionNotification(ctx.agent, decision)
+      }
       return { next: 'end' }
     }
 
     log('action', `Executing: ${decision.action}${decision.response ? ` -> "${decision.response}"` : ''} (${decision.reason})`)
 
-    switch (decision.action) {
-      case 'respond':
-        if (decision.response) {
-          await TerminalReader.sendTextWithEnter(ctx.paneId, decision.response)
-        }
-        break
-      case 'approve':
-        await TerminalReader.sendApproval(ctx.paneId)
-        break
-      case 'reject':
-        await TerminalReader.sendRejection(ctx.paneId)
-        break
-      case 'compact':
-        await TerminalReader.sendCompact(ctx.paneId)
-        break
-      case 'clear':
-        await TerminalReader.sendClear(ctx.paneId)
-        break
-      case 'escape':
-        await TerminalReader.sendEscape(ctx.paneId)
-        break
-      case 'request_help':
-        log('warn', `Help requested: ${decision.reason}`)
-        await this.notifyTelegram(ctx, decision)
-        break
+    await executeTerminalAction(decision, ctx.paneId, log)
+
+    // request_help always sends the full notification (with terminal snippet)
+    if (decision.action === 'request_help') {
+      await this.notifyTelegram(ctx, decision)
+    }
+
+    // Send LLM-generated notification if present (compound decision)
+    if (decision.notification) {
+      await this.sendDecisionNotification(ctx.agent, decision)
     }
 
     this.processingState.lastResponseTime = Date.now()
@@ -542,8 +577,93 @@ export class EventStateMachine {
   }
 
   // -----------------------------------------------------------------------
+  // Human Instruction (from Telegram)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Process a human instruction received via Telegram.
+   * Captures terminal, calls LLM with the instruction, executes decision.
+   * Bypasses cooldown (explicit human command) but respects processing lock.
+   */
+  async handleInstruction(instruction: string, log: LogFn): Promise<Decision | null> {
+    // Wait for processing lock (up to 10s)
+    const waitStart = Date.now()
+    while (this.processingState.isProcessing && Date.now() - waitStart < 10_000) {
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+    if (this.processingState.isProcessing) {
+      log('warn', 'Cannot process instruction — ESM busy for >10s')
+      return null
+    }
+
+    // Acquire lock
+    this.processingState.isProcessing = true
+    this.processingState.processingStartedAt = Date.now()
+
+    try {
+      const agent = this.getAgent()
+      const paneId = agent.connection?.tmuxPaneId
+      if (!paneId) {
+        log('error', 'No pane ID — cannot process instruction')
+        return null
+      }
+
+      // Capture terminal + parse state
+      const captured = await TerminalReader.capture(paneId, agent.connection?.sessionId || 'unknown')
+      const terminalState = TerminalReader.parseState(captured.content)
+
+      // Call LLM with humanInstruction
+      const decision = await this.llm.decide({
+        masterPrompt: agent.masterPrompt,
+        terminalContent: captured.content,
+        terminalState,
+        hookEvent: 'HumanInstruction (operator sent a message via Telegram)',
+        humanInstruction: instruction,
+      }, log)
+
+      if (!decision) {
+        log('warn', 'LLM returned no decision for instruction')
+        return null
+      }
+
+      // Execute terminal action
+      if (decision.action !== 'wait') {
+        log('action', `[Instruction] Executing: ${decision.action}${decision.response ? ` -> "${decision.response}"` : ''} (${decision.reason})`)
+        await executeTerminalAction(decision, paneId, log)
+      }
+
+      // Send notification if present
+      if (decision.notification) {
+        await this.sendDecisionNotification(agent, decision)
+      }
+
+      this.processingState.lastResponseTime = Date.now()
+      return decision
+    } catch (err: any) {
+      log('error', `Instruction processing failed: ${err.message}`)
+      return null
+    } finally {
+      this.processingState.isProcessing = false
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Telegram Integration
   // -----------------------------------------------------------------------
+
+  /** Send the LLM-generated notification from a compound decision */
+  private async sendDecisionNotification(agent: Agent, decision: Decision): Promise<void> {
+    if (!decision.notification) return
+    if (!agent.telegram?.enabled) return
+    const bot = this.getTelegramBot?.()
+    if (!bot?.isRunning()) return
+
+    await bot.sendNotification({
+      level: decision.notification.level,
+      title: 'Agent update',
+      body: decision.notification.message,
+    })
+  }
 
   /** Send a notification to Telegram if configured and enabled for this agent */
   private async notifyTelegram(ctx: EventContext, decision: Decision): Promise<void> {

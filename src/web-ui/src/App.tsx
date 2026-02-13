@@ -3,14 +3,15 @@ import { ProjectDashboard } from './components/ProjectDashboard'
 import { SessionPage } from './components/SessionPage'
 import { CodeEditorPage, FilesPage } from './components/code-editor'
 import { AgentCanvasPage } from './pages/AgentCanvasPage'
+import { HomePage } from './pages/HomePage'
 
 export function App() {
   return (
     <BrowserRouter>
       <div className="app">
         <Routes>
-          {/* Redirect root to dashboard */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          {/* Home page */}
+          <Route path="/" element={<HomePage />} />
 
           {/* Dashboard - unified view of all projects and sessions */}
           <Route path="/dashboard" element={<ProjectDashboard />} />
@@ -30,8 +31,8 @@ export function App() {
           {/* Files explorer view */}
           <Route path="/projects/:encodedPath/files" element={<FilesPage />} />
 
-          {/* Fallback - redirect unknown routes to dashboard */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          {/* Fallback - redirect unknown routes to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </BrowserRouter>

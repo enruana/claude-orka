@@ -30,7 +30,8 @@ export function prepareCommand(program: Command) {
         console.log('  • Claude CLI (if needed)')
         console.log('  • ffmpeg (audio processing for voice input)')
         console.log('  • cmake (build tool for Whisper)')
-        console.log('  • Whisper model (speech-to-text)\n')
+        console.log('  • Whisper model (speech-to-text)')
+        console.log('  • Puppeteer + Chromium (terminal screenshots)\n')
 
         if (!options.yes) {
           const rl = readline.createInterface({
@@ -70,6 +71,9 @@ export function prepareCommand(program: Command) {
 
         // Build Whisper and download model
         await setupWhisper()
+
+        // Setup Puppeteer + Chromium (for terminal screenshots)
+        await setupPuppeteer()
 
         // Final verification
         console.log(chalk.bold.green('\n✓ Preparation complete!\n'))
@@ -421,5 +425,56 @@ async function setupWhisper() {
     }
   } else {
     Output.success('Whisper base model is already downloaded')
+  }
+}
+
+async function setupPuppeteer() {
+  console.log(chalk.bold('\n📸 Setting up Puppeteer (terminal screenshots)...\n'))
+
+  // Check if puppeteer is installed as a dependency
+  const puppeteerPkg = path.join(
+    process.cwd(),
+    'node_modules',
+    'puppeteer',
+    'package.json'
+  )
+
+  if (!await fs.pathExists(puppeteerPkg)) {
+    Output.warn('puppeteer not found in node_modules')
+    console.log(chalk.yellow('Terminal screenshots will not be available.'))
+    console.log(chalk.gray('This is optional - /log will fall back to text output.'))
+    console.log(chalk.cyan('  To install: npm install puppeteer'))
+    return
+  }
+
+  // Check if Chromium is already downloaded
+  const homeDir = process.env.HOME || process.env.USERPROFILE || ''
+  const chromiumCache = path.join(homeDir, '.cache', 'puppeteer')
+
+  if (await fs.pathExists(chromiumCache)) {
+    Output.success('Puppeteer + Chromium is already set up')
+    return
+  }
+
+  const spinner = ora('Downloading Chromium for Puppeteer...').start()
+  try {
+    await execa('npx', ['puppeteer', 'browsers', 'install', 'chrome'], {
+      timeout: 300000,
+    })
+    spinner.succeed('Chromium downloaded for Puppeteer')
+  } catch {
+    // Pinned version may fail — try stable as fallback
+    try {
+      spinner.text = 'Retrying with chrome@stable...'
+      await execa('npx', ['puppeteer', 'browsers', 'install', 'chrome@stable'], {
+        timeout: 300000,
+      })
+      spinner.succeed('Chromium (stable) downloaded for Puppeteer')
+    } catch (error: any) {
+      spinner.fail('Failed to download Chromium')
+      console.log(chalk.red(`\nError: ${error.message}`))
+      console.log(chalk.yellow('\nTry downloading manually:'))
+      console.log(chalk.cyan('  npx puppeteer browsers install chrome@stable'))
+    }
   }
 }

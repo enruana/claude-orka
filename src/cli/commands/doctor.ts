@@ -53,6 +53,9 @@ export function doctorCommand(program: Command) {
         results.push(await checkWhisperBinary())
         results.push(await checkWhisperModel())
 
+        // Check Puppeteer (for terminal screenshots)
+        results.push(await checkPuppeteer())
+
         // Display results
         displayResults(results)
 
@@ -436,6 +439,57 @@ async function checkWhisperModel(): Promise<CheckResult> {
   } catch (error) {
     return {
       name: 'Whisper model',
+      status: 'warn',
+      message: 'Unknown',
+      details: (error as Error).message,
+    }
+  }
+}
+
+async function checkPuppeteer(): Promise<CheckResult> {
+  try {
+    // Check if puppeteer module is resolvable
+    const puppeteerPkg = path.join(
+      process.cwd(),
+      'node_modules',
+      'puppeteer',
+      'package.json'
+    )
+    if (!await fs.pathExists(puppeteerPkg)) {
+      return {
+        name: 'Puppeteer (Screenshots)',
+        status: 'warn',
+        message: 'Not installed',
+        details: 'Puppeteer enables terminal screenshots in Telegram /log',
+        fix: 'Run: orka prepare\n  Or manually: npm install puppeteer',
+      }
+    }
+
+    // Check if Chromium is downloaded
+    const homeDir = process.env.HOME || process.env.USERPROFILE || ''
+    const chromiumCache = path.join(homeDir, '.cache', 'puppeteer')
+    const chromiumExists = await fs.pathExists(chromiumCache)
+
+    if (chromiumExists) {
+      const pkg = await fs.readJson(puppeteerPkg)
+      return {
+        name: 'Puppeteer (Screenshots)',
+        status: 'pass',
+        message: `v${pkg.version} + Chromium`,
+        details: 'Terminal screenshots enabled for Telegram /log',
+      }
+    } else {
+      return {
+        name: 'Puppeteer (Screenshots)',
+        status: 'warn',
+        message: 'Chromium not downloaded',
+        details: 'Puppeteer is installed but Chromium browser is missing',
+        fix: 'Run: orka prepare\n  Or manually: npx puppeteer browsers install chrome',
+      }
+    }
+  } catch (error) {
+    return {
+      name: 'Puppeteer (Screenshots)',
       status: 'warn',
       message: 'Unknown',
       details: (error as Error).message,

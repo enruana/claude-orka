@@ -13,6 +13,7 @@ import { getHookServer, HookServer } from './HookServer'
 import { HookConfigGenerator } from './HookConfigGenerator'
 import { AgentDaemon } from './AgentDaemon'
 import { ClaudeOrka } from '../core/ClaudeOrka'
+import { StateManager } from '../core/StateManager'
 
 /**
  * Agent log entry
@@ -357,7 +358,11 @@ export class AgentManager extends EventEmitter {
 
     this.addAgentLog(event.agentId, 'action', `SessionStart (source: ${source})`)
 
-    if (newSessionId && oldSessionId && newSessionId !== oldSessionId && agent.connection) {
+    const sessionIdChanged = newSessionId && oldSessionId && newSessionId !== oldSessionId
+    const sessionIdNew = newSessionId && !oldSessionId
+
+    if ((sessionIdChanged || sessionIdNew) && agent.connection) {
+      // 1. Update agent state (hook routing)
       await this.stateManager?.connectAgent(
         event.agentId,
         agent.connection.projectPath,
@@ -366,19 +371,59 @@ export class AgentManager extends EventEmitter {
         newSessionId,
         agent.connection.branchId
       )
-      this.addAgentLog(event.agentId, 'action',
-        `Session ID updated after ${source}: ${oldSessionId.slice(0, 8)} -> ${newSessionId.slice(0, 8)}`
-      )
-    } else if (newSessionId && !oldSessionId && agent.connection) {
-      await this.stateManager?.connectAgent(
-        event.agentId,
-        agent.connection.projectPath,
-        agent.connection.sessionId,
-        agent.connection.tmuxPaneId,
-        newSessionId,
-        agent.connection.branchId
-      )
-      this.addAgentLog(event.agentId, 'action', `Session ID set: ${newSessionId.slice(0, 8)}`)
+
+      if (sessionIdChanged) {
+        this.addAgentLog(event.agentId, 'action',
+          `Agent session ID updated after ${source}: ${oldSessionId!.slice(0, 8)} -> ${newSessionId.slice(0, 8)}`
+        )
+      } else {
+        this.addAgentLog(event.agentId, 'action', `Agent session ID set: ${newSessionId.slice(0, 8)}`)
+      }
+
+      // 2. Update Orka project state (session resume)
+      //    This is critical: without this, `orka session resume` uses the old
+      //    claudeSessionId and loads a stale conversation after /clear.
+      await this.updateOrkaProjectSession(agent, newSessionId)
+    }
+  }
+
+  /**
+   * Update the claudeSessionId in the Orka project state (.claude-orka/state.json).
+   * Called when Claude creates a new session after /clear.
+   */
+  private async updateOrkaProjectSession(agent: Agent, newClaudeSessionId: string): Promise<void> {
+    const conn = agent.connection
+    if (!conn?.projectPath || !conn.sessionId) return
+
+    try {
+      const sm = new StateManager(conn.projectPath)
+      await sm.initialize()
+      const session = await sm.getSession(conn.sessionId)
+      if (!session) return
+
+      const branchId = conn.branchId || 'main'
+
+      if (branchId === 'main') {
+        const oldId = session.main.claudeSessionId
+        session.main.claudeSessionId = newClaudeSessionId
+        this.addAgentLog(agent.id, 'action',
+          `Orka main session updated: ${oldId.slice(0, 8)} -> ${newClaudeSessionId.slice(0, 8)}`
+        )
+      } else {
+        const fork = session.forks.find(f => f.id === branchId)
+        if (fork) {
+          const oldId = fork.claudeSessionId
+          fork.claudeSessionId = newClaudeSessionId
+          this.addAgentLog(agent.id, 'action',
+            `Orka fork "${fork.name}" session updated: ${oldId.slice(0, 8)} -> ${newClaudeSessionId.slice(0, 8)}`
+          )
+        }
+      }
+
+      await sm.replaceSession(session)
+    } catch (error: any) {
+      this.addAgentLog(agent.id, 'warn', `Failed to update Orka project state: ${error.message}`)
+      logger.warn(`Failed to update Orka project state for agent ${agent.id}: ${error.message}`)
     }
   }
 

@@ -21,6 +21,7 @@
 import { Agent } from '../models/Agent'
 import { TerminalReader, TerminalState } from './TerminalReader'
 import { LLMDecisionMaker } from './LLMDecisionMaker'
+import { executeTerminalAction } from './EventStateMachine'
 import type { ProcessingState, Decision, LogFn } from './EventStateMachine'
 import type { TelegramBot } from './TelegramBot'
 
@@ -215,37 +216,24 @@ export class TerminalWatchdog {
   private async executeDecision(decision: Decision, paneId: string, agent: Agent, log: LogFn): Promise<void> {
     log('action', `[Watchdog] Executing: ${decision.action}${decision.response ? ` -> "${decision.response}"` : ''} (${decision.reason})`)
 
-    switch (decision.action) {
-      case 'respond':
-        if (decision.response) {
-          await TerminalReader.sendTextWithEnter(paneId, decision.response)
-        }
-        break
-      case 'approve':
-        await TerminalReader.sendApproval(paneId)
-        break
-      case 'reject':
-        await TerminalReader.sendRejection(paneId)
-        break
-      case 'compact':
-        await TerminalReader.sendCompact(paneId)
-        break
-      case 'clear':
-        await TerminalReader.sendClear(paneId)
-        break
-      case 'escape':
-        await TerminalReader.sendEscape(paneId)
-        break
-      case 'wait':
-        log('debug', `[Watchdog] LLM says wait: ${decision.reason}`)
-        return
-      case 'request_help':
-        log('warn', `[Watchdog] Help requested: ${decision.reason}`)
-        break
+    await executeTerminalAction(decision, paneId, log)
+
+    // Only notify Telegram when human intervention is needed
+    if (decision.action === 'request_help') {
+      await this.notifyTelegram(agent, decision)
     }
 
-    // Notify Telegram for all executed actions
-    await this.notifyTelegram(agent, decision)
+    // LLM-generated notification from compound decision
+    if (decision.notification) {
+      const bot = this.deps.getTelegramBot()
+      if (agent.telegram?.enabled && bot?.isRunning()) {
+        await bot.sendNotification({
+          level: decision.notification.level,
+          title: 'Agent update',
+          body: decision.notification.message,
+        })
+      }
+    }
   }
 
   private recordAction(): void {

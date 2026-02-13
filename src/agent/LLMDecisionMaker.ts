@@ -24,6 +24,8 @@ export interface LLMDecisionInput {
   terminalState: TerminalState
   hookEvent: string
   hookPayload?: Record<string, unknown>
+  /** Human instruction received via Telegram (highest priority) */
+  humanInstruction?: string
 }
 
 /** Schema for structured output from the Agent SDK */
@@ -42,6 +44,15 @@ const DECISION_SCHEMA = {
     reason: {
       type: 'string' as const,
       description: 'Brief explanation of why this action was chosen.',
+    },
+    notification: {
+      type: 'object' as const,
+      description: 'Optional Telegram notification to the human. Use for milestones, important errors, or when the master prompt says to notify. Independent of the terminal action — you can respond AND notify.',
+      properties: {
+        message: { type: 'string' as const, description: 'Notification message text.' },
+        level: { type: 'string' as const, enum: ['info', 'warn', 'error'], description: 'Notification severity.' },
+      },
+      required: ['message', 'level'] as const,
     },
   },
   required: ['action', 'reason'] as const,
@@ -75,6 +86,12 @@ You can see the terminal output to understand what Claude is doing.
 - **escape**: Send Escape to cancel current operation.
 - **request_help**: Escalate to human - use when unsure or when the situation requires human judgment.
 
+## Notifications (Optional)
+Include a "notification" field to send a Telegram message to the human operator.
+Use for: milestone completions, important errors, status updates the human requested.
+This is INDEPENDENT of the terminal action — you can respond AND notify.
+Do NOT use for routine progress. Use "request_help" when you need human intervention.
+
 ## Guidelines
 - Read the terminal output carefully to understand what Claude just did and what it needs.
 - When responding, write clear, specific instructions — not just "continue".
@@ -87,7 +104,18 @@ function buildUserMessage(input: LLMDecisionInput): string {
   const lines = input.terminalContent.split('\n')
   const trimmedContent = lines.slice(-200).join('\n')
 
-  return `## Hook Event: ${input.hookEvent}
+  let msg = ''
+
+  // Human instruction gets top priority
+  if (input.humanInstruction) {
+    msg += `## HUMAN INSTRUCTION (highest priority)
+The human operator sent this via Telegram:
+"${input.humanInstruction}"
+
+`
+  }
+
+  msg += `## Hook Event: ${input.hookEvent}
 
 ## Terminal State
 - Waiting for input: ${input.terminalState.isWaitingForInput}
@@ -102,6 +130,8 @@ ${trimmedContent}
 \`\`\`
 
 What action should be taken? Respond with the structured JSON decision.`
+
+  return msg
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +197,7 @@ export class LLMDecisionMaker {
       const action = data.action as string
       const responseText = data.response as string | undefined
       const reason = data.reason as string
+      const notificationData = data.notification as Record<string, unknown> | undefined
 
       if (!VALID_ACTIONS.has(action as ActionType)) {
         log('warn', `LLM returned invalid action "${action}" - falling back`)
@@ -182,7 +213,15 @@ export class LLMDecisionMaker {
         decision.response = responseText
       }
 
-      log('info', `LLM decided: ${decision.action}${decision.response ? ` -> "${decision.response.substring(0, 80)}${decision.response.length > 80 ? '...' : ''}"` : ''} (${reason})`)
+      // Parse optional notification (compound decision)
+      if (notificationData && typeof notificationData.message === 'string' && typeof notificationData.level === 'string') {
+        const level = notificationData.level as string
+        if (level === 'info' || level === 'warn' || level === 'error') {
+          decision.notification = { message: notificationData.message, level }
+        }
+      }
+
+      log('info', `LLM decided: ${decision.action}${decision.response ? ` -> "${decision.response.substring(0, 80)}${decision.response.length > 80 ? '...' : ''}"` : ''}${decision.notification ? ' [+notification]' : ''} (${reason})`)
 
       return decision
     } catch (error: any) {

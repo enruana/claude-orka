@@ -12,8 +12,8 @@ export function AgentCanvasPage() {
       <header className="agent-canvas-header">
         <h1>🤖 Master Agents</h1>
         <div className="header-actions">
-          <Link to="/dashboard" className="btn btn-secondary">
-            ← Back to Dashboard
+          <Link to="/" className="btn btn-secondary">
+            ← Home
           </Link>
         </div>
       </header>
