@@ -7,6 +7,7 @@ import path from 'path'
 import fs from 'fs-extra'
 import { Output } from '../utils/output'
 import { handleError } from '../utils/errors'
+import { getPackageNodeModulesPath } from '../../utils/paths'
 
 interface SystemInfo {
   platform: string
@@ -359,19 +360,21 @@ async function installCmake(system: SystemInfo) {
 async function setupWhisper() {
   console.log(chalk.bold('\n🎤 Setting up Whisper (speech-to-text)...\n'))
 
-  const whisperCppPath = path.join(
-    process.cwd(),
-    'node_modules',
-    'nodejs-whisper',
-    'cpp',
-    'whisper.cpp'
-  )
+  const whisperModulePath = getPackageNodeModulesPath('nodejs-whisper')
 
-  // Check if whisper.cpp directory exists
-  if (!await fs.pathExists(whisperCppPath)) {
+  if (!whisperModulePath) {
     Output.warn('nodejs-whisper not found in node_modules')
     console.log(chalk.yellow('Voice input will not be available.'))
     console.log(chalk.gray('This is optional - Claude-Orka will work without voice input.'))
+    return
+  }
+
+  const whisperCppPath = path.join(whisperModulePath, 'cpp', 'whisper.cpp')
+
+  // Check if whisper.cpp directory exists
+  if (!await fs.pathExists(whisperCppPath)) {
+    Output.warn('whisper.cpp not found inside nodejs-whisper')
+    console.log(chalk.yellow('Voice input will not be available.'))
     return
   }
 
@@ -432,14 +435,9 @@ async function setupPuppeteer() {
   console.log(chalk.bold('\n📸 Setting up Puppeteer (terminal screenshots)...\n'))
 
   // Check if puppeteer is installed as a dependency
-  const puppeteerPkg = path.join(
-    process.cwd(),
-    'node_modules',
-    'puppeteer',
-    'package.json'
-  )
+  const puppeteerPath = getPackageNodeModulesPath('puppeteer')
 
-  if (!await fs.pathExists(puppeteerPkg)) {
+  if (!puppeteerPath) {
     Output.warn('puppeteer not found in node_modules')
     console.log(chalk.yellow('Terminal screenshots will not be available.'))
     console.log(chalk.gray('This is optional - /log will fall back to text output.'))

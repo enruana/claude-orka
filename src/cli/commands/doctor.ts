@@ -5,6 +5,7 @@ import path from 'path'
 import chalk from 'chalk'
 import { Output } from '../utils/output'
 import { handleError } from '../utils/errors'
+import { getPackageNodeModulesPath } from '../../utils/paths'
 
 interface CheckResult {
   name: string
@@ -341,13 +342,19 @@ async function checkCmake(): Promise<CheckResult> {
 }
 
 async function checkWhisperBinary(): Promise<CheckResult> {
-  const whisperCppPath = path.join(
-    process.cwd(),
-    'node_modules',
-    'nodejs-whisper',
-    'cpp',
-    'whisper.cpp'
-  )
+  const whisperModulePath = getPackageNodeModulesPath('nodejs-whisper')
+
+  if (!whisperModulePath) {
+    return {
+      name: 'Whisper binary',
+      status: 'warn',
+      message: 'Not installed',
+      details: 'nodejs-whisper not found in node_modules',
+      fix: 'Run: npm install (to install dependencies)',
+    }
+  }
+
+  const whisperCppPath = path.join(whisperModulePath, 'cpp', 'whisper.cpp')
   const whisperBin = path.join(whisperCppPath, 'build', 'bin', 'whisper-cli')
 
   try {
@@ -361,17 +368,6 @@ async function checkWhisperBinary(): Promise<CheckResult> {
         details: 'whisper-cli is ready',
       }
     } else {
-      // Check if whisper.cpp directory exists at all
-      const dirExists = await fs.pathExists(whisperCppPath)
-      if (!dirExists) {
-        return {
-          name: 'Whisper binary',
-          status: 'warn',
-          message: 'Not installed',
-          details: 'nodejs-whisper not found in node_modules',
-          fix: 'Run: npm install (to install dependencies)',
-        }
-      }
       return {
         name: 'Whisper binary',
         status: 'warn',
@@ -391,18 +387,23 @@ async function checkWhisperBinary(): Promise<CheckResult> {
 }
 
 async function checkWhisperModel(): Promise<CheckResult> {
+  const whisperModulePath = getPackageNodeModulesPath('nodejs-whisper')
+
+  if (!whisperModulePath) {
+    return {
+      name: 'Whisper model',
+      status: 'warn',
+      message: 'Not installed',
+      details: 'nodejs-whisper not found in node_modules',
+      fix: 'Run: npm install (to install dependencies)',
+    }
+  }
+
   // Check for model in nodejs-whisper location (used by our server)
-  const whisperCppPath = path.join(
-    process.cwd(),
-    'node_modules',
-    'nodejs-whisper',
-    'cpp',
-    'whisper.cpp',
-    'models'
-  )
+  const modelsPath = path.join(whisperModulePath, 'cpp', 'whisper.cpp', 'models')
   // Check for base model (better quality) or tiny as fallback
-  const baseModel = path.join(whisperCppPath, 'ggml-base.bin')
-  const tinyModel = path.join(whisperCppPath, 'ggml-tiny.bin')
+  const baseModel = path.join(modelsPath, 'ggml-base.bin')
+  const tinyModel = path.join(modelsPath, 'ggml-tiny.bin')
 
   try {
     const baseExists = await fs.pathExists(baseModel)
@@ -449,13 +450,8 @@ async function checkWhisperModel(): Promise<CheckResult> {
 async function checkPuppeteer(): Promise<CheckResult> {
   try {
     // Check if puppeteer module is resolvable
-    const puppeteerPkg = path.join(
-      process.cwd(),
-      'node_modules',
-      'puppeteer',
-      'package.json'
-    )
-    if (!await fs.pathExists(puppeteerPkg)) {
+    const puppeteerPath = getPackageNodeModulesPath('puppeteer')
+    if (!puppeteerPath) {
       return {
         name: 'Puppeteer (Screenshots)',
         status: 'warn',
@@ -471,6 +467,7 @@ async function checkPuppeteer(): Promise<CheckResult> {
     const chromiumExists = await fs.pathExists(chromiumCache)
 
     if (chromiumExists) {
+      const puppeteerPkg = path.join(puppeteerPath, 'package.json')
       const pkg = await fs.readJson(puppeteerPkg)
       return {
         name: 'Puppeteer (Screenshots)',

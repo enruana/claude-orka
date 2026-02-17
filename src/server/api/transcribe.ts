@@ -4,6 +4,7 @@ import path from 'path'
 import fs from 'fs-extra'
 import os from 'os'
 import { logger } from '../../utils'
+import { getPackageNodeModulesPath } from '../../utils/paths'
 
 export const transcribeRouter = Router()
 
@@ -13,15 +14,12 @@ const WHISPER_MODEL = 'base'
 
 // Path to whisper.cpp installation (inside nodejs-whisper)
 const getWhisperPath = () => {
-  // Try nodejs-whisper location first
-  const nodejsWhisperPath = path.join(
-    process.cwd(),
-    'node_modules',
-    'nodejs-whisper',
-    'cpp',
-    'whisper.cpp'
-  )
-  return nodejsWhisperPath
+  const whisperModulePath = getPackageNodeModulesPath('nodejs-whisper')
+  if (!whisperModulePath) {
+    // Fallback to cwd for backwards compatibility
+    return path.join(process.cwd(), 'node_modules', 'nodejs-whisper', 'cpp', 'whisper.cpp')
+  }
+  return path.join(whisperModulePath, 'cpp', 'whisper.cpp')
 }
 
 // Temp directory for audio files
