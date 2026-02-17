@@ -1,7 +1,6 @@
 import { Command } from 'commander'
 import execa from 'execa'
 import chalk from 'chalk'
-import ora from 'ora'
 import readline from 'readline'
 import path from 'path'
 import fs from 'fs-extra'
@@ -15,6 +14,15 @@ interface SystemInfo {
   hasHomebrew?: boolean
   hasApt?: boolean
   hasYum?: boolean
+}
+
+/**
+ * Run a command with real-time output visible to the user.
+ * Use this for long-running installs (brew, cmake, downloads).
+ */
+async function runVisible(cmd: string, args: string[], opts?: Record<string, any>) {
+  console.log(chalk.gray(`  $ ${cmd} ${args.join(' ')}\n`))
+  await execa(cmd, args, { stdio: 'inherit', ...opts })
 }
 
 export function prepareCommand(program: Command) {
@@ -128,16 +136,11 @@ async function detectSystem(): Promise<SystemInfo> {
 async function installHomebrew() {
   console.log(chalk.bold('\n🍺 Installing Homebrew...\n'))
 
-  const spinner = ora('Installing Homebrew (this may take a minute)...').start()
-
   try {
-    await execa('bash', [
+    await runVisible('bash', [
       '-c',
       'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
-    ], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 600000, // 10 minute timeout
-    })
+    ], { timeout: 600000 })
 
     // On Apple Silicon, brew installs to /opt/homebrew and needs PATH setup
     const brewPaths = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew']
@@ -153,9 +156,9 @@ async function installHomebrew() {
       }
     }
 
-    spinner.succeed('Homebrew installed')
+    Output.success('Homebrew installed')
   } catch (error: any) {
-    spinner.fail('Failed to install Homebrew')
+    Output.error('Failed to install Homebrew')
     console.log(chalk.red(`\nError: ${error.message}`))
     console.log(chalk.yellow('\nPlease install Homebrew manually:'))
     console.log(
@@ -180,51 +183,36 @@ async function installTmux(system: SystemInfo) {
     // Not installed, continue
   }
 
-  const spinner = ora('Installing tmux...').start()
-
   try {
     if (system.platform === 'darwin') {
       if (!system.hasHomebrew) {
-        spinner.fail('Homebrew is not installed')
-        console.log(chalk.yellow('\nPlease install Homebrew first:'))
-        console.log(
-          chalk.cyan(
-            '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-          )
-        )
-        console.log('\nThen run: ' + chalk.cyan('brew install tmux'))
+        Output.error('Homebrew is not installed — cannot install tmux')
         return
       }
-
-      await execa('brew', ['install', 'tmux'])
-      spinner.succeed('tmux installed via Homebrew')
+      await runVisible('brew', ['install', 'tmux'])
+      Output.success('tmux installed via Homebrew')
     } else if (system.platform === 'linux') {
       if (system.hasApt) {
-        // Debian/Ubuntu
-        await execa('sudo', ['apt-get', 'update'])
-        await execa('sudo', ['apt-get', 'install', '-y', 'tmux'])
-        spinner.succeed('tmux installed via apt')
+        await runVisible('sudo', ['apt-get', 'update'])
+        await runVisible('sudo', ['apt-get', 'install', '-y', 'tmux'])
+        Output.success('tmux installed via apt')
       } else if (system.hasYum) {
-        // RedHat/CentOS
-        await execa('sudo', ['yum', 'install', '-y', 'tmux'])
-        spinner.succeed('tmux installed via yum')
+        await runVisible('sudo', ['yum', 'install', '-y', 'tmux'])
+        Output.success('tmux installed via yum')
       } else {
-        spinner.fail('Unknown package manager')
+        Output.error('Unknown package manager')
         console.log(chalk.yellow('\nPlease install tmux manually:'))
         console.log(chalk.cyan('  https://github.com/tmux/tmux/wiki/Installing'))
       }
     } else {
-      spinner.fail(`Unsupported platform: ${system.platform}`)
-      console.log(chalk.yellow('\nPlease install tmux manually:'))
-      console.log(chalk.cyan('  https://github.com/tmux/tmux/wiki/Installing'))
+      Output.error(`Unsupported platform: ${system.platform}`)
     }
   } catch (error: any) {
-    spinner.fail('Failed to install tmux')
+    Output.error('Failed to install tmux')
     console.log(chalk.red(`\nError: ${error.message}`))
     console.log(chalk.yellow('\nPlease install tmux manually:'))
     console.log(chalk.cyan('  macOS: brew install tmux'))
     console.log(chalk.cyan('  Ubuntu: sudo apt-get install tmux'))
-    console.log(chalk.cyan('  CentOS: sudo yum install tmux'))
   }
 }
 
@@ -241,52 +229,37 @@ async function installTtyd(system: SystemInfo) {
     // Not installed, continue
   }
 
-  const spinner = ora('Installing ttyd...').start()
-
   try {
     if (system.platform === 'darwin') {
       if (!system.hasHomebrew) {
-        spinner.fail('Homebrew is not installed')
-        console.log(chalk.yellow('\nPlease install Homebrew first:'))
-        console.log(
-          chalk.cyan(
-            '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-          )
-        )
-        console.log('\nThen run: ' + chalk.cyan('brew install ttyd'))
+        Output.error('Homebrew is not installed — cannot install ttyd')
         return
       }
-
-      await execa('brew', ['install', 'ttyd'])
-      spinner.succeed('ttyd installed via Homebrew')
+      await runVisible('brew', ['install', 'ttyd'])
+      Output.success('ttyd installed via Homebrew')
     } else if (system.platform === 'linux') {
       if (system.hasApt) {
-        // Debian/Ubuntu
-        await execa('sudo', ['apt-get', 'update'])
-        await execa('sudo', ['apt-get', 'install', '-y', 'ttyd'])
-        spinner.succeed('ttyd installed via apt')
+        await runVisible('sudo', ['apt-get', 'update'])
+        await runVisible('sudo', ['apt-get', 'install', '-y', 'ttyd'])
+        Output.success('ttyd installed via apt')
       } else if (system.hasYum) {
-        // RedHat/CentOS - ttyd may need to be built from source
-        spinner.fail('ttyd not available in yum')
+        Output.warn('ttyd not available in yum')
         console.log(chalk.yellow('\nPlease install ttyd manually:'))
         console.log(chalk.cyan('  https://github.com/tsl0922/ttyd#installation'))
       } else {
-        spinner.fail('Unknown package manager')
+        Output.error('Unknown package manager')
         console.log(chalk.yellow('\nPlease install ttyd manually:'))
         console.log(chalk.cyan('  https://github.com/tsl0922/ttyd#installation'))
       }
     } else {
-      spinner.fail(`Unsupported platform: ${system.platform}`)
-      console.log(chalk.yellow('\nPlease install ttyd manually:'))
-      console.log(chalk.cyan('  https://github.com/tsl0922/ttyd#installation'))
+      Output.error(`Unsupported platform: ${system.platform}`)
     }
   } catch (error: any) {
-    spinner.fail('Failed to install ttyd')
+    Output.error('Failed to install ttyd')
     console.log(chalk.red(`\nError: ${error.message}`))
     console.log(chalk.yellow('\nPlease install ttyd manually:'))
     console.log(chalk.cyan('  macOS: brew install ttyd'))
     console.log(chalk.cyan('  Ubuntu: sudo apt-get install ttyd'))
-    console.log(chalk.cyan('  Other: https://github.com/tsl0922/ttyd#installation'))
   }
 }
 
@@ -322,34 +295,31 @@ async function installFfmpeg(system: SystemInfo) {
     // Not installed, continue
   }
 
-  const spinner = ora('Installing ffmpeg...').start()
-
   try {
     if (system.platform === 'darwin') {
       if (!system.hasHomebrew) {
-        spinner.fail('Homebrew is not installed')
-        console.log(chalk.yellow('\nPlease install ffmpeg manually: brew install ffmpeg'))
+        Output.error('Homebrew is not installed — cannot install ffmpeg')
         return
       }
-      await execa('brew', ['install', 'ffmpeg'])
-      spinner.succeed('ffmpeg installed via Homebrew')
+      await runVisible('brew', ['install', 'ffmpeg'])
+      Output.success('ffmpeg installed via Homebrew')
     } else if (system.platform === 'linux') {
       if (system.hasApt) {
-        await execa('sudo', ['apt-get', 'update'])
-        await execa('sudo', ['apt-get', 'install', '-y', 'ffmpeg'])
-        spinner.succeed('ffmpeg installed via apt')
+        await runVisible('sudo', ['apt-get', 'update'])
+        await runVisible('sudo', ['apt-get', 'install', '-y', 'ffmpeg'])
+        Output.success('ffmpeg installed via apt')
       } else if (system.hasYum) {
-        await execa('sudo', ['yum', 'install', '-y', 'ffmpeg'])
-        spinner.succeed('ffmpeg installed via yum')
+        await runVisible('sudo', ['yum', 'install', '-y', 'ffmpeg'])
+        Output.success('ffmpeg installed via yum')
       } else {
-        spinner.fail('Unknown package manager')
+        Output.error('Unknown package manager')
         console.log(chalk.yellow('\nPlease install ffmpeg manually'))
       }
     } else {
-      spinner.fail(`Unsupported platform: ${system.platform}`)
+      Output.error(`Unsupported platform: ${system.platform}`)
     }
   } catch (error: any) {
-    spinner.fail('Failed to install ffmpeg')
+    Output.error('Failed to install ffmpeg')
     console.log(chalk.red(`\nError: ${error.message}`))
     console.log(chalk.yellow('\nPlease install ffmpeg manually:'))
     console.log(chalk.cyan('  macOS: brew install ffmpeg'))
@@ -371,34 +341,31 @@ async function installCmake(system: SystemInfo) {
     // Not installed, continue
   }
 
-  const spinner = ora('Installing cmake...').start()
-
   try {
     if (system.platform === 'darwin') {
       if (!system.hasHomebrew) {
-        spinner.fail('Homebrew is not installed')
-        console.log(chalk.yellow('\nPlease install cmake manually: brew install cmake'))
+        Output.error('Homebrew is not installed — cannot install cmake')
         return
       }
-      await execa('brew', ['install', 'cmake'])
-      spinner.succeed('cmake installed via Homebrew')
+      await runVisible('brew', ['install', 'cmake'])
+      Output.success('cmake installed via Homebrew')
     } else if (system.platform === 'linux') {
       if (system.hasApt) {
-        await execa('sudo', ['apt-get', 'update'])
-        await execa('sudo', ['apt-get', 'install', '-y', 'cmake'])
-        spinner.succeed('cmake installed via apt')
+        await runVisible('sudo', ['apt-get', 'update'])
+        await runVisible('sudo', ['apt-get', 'install', '-y', 'cmake'])
+        Output.success('cmake installed via apt')
       } else if (system.hasYum) {
-        await execa('sudo', ['yum', 'install', '-y', 'cmake'])
-        spinner.succeed('cmake installed via yum')
+        await runVisible('sudo', ['yum', 'install', '-y', 'cmake'])
+        Output.success('cmake installed via yum')
       } else {
-        spinner.fail('Unknown package manager')
+        Output.error('Unknown package manager')
         console.log(chalk.yellow('\nPlease install cmake manually'))
       }
     } else {
-      spinner.fail(`Unsupported platform: ${system.platform}`)
+      Output.error(`Unsupported platform: ${system.platform}`)
     }
   } catch (error: any) {
-    spinner.fail('Failed to install cmake')
+    Output.error('Failed to install cmake')
     console.log(chalk.red(`\nError: ${error.message}`))
     console.log(chalk.yellow('\nPlease install cmake manually:'))
     console.log(chalk.cyan('  macOS: brew install cmake'))
@@ -430,23 +397,23 @@ async function setupWhisper() {
   // Check if whisper-cli is already built
   const whisperBin = path.join(whisperCppPath, 'build', 'bin', 'whisper-cli')
   if (!await fs.pathExists(whisperBin)) {
-    const spinner = ora('Building Whisper...').start()
     try {
       // Check for cmake
       try {
         await execa('which', ['cmake'])
       } catch {
-        spinner.fail('cmake is required to build Whisper')
+        Output.error('cmake is required to build Whisper')
         console.log(chalk.yellow('\nPlease install cmake first and run orka prepare again'))
         return
       }
 
+      console.log(chalk.gray('Building Whisper (this may take a few minutes)...\n'))
       // Build whisper.cpp using cmake
-      await execa('cmake', ['-B', 'build'], { cwd: whisperCppPath })
-      await execa('cmake', ['--build', 'build', '--config', 'Release'], { cwd: whisperCppPath })
-      spinner.succeed('Whisper built successfully')
+      await runVisible('cmake', ['-B', 'build'], { cwd: whisperCppPath })
+      await runVisible('cmake', ['--build', 'build', '--config', 'Release'], { cwd: whisperCppPath })
+      Output.success('Whisper built successfully')
     } catch (error: any) {
-      spinner.fail('Failed to build Whisper')
+      Output.error('Failed to build Whisper')
       console.log(chalk.red(`\nError: ${error.message}`))
       console.log(chalk.yellow('\nTry building manually:'))
       console.log(chalk.cyan(`  cd ${whisperCppPath}`))
@@ -461,15 +428,15 @@ async function setupWhisper() {
   // Check for base model
   const modelPath = path.join(whisperCppPath, 'models', 'ggml-base.bin')
   if (!await fs.pathExists(modelPath)) {
-    const spinner = ora('Downloading Whisper base model (~142MB)...').start()
     try {
-      await execa('bash', ['./models/download-ggml-model.sh', 'base'], {
+      console.log(chalk.gray('Downloading Whisper base model (~142MB)...\n'))
+      await runVisible('bash', ['./models/download-ggml-model.sh', 'base'], {
         cwd: whisperCppPath,
-        timeout: 300000, // 5 minute timeout for download
+        timeout: 300000,
       })
-      spinner.succeed('Whisper base model downloaded')
+      Output.success('Whisper base model downloaded')
     } catch (error: any) {
-      spinner.fail('Failed to download Whisper model')
+      Output.error('Failed to download Whisper model')
       console.log(chalk.red(`\nError: ${error.message}`))
       console.log(chalk.yellow('\nTry downloading manually:'))
       console.log(chalk.cyan(`  cd ${whisperCppPath}`))
@@ -503,22 +470,22 @@ async function setupPuppeteer() {
     return
   }
 
-  const spinner = ora('Downloading Chromium for Puppeteer...').start()
   try {
-    await execa('npx', ['puppeteer', 'browsers', 'install', 'chrome'], {
+    console.log(chalk.gray('Downloading Chromium for Puppeteer...\n'))
+    await runVisible('npx', ['puppeteer', 'browsers', 'install', 'chrome'], {
       timeout: 300000,
     })
-    spinner.succeed('Chromium downloaded for Puppeteer')
+    Output.success('Chromium downloaded for Puppeteer')
   } catch {
     // Pinned version may fail — try stable as fallback
     try {
-      spinner.text = 'Retrying with chrome@stable...'
-      await execa('npx', ['puppeteer', 'browsers', 'install', 'chrome@stable'], {
+      console.log(chalk.gray('\nRetrying with chrome@stable...\n'))
+      await runVisible('npx', ['puppeteer', 'browsers', 'install', 'chrome@stable'], {
         timeout: 300000,
       })
-      spinner.succeed('Chromium (stable) downloaded for Puppeteer')
+      Output.success('Chromium (stable) downloaded for Puppeteer')
     } catch (error: any) {
-      spinner.fail('Failed to download Chromium')
+      Output.error('Failed to download Chromium')
       console.log(chalk.red(`\nError: ${error.message}`))
       console.log(chalk.yellow('\nTry downloading manually:'))
       console.log(chalk.cyan('  npx puppeteer browsers install chrome@stable'))
