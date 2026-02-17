@@ -52,8 +52,15 @@ export function prepareCommand(program: Command) {
         }
 
         // Detect system
-        const system = await detectSystem()
+        let system = await detectSystem()
         console.log(chalk.gray(`\nDetected: ${system.platform}`))
+
+        // On macOS, ensure Homebrew is available before anything else
+        if (system.platform === 'darwin' && !system.hasHomebrew) {
+          await installHomebrew()
+          // Re-detect so all subsequent steps see Homebrew
+          system = await detectSystem()
+        }
 
         // Install tmux
         await installTmux(system)
@@ -116,6 +123,48 @@ async function detectSystem(): Promise<SystemInfo> {
   }
 
   return info
+}
+
+async function installHomebrew() {
+  console.log(chalk.bold('\n🍺 Installing Homebrew...\n'))
+
+  const spinner = ora('Installing Homebrew (this may take a minute)...').start()
+
+  try {
+    await execa('bash', [
+      '-c',
+      'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 600000, // 10 minute timeout
+    })
+
+    // On Apple Silicon, brew installs to /opt/homebrew and needs PATH setup
+    const brewPaths = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew']
+    for (const brewPath of brewPaths) {
+      if (await fs.pathExists(brewPath)) {
+        // Add to current process PATH so subsequent execa calls find brew
+        const { stdout } = await execa(brewPath, ['shellenv'])
+        const pathMatch = stdout.match(/PATH="([^"]+)"/)
+        if (pathMatch) {
+          process.env.PATH = pathMatch[1] + ':' + process.env.PATH
+        }
+        break
+      }
+    }
+
+    spinner.succeed('Homebrew installed')
+  } catch (error: any) {
+    spinner.fail('Failed to install Homebrew')
+    console.log(chalk.red(`\nError: ${error.message}`))
+    console.log(chalk.yellow('\nPlease install Homebrew manually:'))
+    console.log(
+      chalk.cyan(
+        '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+      )
+    )
+    console.log(chalk.yellow('\nThen run: orka prepare'))
+  }
 }
 
 async function installTmux(system: SystemInfo) {
