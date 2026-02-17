@@ -50,6 +50,23 @@ export interface FileTreeNode {
   children?: FileTreeNode[]
 }
 
+// Finder directory listing types
+export interface FileListItem {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  size: number
+  modifiedAt: string
+  extension: string
+  childCount?: number
+}
+
+export interface DirectoryListing {
+  items: FileListItem[]
+  currentPath: string
+  parentPath: string | null
+}
+
 // Git types
 export interface GitFileChange {
   path: string
@@ -247,6 +264,14 @@ export const api = {
   },
 
   // File operations
+  async listDirectory(projectEncoded: string, dirPath: string = ''): Promise<DirectoryListing> {
+    const params = new URLSearchParams({ project: projectEncoded })
+    if (dirPath) params.set('path', dirPath)
+    const res = await fetch(`${API_BASE}/files/list?${params}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   async getFileTree(projectEncoded: string): Promise<FileTreeNode[]> {
     const res = await fetch(`${API_BASE}/files/tree?project=${projectEncoded}`)
     if (!res.ok) throw new Error(await res.text())

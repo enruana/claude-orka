@@ -112,19 +112,58 @@ export class TelegramBot {
       logger.error(`[${this.agentId}] Telegram bot error: ${err.message}`)
     })
 
-    this.bot.start({
+    // Set running before start() to avoid race with stop()
+    this.running = true
+
+    this.startPolling(this.bot)
+  }
+
+  /**
+   * Start long polling with retry logic for 409 conflicts.
+   * When the server restarts, the old polling request may still be alive
+   * (Telegram's getUpdates has a 30s timeout). We retry until it expires.
+   */
+  private startPolling(bot: Bot, attempt = 0): void {
+    const MAX_RETRIES = 3
+    const RETRY_DELAY_MS = 5_000
+
+    bot.start({
       onStart: () => {
-        this.running = true
         logger.info(`[${this.agentId}] Telegram bot started`)
       },
+    }).catch((err: any) => {
+      // Bot was stopped while starting — not an error
+      if (!this.running) return
+
+      const is409 = err?.error_code === 409 || err?.description?.includes('terminated by other getUpdates')
+
+      if (is409 && attempt < MAX_RETRIES) {
+        logger.warn(`[${this.agentId}] Telegram 409 conflict (attempt ${attempt + 1}/${MAX_RETRIES}), retrying in ${RETRY_DELAY_MS / 1000}s...`)
+        setTimeout(() => {
+          if (!this.running) return
+          this.startPolling(bot, attempt + 1)
+        }, RETRY_DELAY_MS)
+      } else {
+        logger.error(`[${this.agentId}] Telegram bot polling failed: ${err.message}`)
+        this.running = false
+      }
     })
   }
 
   /** Stop the bot */
   async stop(): Promise<void> {
-    if (this.bot && this.running) {
-      await this.bot.stop()
-      this.running = false
+    this.running = false
+
+    // Resolve all pending approvals as rejected
+    this.pendingApprovals.forEach((req) => req.resolve(false))
+    this.pendingApprovals.clear()
+
+    if (this.bot) {
+      try {
+        await this.bot.stop()
+      } catch (err: any) {
+        logger.debug(`[${this.agentId}] Telegram bot stop error (safe to ignore): ${err.message}`)
+      }
       this.bot = null
       logger.info(`[${this.agentId}] Telegram bot stopped`)
     }

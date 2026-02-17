@@ -5,7 +5,7 @@ import { Output } from '../utils/output'
 
 export const startCommand = new Command('start')
   .description('Start the Orka web server and UI')
-  .option('-p, --port <port>', 'Port to run the server on', '3000')
+  .option('-p, --port <port>', 'Port to run the server on', '3456')
   .option('--no-open', 'Do not open browser automatically')
   .action(async (options) => {
     try {

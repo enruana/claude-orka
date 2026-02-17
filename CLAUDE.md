@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Claude-Orka is an SDK, CLI, and Electron UI for orchestrating Claude Code sessions with tmux. It enables conversation forking (branching), merging, and session management for Claude Code workflows.
+Claude-Orka is an SDK, CLI, and Web UI for orchestrating Claude Code sessions with tmux. It enables conversation forking (branching), merging, and session management for Claude Code workflows, plus an autonomous agent system with hooks, LLM-based decisions, and Telegram integration.
 
 **Core concept**: Use tmux panes to run multiple Claude Code sessions simultaneously - a main conversation and "forks" that branch off to explore alternatives. Forks can be exported (summarized) and merged back into their parent conversation.
 
@@ -14,14 +14,14 @@ Claude-Orka is an SDK, CLI, and Electron UI for orchestrating Claude Code sessio
 # Install dependencies
 npm install
 
-# Build all components (SDK + CLI + Electron)
+# Build all components (SDK + CLI + Web UI + assets)
 npm run build
 
 # Build individual components
 npm run build:sdk          # TypeScript SDK compilation
 npm run build:cli          # Bundle CLI with esbuild
-npm run build:ui           # Build React UI with Vite
-npm run build:electron-main # Bundle Electron main process
+npm run build:web-ui       # Build React Web UI with Vite
+npm run build:assets       # Copy static assets (terminal-mobile.html)
 
 # Development
 npm run dev                # Watch mode for SDK
@@ -30,11 +30,8 @@ npm run orka               # Run CLI from source with tsx
 # Testing & Validation
 npm run type-check         # TypeScript type checking (no output)
 npm link                   # Link globally for testing CLI
-orka doctor                # Verify system dependencies (Node, tmux, Claude CLI, Electron)
+orka doctor                # Verify system dependencies (Node, tmux, Claude CLI, ttyd)
 orka prepare               # Install missing dependencies automatically
-
-# Electron development
-npm run electron:dev       # Build and launch Electron in dev mode
 ```
 
 ## Project Architecture
@@ -57,6 +54,11 @@ npm run electron:dev       # Build and launch Electron in dev mode
 - Manages ProjectState with all sessions and forks
 - Handles state reads/writes with file locking
 
+**GlobalStateManager** (`src/core/GlobalStateManager.ts`)
+- Manages global Orka state in `~/.orka/config.json`
+- Tracks registered projects, server port, ttyd base port
+- Singleton pattern with lazy initialization
+
 **TmuxCommands** (`src/utils/tmux.ts`)
 - Low-level tmux wrapper using execa
 - Creates sessions, panes, sends keys
@@ -66,6 +68,97 @@ npm run electron:dev       # Build and launch Electron in dev mode
 - Reads `~/.claude/history.jsonl` to detect session IDs
 - Polls for new session IDs when creating forks
 - Links Claude sessions to tmux panes
+
+### Server (`src/server/`)
+
+**Express HTTP Server** (`src/server/index.ts`)
+- Serves Web UI static files with SPA fallback
+- WebSocket proxy for ttyd (web terminal)
+- HTTP proxy for ttyd mobile access
+- Custom terminal route with xterm.js + virtual keyboard
+
+**API Routers** (`src/server/api/`):
+- `projects.ts` - CRUD for registered projects
+- `sessions.ts` - Session create/list/get/resume/delete
+- `agents.ts` - Agent CRUD, start/stop, logs
+- `files.ts` - File tree, image serving, safe path traversal
+- `git.ts` - Git status, history, commit, push
+- `browse.ts` - Directory browsing (security-constrained)
+- `transcribe.ts` - Audio transcription for voice input
+
+### Agent System (`src/agent/`)
+
+**AgentManager** (`src/agent/AgentManager.ts`)
+- Orchestrates all agent daemons and the hook server
+- CRUD operations for agents, start/stop lifecycle
+- Routes hook events to appropriate daemons
+
+**AgentDaemon** (`src/agent/AgentDaemon.ts`)
+- Individual agent process monitoring a Claude Code session
+- Delegates event processing to EventStateMachine
+- Integrates TerminalWatchdog for stall detection
+- Owns per-agent TelegramBot instance
+
+**EventStateMachine** (`src/agent/EventStateMachine.ts`)
+- Processes Claude Code hook events through a state machine
+- Flow: guard → route_event → capture_terminal → parse_terminal → fast_path
+- Fast-path for deterministic decisions, LLM fallback for ambiguous states
+- Actions: respond, approve, reject, wait, request_help, compact, clear, escape
+
+**HookServer** (`src/agent/HookServer.ts`)
+- HTTP server on port 9999 receiving Claude Code hook events
+- Route: `POST /api/hooks/:agentId`
+- Normalizes hook payloads, extracts type-specific data
+
+**HookConfigGenerator** (`src/agent/HookConfigGenerator.ts`)
+- Generates Claude Code hook config for projects
+- Creates hook entries using curl POST to hook server
+
+**LLMDecisionMaker** (`src/agent/LLMDecisionMaker.ts`)
+- Uses Claude Code Agent SDK for intelligent decisions
+- Called by EventStateMachine for ambiguous terminal states
+- Structured output with JSON schema (action, response, reason)
+
+**TerminalWatchdog** (`src/agent/TerminalWatchdog.ts`)
+- Timer-driven polling (~30s) to detect stalled sessions
+- LLM evaluates if Claude is stalled or needs intervention
+- Safety: requires N consecutive verdicts, skips during spinners
+
+**TelegramBot** (`src/agent/TelegramBot.ts`)
+- Per-agent Telegram bot (grammY library, long polling)
+- Free text → LLM consultation, `/tell` → direct terminal injection
+- Sends notifications on milestones, errors, approval requests
+
+**TerminalReader** (`src/agent/TerminalReader.ts`)
+- Reads terminal content via tmux with metadata
+- Parses terminal state: waiting, permission prompts, processing, context limits
+
+**TerminalScreenshot** (`src/agent/TerminalScreenshot.ts`)
+- Captures terminal screenshots using headless Puppeteer
+
+**AgentStateManager** (`src/agent/AgentStateManager.ts`)
+- Persistent agent configuration in `~/.claude-orka/agents.json`
+
+### Web UI (`src/web-ui/`)
+
+**Tech stack**: React + TypeScript + Vite + React Router
+
+**Routes** (defined in `src/web-ui/src/App.tsx`):
+- `/` - Home page
+- `/dashboard` - Project dashboard (main landing)
+- `/agents` - Agent canvas page
+- `/projects/:path/sessions/:sessionId` - Session view
+- `/projects/:path/code` - Code editor
+- `/projects/:path/files` - File browser
+- `/projects/:path/files/view` - File viewer
+
+**Key components** (`src/web-ui/src/components/`):
+- `ProjectDashboard` - Project listing with session management
+- `SessionView` - Session details with embedded terminal
+- `code-editor/` - Monaco editor, file explorer, Git panel, diff viewer, commit history
+- `finder/` - Finder-style file browser (list/grid views, breadcrumbs, toolbar)
+- `agent/` - Agent canvas, agent nodes, project nodes, config modal, logs modal
+- `VoiceInputPopover` - Voice recording and transcription UI
 
 ### State Management
 
@@ -92,7 +185,7 @@ npm run electron:dev       # Build and launch Electron in dev mode
 4. Launch Claude Code in pane
 5. Detect new Claude session ID from history.jsonl
 6. Save state with session + main branch
-7. Open terminal window and launch Electron UI
+7. Start ttyd for web terminal access
 
 **Creating a fork**:
 1. Split tmux pane (horizontal or vertical)
@@ -118,54 +211,20 @@ npm run electron:dev       # Build and launch Electron in dev mode
 **Entry point**: `src/cli/index.ts`
 
 **Command structure**: Uses `commander` library
-- Commands in `src/cli/commands/` (session.ts, fork.ts, merge.ts, etc.)
+- Commands in `src/cli/commands/` (start.ts, session.ts, fork.ts, merge.ts, telegram.ts, etc.)
 - Each command imports ClaudeOrka SDK and calls appropriate methods
 - Output utilities in `src/cli/utils/output.ts` (chalk, cli-table3, ora)
 
 **Key CLI commands**:
-- `orka prepare`: Install system dependencies (tmux, Claude CLI)
+- `orka start`: Start web server (default port 3456)
+- `orka prepare`: Install system dependencies (tmux, Claude CLI, ttyd, ffmpeg, whisper, puppeteer)
 - `orka doctor`: Check system dependencies and configuration
 - `orka init`: Create `.claude-orka/` directory structure
-- `orka session create/resume/close/delete`: Session management
-- `orka fork create/resume/close/delete`: Fork management
+- `orka status`: Show project status
+- `orka session create/list/get/resume/close/delete`: Session management
+- `orka fork create/list/resume/close/delete`: Fork management
 - `orka merge export/do/auto`: Fork export and merge workflow
-
-### Electron UI Architecture
-
-**Main process** (`electron/main/main.ts`)
-- Creates two types of windows:
-  - Main window: frameless (600x800) with full UI
-  - Taskbar window: compact (80x220+, dynamic height) minimized view
-- Watches `.claude-orka/state.json` with chokidar
-- Provides IPC handlers for actions (createFork, exportFork, merge, close, etc.)
-- Opens terminal windows and launches child processes
-
-**Main Window Renderer** (`electron/renderer/src/`)
-- React + TypeScript + Vite
-- Uses ReactFlow for visual session tree
-- Components: SessionTree, ActionPanel, ForkInfoModal
-- Real-time state updates via file watching
-- Custom node types for main branch and forks (active/closed/merged)
-- Minimize button to show taskbar
-
-**Taskbar Window Renderer** (`electron/renderer/src/TaskbarApp.tsx`)
-- Compact always-on-top window with minimal UI
-- Three action buttons: Restore, Open Folder, Focus Terminal
-- Visual branch tree showing all forks with colored dots:
-  - Green (#a6e3a1): active branches
-  - Yellow (#f9e2af): saved branches
-  - Cyan (#94e2d5): merged branches
-  - Gray (#6c7086): closed branches
-- Hierarchical display with indentation and connection lines
-- Dynamic height adjustment based on number of branches
-- Fully draggable to any screen position
-- Real-time updates when branches change
-
-**IPC Communication**:
-- Renderer requests actions via `window.electronAPI.{action}()`
-- Main process executes via ClaudeOrka SDK
-- State changes trigger file watch → updates both windows
-- Taskbar can request resize via `resizeTaskbar(height)` IPC
+- `orka telegram test/chat-id`: Telegram bot utilities
 
 ### Important Implementation Details
 
@@ -189,6 +248,11 @@ npm run electron:dev       # Build and launch Electron in dev mode
 - Must merge or close existing fork before creating new one from same parent
 - UI enforces this with disabled "New Fork" button
 
+**System ports**:
+- 3456: Web server (configurable with `orka start --port`)
+- 9999: Hook server (receives Claude Code hook events)
+- 4444+: ttyd instances (web terminal, auto-assigned)
+
 ## Development Patterns
 
 ### Adding a new CLI command
@@ -207,6 +271,20 @@ npm run electron:dev       # Build and launch Electron in dev mode
 3. Update types in `src/models/` if needed
 4. Build: `npm run build:sdk`
 5. Update type declarations are auto-generated
+
+### Adding a new API route
+
+1. Create router file in `src/server/api/myroute.ts`
+2. Define Express routes with proper error handling
+3. Register router in `src/server/index.ts`
+4. Build: `npm run build:sdk && npm run build:cli`
+
+### Adding a new Web UI page
+
+1. Create page component in `src/web-ui/src/pages/` or `src/web-ui/src/components/`
+2. Add route in `src/web-ui/src/App.tsx`
+3. Build: `npm run build:web-ui`
+4. Dev: Vite dev server at port 5174 proxies API to port 3456
 
 ### Working with state
 
@@ -234,10 +312,11 @@ npm run electron:dev       # Build and launch Electron in dev mode
 - `.claude-orka/state.json` - Project state (sessions, forks, metadata)
 - `.claude-orka/exports/fork-{id}.md` - Fork export summaries
 - `~/.claude/history.jsonl` - Claude's session history (read-only)
+- `~/.orka/config.json` - Global config (projects, ports)
+- `~/.claude-orka/agents.json` - Agent configurations
 - `.tmux.orka.conf` - Custom tmux theme configuration
-- `dist/electron/main/main.js` - Electron main process (bundled)
-- `dist/electron/preload/preload.js` - Electron preload script (bundled)
-- `dist/electron/renderer/` - React UI (built with Vite)
+- `dist/cli.js` - Bundled CLI entry point
+- `dist/web-ui/` - Built Web UI (served by Express)
 
 ## Testing Approach
 
@@ -249,10 +328,10 @@ Manual testing workflow:
 5. Test merge: `orka merge auto {sessionId} {forkId}`
 6. Clean up: `orka session delete {sessionId}`
 
-For Electron UI:
-1. Build: `npm run build:electron`
-2. Run: `npm run electron:dev`
-3. Manually test UI interactions
+For Web UI:
+1. Start server: `orka start`
+2. Or use Vite dev server: `cd src/web-ui && npx vite` (proxies API to port 3456)
+3. Manually test UI interactions at http://localhost:5174
 
 ## Publishing Workflow
 
@@ -285,13 +364,15 @@ orka --version
 
 **Merge fails - no export**: Export must complete before merge. Use `orka merge auto` which handles timing automatically.
 
-**UI won't launch**:
-1. Check if Electron is installed: `orka doctor`
-2. If not installed: `orka prepare` or `npm install -g electron`
-3. Check if Electron process is running: `ps aux | grep electron`
-4. Verify `dist/electron/main/main.js` exists after build
+**Web UI won't start**:
+1. Check if port 3456 is in use: `lsof -i :3456`
+2. Try a different port: `orka start --port 8080`
+3. Verify build output exists: `ls dist/web-ui/index.html`
 
-**Electron not found after global install**: Make sure Electron is in PATH. Run `which electron` to verify. If not found, check npm global bin path: `npm config get prefix`
+**Agent not receiving hooks**:
+1. Check hook server is running: `lsof -i :9999`
+2. Verify agent is started in Agent Canvas
+3. Check agent logs in the Web UI
 
 **Type errors after changes**: Run `npm run type-check` to see all errors. Fix before building.
 

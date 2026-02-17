@@ -163,6 +163,9 @@ export class TerminalWatchdog {
         hookEvent: 'Watchdog (periodic terminal check — evaluate if Claude Code is stalled or needs intervention)',
       }, log)
 
+      // Stopped while waiting for LLM — bail out
+      if (!this.running) return
+
       if (!decision || decision.action === 'wait') {
         // LLM says everything is fine — no attention needed
         if (this.consecutiveAttentionPolls > 0) {

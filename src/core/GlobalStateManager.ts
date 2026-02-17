@@ -25,7 +25,7 @@ export interface GlobalConfig {
 
 const DEFAULT_CONFIG: GlobalConfig = {
   projects: [],
-  serverPort: 3000,
+  serverPort: 3456,
   ttydBasePort: 4444,
   lastUpdated: new Date().toISOString(),
 }

@@ -19,7 +19,8 @@ import {
   FolderOpen,
   Mic,
 } from 'lucide-react'
-import { SessionCodeEditor, FileExplorer } from './code-editor'
+import { SessionCodeEditor } from './code-editor'
+import { FinderExplorer } from './finder'
 import { encodeProjectPath } from './ProjectDashboard'
 import { VoiceInputPopover } from './VoiceInputPopover'
 
@@ -801,9 +802,10 @@ export function SessionView({
               />
             </div>
             <div className={`file-explorer-wrapper ${rightPanelTab === 'files' ? 'tab-visible' : 'tab-hidden'}`}>
-              <FileExplorer
+              <FinderExplorer
                 projectPath={project.path}
                 encodedPath={encodedPath}
+                embedded
               />
             </div>
           </div>

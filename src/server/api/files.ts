@@ -90,6 +90,108 @@ async function buildFileTree(
 }
 
 /**
+ * GET /api/files/list?project=<base64>&path=<relative>
+ * Returns direct children of a directory with metadata (Finder-style listing)
+ */
+filesRouter.get('/list', async (req, res) => {
+  try {
+    const projectEncoded = req.query.project as string
+    const relativePath = (req.query.path as string) || ''
+
+    if (!projectEncoded) {
+      res.status(400).json({ error: 'Project path required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(projectEncoded)
+
+    if (!isPathSafe(projectPath, relativePath)) {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
+    const targetPath = relativePath ? path.join(projectPath, relativePath) : projectPath
+
+    if (!await fs.pathExists(targetPath)) {
+      res.status(404).json({ error: 'Path not found' })
+      return
+    }
+
+    const stat = await fs.stat(targetPath)
+    if (!stat.isDirectory()) {
+      res.status(400).json({ error: 'Path is not a directory' })
+      return
+    }
+
+    const entries = await fs.readdir(targetPath, { withFileTypes: true })
+    const items: {
+      name: string
+      path: string
+      type: 'file' | 'directory'
+      size: number
+      modifiedAt: string
+      extension: string
+      childCount?: number
+    }[] = []
+
+    for (const entry of entries) {
+      if (IGNORE_PATTERNS.includes(entry.name)) continue
+
+      const entryFullPath = path.join(targetPath, entry.name)
+      const entryRelativePath = relativePath
+        ? `${relativePath}/${entry.name}`
+        : entry.name
+
+      try {
+        const entryStat = await fs.stat(entryFullPath)
+        const isDir = entry.isDirectory()
+
+        const item: typeof items[number] = {
+          name: entry.name,
+          path: entryRelativePath,
+          type: isDir ? 'directory' : 'file',
+          size: isDir ? 0 : entryStat.size,
+          modifiedAt: entryStat.mtime.toISOString(),
+          extension: isDir ? '' : (entry.name.split('.').pop()?.toLowerCase() || ''),
+        }
+
+        if (isDir) {
+          try {
+            const children = await fs.readdir(entryFullPath)
+            item.childCount = children.filter(c => !IGNORE_PATTERNS.includes(c)).length
+          } catch {
+            item.childCount = 0
+          }
+        }
+
+        items.push(item)
+      } catch {
+        // Skip entries we can't stat (permissions, etc.)
+      }
+    }
+
+    // Sort: directories first, then alphabetically
+    items.sort((a, b) => {
+      if (a.type === 'directory' && b.type === 'file') return -1
+      if (a.type === 'file' && b.type === 'directory') return 1
+      return a.name.localeCompare(b.name)
+    })
+
+    const parentPath = relativePath
+      ? relativePath.includes('/') ? relativePath.substring(0, relativePath.lastIndexOf('/')) : ''
+      : null
+
+    res.json({
+      items,
+      currentPath: relativePath,
+      parentPath,
+    })
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * GET /api/files/tree?project=<base64>
  * Returns the file tree for a project
  */

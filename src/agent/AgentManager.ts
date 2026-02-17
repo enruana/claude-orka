@@ -290,6 +290,10 @@ export class AgentManager extends EventEmitter {
       throw new Error(`Agent not found: ${agentId}`)
     }
 
+    // Stop the daemon first — watchdog, telegram bot, etc. must stop
+    // before we clear the connection, otherwise they keep running
+    await this.stopAgent(agentId)
+
     if (agent.connection) {
       await this.hookConfigGenerator.uninstallHooks(
         agent.connection.projectPath,

@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { FileExplorer } from './FileExplorer'
+import { FinderExplorer } from '../finder/FinderExplorer'
 import { ArrowLeft } from 'lucide-react'
 import './code-editor.css'
 
@@ -34,7 +34,7 @@ export function FilesPage() {
         </div>
       </div>
       <div className="files-page-content">
-        <FileExplorer
+        <FinderExplorer
           projectPath={projectPath}
           encodedPath={encodedPath}
         />
