@@ -22,7 +22,8 @@ export function HomePage() {
     <>
       <style>{`
         .home-page {
-          min-height: 100vh;
+          min-height: 100%;
+          min-height: 100dvh;
           display: flex;
           flex-direction: column;
           align-items: center;

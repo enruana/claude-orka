@@ -79,12 +79,13 @@ body {
 #root {
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
 }
 
 .app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   background: var(--bg-primary);
 }
 
@@ -94,7 +95,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  height: 100%;
   gap: var(--space-lg);
 }
 
@@ -134,7 +135,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  height: 100%;
 }
 
 .error-message {
@@ -242,7 +243,7 @@ body {
 
 /* Dashboard */
 .dashboard {
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -771,7 +772,7 @@ body {
 
 /* Session View Container */
 .session-view-container {
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2359,7 +2360,7 @@ body {
 
 .settings-layout {
   display: flex;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
   background: var(--bg-primary);
 }
@@ -3101,8 +3102,7 @@ body {
 .unified-dashboard {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
   overflow: hidden;
   background: var(--bg-primary);
 }
