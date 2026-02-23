@@ -171,6 +171,21 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
     }
   }, [encodedPath])
 
+  // Handle drag-drop move
+  const handleMoveFile = useCallback(async (fromPath: string, toDirectory: string) => {
+    const fileName = fromPath.split('/').pop() || fromPath
+    const fromParent = fromPath.includes('/') ? fromPath.substring(0, fromPath.lastIndexOf('/')) : ''
+    if (fromParent === toDirectory) return
+    const destPath = toDirectory ? `${toDirectory}/${fileName}` : fileName
+    try {
+      await api.moveFile(encodedPath, fromPath, destPath)
+      await loadTree()
+      showToast(`Moved "${fileName}"`)
+    } catch (err: any) {
+      showToast(err.message || 'Move failed')
+    }
+  }, [encodedPath, loadTree, showToast])
+
   // Handle creating a new file or folder
   const handleCreateFile = async () => {
     if (!createName.trim()) return
@@ -578,6 +593,7 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
                 onExpandDirectory={handleExpandDirectory}
                 onContextMenu={handleTreeContextMenu}
                 onLongPress={handleTreeLongPress}
+                onMoveFile={handleMoveFile}
               />
             </div>
           </div>
@@ -605,6 +621,7 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
           onExpandDirectory={handleExpandDirectory}
           onContextMenu={handleTreeContextMenu}
           onLongPress={handleTreeLongPress}
+          onMoveFile={handleMoveFile}
         />
       </div>
       <div className="file-viewer-panel">

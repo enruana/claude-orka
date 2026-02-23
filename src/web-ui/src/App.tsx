@@ -1,10 +1,20 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { ProjectDashboard } from './components/ProjectDashboard'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { ProjectDashboard, decodeProjectPath } from './components/ProjectDashboard'
 import { SessionPage } from './components/SessionPage'
 import { CodeEditorPage, FilesPage } from './components/code-editor'
 import { FileViewerPage } from './components/finder'
 import { AgentCanvasPage } from './pages/AgentCanvasPage'
 import { HomePage } from './pages/HomePage'
+import { TaskWidget } from './components/TaskWidget'
+
+function GlobalProjectWidgets() {
+  const { pathname } = useLocation()
+  const match = pathname.match(/^\/projects\/([^/]+)/)
+  if (!match) return null
+
+  const projectPath = decodeProjectPath(match[1])
+  return <TaskWidget projectPath={projectPath} />
+}
 
 export function App() {
   return (
@@ -38,6 +48,7 @@ export function App() {
           {/* Fallback - redirect unknown routes to home */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <GlobalProjectWidgets />
       </div>
     </BrowserRouter>
   )

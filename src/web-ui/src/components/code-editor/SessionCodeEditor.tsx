@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Save, GitBranch, RefreshCw, X, ExternalLink, Check } from 'lucide-react'
+import { Save, GitBranch, RefreshCw, X, ExternalLink, Check, FolderOpen, Search } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
 import { GitPanel } from './GitPanel'
 import { DiffViewer } from './DiffViewer'
+import { SearchPanel } from './SearchPanel'
 import {
   ContextMenu,
   useContextMenu,
@@ -44,6 +45,8 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
   const [diffData, setDiffData] = useState<GitDiff | null>(null)
+  const [sidebarMode, setSidebarMode] = useState<'files' | 'search'>('files')
+  const [goToLine, setGoToLine] = useState<{ line: number; column?: number } | null>(null)
 
   // Context menu state
   const { contextMenu, hideContextMenu, handleContextMenu, handleLongPress } = useContextMenu()
@@ -172,6 +175,21 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
     }
   }, [encodedPath])
 
+  // Handle drag-drop move
+  const handleMoveFile = useCallback(async (fromPath: string, toDirectory: string) => {
+    const fileName = fromPath.split('/').pop() || fromPath
+    const fromParent = fromPath.includes('/') ? fromPath.substring(0, fromPath.lastIndexOf('/')) : ''
+    if (fromParent === toDirectory) return
+    const destPath = toDirectory ? `${toDirectory}/${fileName}` : fileName
+    try {
+      await api.moveFile(encodedPath, fromPath, destPath)
+      await loadFileTree()
+      showToast(`Moved "${fileName}"`)
+    } catch (err: any) {
+      showToast(err.message || 'Move failed')
+    }
+  }, [encodedPath, loadFileTree, showToast])
+
   // Initial load
   useEffect(() => {
     const load = async () => {
@@ -188,6 +206,10 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         handleSave()
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'f') {
+        e.preventDefault()
+        setSidebarMode(prev => prev === 'search' ? 'files' : 'search')
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -282,6 +304,13 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
     setLoading(true)
     await Promise.all([loadFileTree(), loadGitStatus()])
     setLoading(false)
+  }
+
+  // Handle search result click - open file and go to line
+  const handleSearchResultClick = async (filePath: string, line: number) => {
+    await handleFileSelect(filePath)
+    setGoToLine({ line })
+    setViewMode('editor')
   }
 
   // View diff for a file
@@ -384,20 +413,44 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
 
       {/* Main Content */}
       <div className="session-code-content">
-        {/* File Tree */}
+        {/* Sidebar */}
         <div className="session-code-sidebar">
-          <FileTree
-            tree={fileTree}
-            selectedFile={activeTab}
-            onFileSelect={handleFileSelect}
-            gitStatus={gitStatus}
-            onExpandDirectory={async (dirPath) => {
-              const children = await api.expandFileTree(encodedPath, dirPath)
-              setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
-            }}
-            onContextMenu={handleTreeContextMenu}
-            onLongPress={handleTreeLongPress}
-          />
+          <div className="sidebar-tabs compact">
+            <button
+              className={`sidebar-tab ${sidebarMode === 'files' ? 'active' : ''}`}
+              onClick={() => setSidebarMode('files')}
+            >
+              <FolderOpen size={12} />
+              <span>Files</span>
+            </button>
+            <button
+              className={`sidebar-tab ${sidebarMode === 'search' ? 'active' : ''}`}
+              onClick={() => setSidebarMode('search')}
+            >
+              <Search size={12} />
+              <span>Search</span>
+            </button>
+          </div>
+          {sidebarMode === 'files' ? (
+            <FileTree
+              tree={fileTree}
+              selectedFile={activeTab}
+              onFileSelect={handleFileSelect}
+              gitStatus={gitStatus}
+              onExpandDirectory={async (dirPath) => {
+                const children = await api.expandFileTree(encodedPath, dirPath)
+                setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
+              }}
+              onContextMenu={handleTreeContextMenu}
+              onLongPress={handleTreeLongPress}
+              onMoveFile={handleMoveFile}
+            />
+          ) : (
+            <SearchPanel
+              encodedPath={encodedPath}
+              onResultClick={handleSearchResultClick}
+            />
+          )}
         </div>
 
         {/* Editor Area */}
@@ -438,6 +491,7 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
                   content={activeTabData.content}
                   filePath={activeTabData.path}
                   onChange={handleContentChange}
+                  goToLine={goToLine}
                 />
               ) : (
                 <div className="session-code-placeholder">

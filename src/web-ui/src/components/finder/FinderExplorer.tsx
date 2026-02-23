@@ -192,6 +192,38 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
     }
   }
 
+  // Move file/folder via drag & drop
+  const handleMoveFile = useCallback(async (fromPath: string, toDirectory: string) => {
+    const fileName = fromPath.split('/').pop() || fromPath
+    const fromParent = fromPath.includes('/') ? fromPath.substring(0, fromPath.lastIndexOf('/')) : ''
+    // No-op if dropping into same parent
+    if (fromParent === toDirectory) return
+    const destPath = toDirectory ? `${toDirectory}/${fileName}` : fileName
+    try {
+      await api.moveFile(encodedPath, fromPath, destPath)
+      await loadDirectory(currentPath)
+      showToast(`Moved "${fileName}"`)
+    } catch (err: any) {
+      showToast(err.message || 'Move failed')
+    }
+  }, [encodedPath, currentPath, loadDirectory, showToast])
+
+  // Drop on content background = drop into current directory
+  const handleContentDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('text/x-orka-path')) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+    }
+  }, [])
+
+  const handleContentDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    const fromPath = e.dataTransfer.getData('text/x-orka-path')
+    if (fromPath) {
+      handleMoveFile(fromPath, currentPath)
+    }
+  }, [handleMoveFile, currentPath])
+
   const handleDelete = async (path: string, isDirectory: boolean) => {
     const name = path.split('/').pop() || path
     if (!confirm(`Delete ${isDirectory ? 'folder' : 'file'} "${name}"?`)) return
@@ -294,7 +326,11 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
         onNewFolder={handleNewFolder}
       />
 
-      <div className={`finder-content ${transitioning ? 'finder-transitioning' : ''}`}>
+      <div
+        className={`finder-content ${transitioning ? 'finder-transitioning' : ''}`}
+        onDragOver={handleContentDragOver}
+        onDrop={handleContentDrop}
+      >
         {isLoading ? (
           <div className="finder-loading">
             <div className="spinner" />
@@ -316,6 +352,7 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
             onSelect={handleSelect}
             onOpen={handleOpen}
             onContextMenu={handleItemContextMenu}
+            onMoveFile={handleMoveFile}
           />
         ) : (
           <FinderGridView
@@ -324,6 +361,7 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
             onSelect={handleSelect}
             onOpen={handleOpen}
             onContextMenu={handleItemContextMenu}
+            onMoveFile={handleMoveFile}
           />
         )}
       </div>

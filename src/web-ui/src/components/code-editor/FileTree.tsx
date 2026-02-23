@@ -22,6 +22,7 @@ interface FileTreeProps {
   onExpandDirectory: (path: string) => Promise<void>
   onContextMenu?: (e: React.MouseEvent, path: string, isDirectory: boolean) => void
   onLongPress?: (e: React.TouchEvent | React.MouseEvent, path: string, isDirectory: boolean) => void
+  onMoveFile?: (fromPath: string, toDirectory: string) => void
 }
 
 interface TreeNodeProps {
@@ -33,6 +34,9 @@ interface TreeNodeProps {
   onExpandDirectory: (path: string) => Promise<void>
   onContextMenu?: (e: React.MouseEvent, path: string, isDirectory: boolean) => void
   onLongPress?: (e: React.TouchEvent | React.MouseEvent, path: string, isDirectory: boolean) => void
+  onMoveFile?: (fromPath: string, toDirectory: string) => void
+  dragOverPath: string | null
+  setDragOverPath: (path: string | null) => void
 }
 
 // Get appropriate icon for file type
@@ -190,6 +194,9 @@ function TreeNode({
   onExpandDirectory,
   onContextMenu,
   onLongPress,
+  onMoveFile,
+  dragOverPath,
+  setDragOverPath,
 }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false) // All folders closed by default
   const [loading, setLoading] = useState(false)
@@ -197,6 +204,7 @@ function TreeNode({
   const isDirectory = node.type === 'directory'
   const isSelected = selectedFile === node.path
   const gitStatus = gitChanges.get(node.path)
+  const isDragOver = dragOverPath === node.path
 
   // Use refs to store callbacks to avoid hook dependency issues
   const onClickRef = useRef<(() => void) | null>(null)
@@ -248,18 +256,58 @@ function TreeNode({
     // Set the path in multiple formats for compatibility
     e.dataTransfer.setData('text/x-orka-path', node.path)
     e.dataTransfer.setData('text/plain', node.path)
-    e.dataTransfer.effectAllowed = 'copy'
+    e.dataTransfer.effectAllowed = 'copyMove'
+  }
+
+  // Drop handlers for directory nodes
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!isDirectory || !onMoveFile) return
+    if (!e.dataTransfer.types.includes('text/x-orka-path')) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverPath !== node.path) {
+      setDragOverPath(node.path)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!isDirectory || !onMoveFile) return
+    const relatedTarget = e.relatedTarget as HTMLElement | null
+    if (relatedTarget && (e.currentTarget as HTMLElement).contains(relatedTarget)) return
+    if (dragOverPath === node.path) {
+      setDragOverPath(null)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (!isDirectory || !onMoveFile) return
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOverPath(null)
+    const fromPath = e.dataTransfer.getData('text/x-orka-path')
+    if (!fromPath || fromPath === node.path) return
+    // Prevent dropping a folder into itself
+    if (node.path.startsWith(fromPath + '/')) return
+    onMoveFile(fromPath, node.path)
+    // Auto-expand target folder
+    if (!expanded) {
+      setExpanded(true)
+    }
   }
 
   return (
     <div className="tree-node-wrapper">
       <div
-        className={`tree-node ${isSelected ? 'selected' : ''} ${isDirectory ? 'directory' : 'file'}`}
+        className={`tree-node ${isSelected ? 'selected' : ''} ${isDirectory ? 'directory' : 'file'} ${isDragOver ? 'drag-over' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={isTouchDevice ? undefined : handleClick}
         onContextMenu={handleContextMenu}
         draggable
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         {...(isTouchDevice ? longPressHandlers : {})}
       >
         {/* Expand/Collapse Arrow */}
@@ -313,6 +361,9 @@ function TreeNode({
               onExpandDirectory={onExpandDirectory}
               onContextMenu={onContextMenu}
               onLongPress={onLongPress}
+              onMoveFile={onMoveFile}
+              dragOverPath={dragOverPath}
+              setDragOverPath={setDragOverPath}
             />
           ))}
         </div>
@@ -329,7 +380,10 @@ export function FileTree({
   onExpandDirectory,
   onContextMenu,
   onLongPress,
+  onMoveFile,
 }: FileTreeProps) {
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
+
   // Build a map of file path -> git status
   const gitChanges = new Map<string, string>()
   if (gitStatus) {
@@ -360,6 +414,9 @@ export function FileTree({
               onExpandDirectory={onExpandDirectory}
               onContextMenu={onContextMenu}
               onLongPress={onLongPress}
+              onMoveFile={onMoveFile}
+              dragOverPath={dragOverPath}
+              setDragOverPath={setDragOverPath}
             />
           ))
         )}

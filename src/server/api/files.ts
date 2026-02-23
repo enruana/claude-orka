@@ -2,6 +2,7 @@ import { Router } from 'express'
 import fs from 'fs-extra'
 import path from 'path'
 import multer from 'multer'
+import execa from 'execa'
 
 export const filesRouter = Router()
 
@@ -484,6 +485,175 @@ filesRouter.get('/image', async (req, res) => {
 
     const fileStream = fs.createReadStream(filePath)
     fileStream.pipe(res)
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * GET /api/files/search?project=<base64>&query=<string>&caseSensitive=<bool>&regex=<bool>
+ * Search for text across project files using grep
+ */
+filesRouter.get('/search', async (req, res) => {
+  try {
+    const projectEncoded = req.query.project as string
+    const query = req.query.query as string
+    const caseSensitive = req.query.caseSensitive === 'true'
+    const regex = req.query.regex === 'true'
+
+    if (!projectEncoded) {
+      res.status(400).json({ error: 'Project path required' })
+      return
+    }
+
+    if (!query || query.length < 2) {
+      res.status(400).json({ error: 'Query must be at least 2 characters' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(projectEncoded)
+
+    if (!await fs.pathExists(projectPath)) {
+      res.status(404).json({ error: 'Project path not found' })
+      return
+    }
+
+    const EXCLUDE_DIRS = [
+      'node_modules', '.git', 'dist', '.next', '.claude-orka',
+      '__pycache__', '.venv', '.tsbuildinfo', 'coverage', '.nyc_output',
+      'build', '.cache', '.parcel-cache',
+    ]
+
+    const args: string[] = [
+      '-rn',           // recursive, line numbers
+      '-I',            // skip binary files
+      '--color=never', // no ANSI colors
+    ]
+
+    if (!caseSensitive) args.push('-i')
+    if (regex) {
+      args.push('-E') // extended regex
+    } else {
+      args.push('-F') // fixed string (literal)
+    }
+
+    for (const dir of EXCLUDE_DIRS) {
+      args.push(`--exclude-dir=${dir}`)
+    }
+
+    args.push('--', query, '.')
+
+    const MAX_MATCHES = 500
+
+    const result = await execa('grep', args, {
+      cwd: projectPath,
+      reject: false,
+      timeout: 10000,
+      stripFinalNewline: true,
+    })
+
+    // grep exit code 1 = no matches, 2 = error
+    if (result.exitCode === 2) {
+      res.status(500).json({ error: 'Search failed: ' + (result.stderr || 'unknown error') })
+      return
+    }
+
+    if (!result.stdout || result.exitCode === 1) {
+      res.json({ results: [], totalMatches: 0, truncated: false })
+      return
+    }
+
+    const lines = result.stdout.split('\n').filter(Boolean)
+    const truncated = lines.length > MAX_MATCHES
+    const limitedLines = lines.slice(0, MAX_MATCHES)
+
+    // Parse grep output: ./path/to/file:lineNum:matched text
+    const fileMap = new Map<string, { line: number; text: string }[]>()
+
+    for (const line of limitedLines) {
+      // Match: ./relative/path:lineNumber:text
+      const match = line.match(/^\.\/(.+?):(\d+):(.*)$/)
+      if (!match) continue
+
+      const [, filePath, lineStr, text] = match
+      const lineNum = parseInt(lineStr, 10)
+
+      if (!fileMap.has(filePath)) {
+        fileMap.set(filePath, [])
+      }
+      fileMap.get(filePath)!.push({ line: lineNum, text: text.trim() })
+    }
+
+    const results = Array.from(fileMap.entries()).map(([filePath, matches]) => ({
+      path: filePath,
+      matches,
+    }))
+
+    res.json({
+      results,
+      totalMatches: lines.length > MAX_MATCHES ? lines.length : limitedLines.length,
+      truncated,
+    })
+  } catch (error: any) {
+    if (error.timedOut) {
+      res.status(408).json({ error: 'Search timed out' })
+      return
+    }
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/files/move?project=<base64>
+ * Moves a file or directory from one path to another
+ */
+filesRouter.post('/move', async (req, res) => {
+  try {
+    const projectEncoded = req.query.project as string
+    const { from, to } = req.body
+
+    if (!projectEncoded || !from || !to) {
+      res.status(400).json({ error: 'Project, from, and to paths required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(projectEncoded)
+
+    if (!isPathSafe(projectPath, from) || !isPathSafe(projectPath, to)) {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
+    const fromAbsolute = path.resolve(projectPath, from)
+    const toAbsolute = path.resolve(projectPath, to)
+
+    if (!await fs.pathExists(fromAbsolute)) {
+      res.status(404).json({ error: 'Source path not found' })
+      return
+    }
+
+    // Prevent moving a folder into itself or a descendant
+    const fromStat = await fs.stat(fromAbsolute)
+    if (fromStat.isDirectory() && (toAbsolute + '/').startsWith(fromAbsolute + '/')) {
+      res.status(400).json({ error: 'Cannot move a folder into itself' })
+      return
+    }
+
+    // Ensure target parent directory exists
+    const toParent = path.dirname(toAbsolute)
+    if (!await fs.pathExists(toParent)) {
+      res.status(400).json({ error: 'Target parent directory does not exist' })
+      return
+    }
+
+    // Check for name conflict at destination
+    if (await fs.pathExists(toAbsolute)) {
+      res.status(409).json({ error: 'A file or folder with that name already exists at the destination' })
+      return
+    }
+
+    await fs.move(fromAbsolute, toAbsolute)
+    res.json({ success: true, from, to })
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }

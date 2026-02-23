@@ -1,6 +1,17 @@
 import { Session } from './Session'
 
 /**
+ * A task/todo item associated with a project
+ */
+export interface ProjectTask {
+  id: string
+  title: string
+  completed: boolean
+  createdAt: string
+  completedAt?: string
+}
+
+/**
  * Estado global del proyecto almacenado en .claude-orka/state.json
  */
 export interface ProjectState {
@@ -12,6 +23,9 @@ export interface ProjectState {
 
   /** Todas las sesiones del proyecto (activas y guardadas) */
   sessions: Session[]
+
+  /** Project tasks/todos */
+  tasks?: ProjectTask[]
 
   /** Last state update (ISO timestamp) */
   lastUpdated: string

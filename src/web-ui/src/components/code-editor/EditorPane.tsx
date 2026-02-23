@@ -2,11 +2,17 @@ import Editor from '@monaco-editor/react'
 import { useRef, useCallback, useState, useEffect } from 'react'
 import type { editor } from 'monaco-editor'
 
+interface GoToLine {
+  line: number
+  column?: number
+}
+
 interface EditorPaneProps {
   content: string
   filePath: string
   onChange: (content: string) => void
   readOnly?: boolean
+  goToLine?: GoToLine | null
 }
 
 // Detect mobile device
@@ -104,8 +110,9 @@ function getLanguageFromPath(filePath: string): string {
   return languageMap[ext] || 'plaintext'
 }
 
-export function EditorPane({ content, filePath, onChange, readOnly = false }: EditorPaneProps) {
+export function EditorPane({ content, filePath, onChange, readOnly = false, goToLine }: EditorPaneProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+  const decorationsRef = useRef<string[]>([])
   const isMobile = useIsMobile()
 
   const handleEditorMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
@@ -116,6 +123,35 @@ export function EditorPane({ content, filePath, onChange, readOnly = false }: Ed
       editor.focus()
     }
   }, [isMobile])
+
+  // Handle goToLine
+  useEffect(() => {
+    const ed = editorRef.current
+    if (!ed || !goToLine) return
+
+    const line = goToLine.line
+    const column = goToLine.column ?? 1
+
+    ed.revealLineInCenter(line)
+    ed.setPosition({ lineNumber: line, column })
+    ed.focus()
+
+    // Highlight line briefly
+    decorationsRef.current = ed.deltaDecorations(decorationsRef.current, [
+      {
+        range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+        options: { isWholeLine: true, className: 'search-highlight-line' },
+      },
+    ])
+
+    const timer = setTimeout(() => {
+      if (editorRef.current) {
+        decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, [])
+      }
+    }, 2000)
+
+    return () => clearTimeout(timer)
+  }, [goToLine])
 
   const handleEditorChange = useCallback((value: string | undefined) => {
     if (value !== undefined) {

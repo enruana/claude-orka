@@ -67,6 +67,32 @@ export interface DirectoryListing {
   parentPath: string | null
 }
 
+// Task types
+export interface ProjectTask {
+  id: string
+  title: string
+  completed: boolean
+  createdAt: string
+  completedAt?: string
+}
+
+// Search types
+export interface SearchMatch {
+  line: number
+  text: string
+}
+
+export interface SearchFileResult {
+  path: string
+  matches: SearchMatch[]
+}
+
+export interface SearchResponse {
+  results: SearchFileResult[]
+  totalMatches: number
+  truncated: boolean
+}
+
 // Git types
 export interface GitFileChange {
   path: string
@@ -317,6 +343,30 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
   },
 
+  async moveFile(projectEncoded: string, from: string, to: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/files/move?project=${projectEncoded}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Move failed' }))
+      throw new Error(data.error || 'Move failed')
+    }
+  },
+
+  async searchFiles(projectEncoded: string, query: string, options?: { caseSensitive?: boolean; regex?: boolean }): Promise<SearchResponse> {
+    const params = new URLSearchParams({
+      project: projectEncoded,
+      query,
+      caseSensitive: String(options?.caseSensitive ?? false),
+      regex: String(options?.regex ?? false),
+    })
+    const res = await fetch(`${API_BASE}/files/search?${params}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   // Git operations
   async getGitStatus(projectEncoded: string): Promise<GitStatus> {
     const res = await fetch(`${API_BASE}/git/status?project=${projectEncoded}`)
@@ -376,5 +426,39 @@ export const api = {
     }
     const data = await res.json()
     return data.message
+  },
+
+  // Tasks (uses ?project= query param, same as sessions/files/git)
+  async listTasks(projectPath: string): Promise<ProjectTask[]> {
+    const res = await fetch(`${API_BASE}/projects/tasks?project=${encodeProjectPath(projectPath)}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async createTask(projectPath: string, title: string): Promise<ProjectTask> {
+    const res = await fetch(`${API_BASE}/projects/tasks?project=${encodeProjectPath(projectPath)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async updateTask(projectPath: string, taskId: string, updates: { title?: string; completed?: boolean }): Promise<ProjectTask> {
+    const res = await fetch(`${API_BASE}/projects/tasks/${taskId}?project=${encodeProjectPath(projectPath)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async deleteTask(projectPath: string, taskId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/projects/tasks/${taskId}?project=${encodeProjectPath(projectPath)}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(await res.text())
   },
 }

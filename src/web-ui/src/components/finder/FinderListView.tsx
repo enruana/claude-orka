@@ -12,6 +12,7 @@ interface FinderListViewProps {
   onSelect: (path: string) => void
   onOpen: (item: FileListItem) => void
   onContextMenu: (e: React.MouseEvent, item: FileListItem) => void
+  onMoveFile: (fromPath: string, toDirectory: string) => void
 }
 
 export function FinderListView({
@@ -20,9 +21,11 @@ export function FinderListView({
   onSelect,
   onOpen,
   onContextMenu,
+  onMoveFile,
 }: FinderListViewProps) {
   const [sortBy, setSortBy] = useState<SortKey>('name')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
 
   const handleSort = (key: SortKey) => {
     if (sortBy === key) {
@@ -64,7 +67,37 @@ export function FinderListView({
   const handleDragStart = (e: React.DragEvent, item: FileListItem) => {
     e.dataTransfer.setData('text/x-orka-path', item.path)
     e.dataTransfer.setData('text/plain', item.path)
-    e.dataTransfer.effectAllowed = 'copy'
+    e.dataTransfer.effectAllowed = 'copyMove'
+  }
+
+  const handleDragOver = (e: React.DragEvent, item: FileListItem) => {
+    if (item.type !== 'directory') return
+    if (!e.dataTransfer.types.includes('text/x-orka-path')) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverPath !== item.path) {
+      setDragOverPath(item.path)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Only clear if truly leaving (not entering a child element)
+    const relatedTarget = e.relatedTarget as HTMLElement | null
+    if (relatedTarget && (e.currentTarget as HTMLElement).contains(relatedTarget)) return
+    setDragOverPath(null)
+  }
+
+  const handleDrop = (e: React.DragEvent, targetItem: FileListItem) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOverPath(null)
+    if (targetItem.type !== 'directory') return
+    const fromPath = e.dataTransfer.getData('text/x-orka-path')
+    if (!fromPath || fromPath === targetItem.path) return
+    // Prevent dropping a folder into itself
+    if (targetItem.path.startsWith(fromPath + '/')) return
+    onMoveFile(fromPath, targetItem.path)
   }
 
   return (
@@ -88,16 +121,20 @@ export function FinderListView({
         {sorted.map(item => {
           const isSelected = selectedItems.has(item.path)
           const isDir = item.type === 'directory'
+          const isDragOver = dragOverPath === item.path
 
           return (
             <div
               key={item.path}
-              className={`finder-list-row ${isSelected ? 'selected' : ''}`}
+              className={`finder-list-row ${isSelected ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''}`}
               onClick={() => onSelect(item.path)}
               onDoubleClick={() => onOpen(item)}
               onContextMenu={(e) => onContextMenu(e, item)}
               draggable
               onDragStart={(e) => handleDragStart(e, item)}
+              onDragOver={(e) => handleDragOver(e, item)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, item)}
             >
               <div className="finder-list-col col-name">
                 <span className="finder-item-icon">

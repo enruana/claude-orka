@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { FinderExplorer } from '../finder/FinderExplorer'
 import { ArrowLeft } from 'lucide-react'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import './code-editor.css'
 
 export function FilesPage() {
@@ -20,6 +21,8 @@ export function FilesPage() {
 
   const projectPath = atob(encodedPath)
   const projectName = projectPath.split('/').pop() || projectPath
+
+  usePageTitle(projectName, 'Files')
 
   return (
     <div className="files-page-container">

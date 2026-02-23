@@ -5,6 +5,7 @@ import Editor from '@monaco-editor/react'
 import { api } from '../../api/client'
 import { MarkdownViewer } from '../code-editor/MarkdownViewer'
 import { getFileType, getMonacoLanguage, getFileIcon, getFileKind } from '../../utils/fileTypes'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import './finder.css'
 
 export function FileViewerPage() {
@@ -32,6 +33,9 @@ export function FileViewerPage() {
   const fileName = filePath.split('/').pop() || filePath
   const fileType = getFileType(filePath)
   const dirPath = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : ''
+  const projectName = projectPath.split('/').pop() || projectPath
+
+  usePageTitle(projectName, fileName)
 
   useEffect(() => {
     const load = async () => {

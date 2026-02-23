@@ -376,12 +376,222 @@
       background: linear-gradient(135deg, #cba6f7 0%, #b4befe 100%);
     }
 
+    .quick-action-item .action-icon.tasks {
+      background: linear-gradient(135deg, #89b4fa 0%, #6366f1 100%);
+    }
+
     .quick-action-item .action-icon svg {
       stroke: #1e1e2e;
     }
 
     .quick-action-item .action-text {
       flex: 1;
+    }
+
+    .quick-action-item .action-badge {
+      min-width: 20px;
+      height: 20px;
+      border-radius: 10px;
+      background: #f38ba8;
+      color: #1e1e2e;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+    }
+
+    /* Tasks Modal */
+    #tasks-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(17, 17, 27, 0.95);
+      z-index: 1000;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0;
+    }
+
+    #tasks-modal.visible {
+      display: flex;
+    }
+
+    .tasks-modal-content {
+      background: #1e1e2e;
+      border-top: 1px solid #313244;
+      border-radius: 16px 16px 0 0;
+      width: 100%;
+      max-height: 70vh;
+      display: flex;
+      flex-direction: column;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.4);
+      animation: popupSlideUp 0.2s ease;
+    }
+
+    .tasks-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+    }
+
+    .tasks-modal-title {
+      color: #cdd6f4;
+      font-size: 16px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tasks-input-row {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+    }
+
+    .tasks-input {
+      flex: 1;
+      background: #11111b;
+      border: 2px solid #313244;
+      border-radius: 12px;
+      padding: 10px 14px;
+      color: #cdd6f4;
+      font-size: 15px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .tasks-input::placeholder {
+      color: #6c7086;
+    }
+
+    .tasks-input:focus {
+      border-color: #89b4fa;
+    }
+
+    .tasks-add-btn {
+      background: #89b4fa;
+      border: none;
+      border-radius: 12px;
+      color: #1e1e2e;
+      cursor: pointer;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+
+    .tasks-add-btn:active {
+      background: #74c7ec;
+      transform: scale(0.95);
+    }
+
+    .tasks-add-btn:disabled {
+      opacity: 0.4;
+    }
+
+    .tasks-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .tasks-empty {
+      padding: 40px 16px;
+      text-align: center;
+      color: #6c7086;
+      font-size: 14px;
+    }
+
+    .tasks-empty-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+      opacity: 0.5;
+    }
+
+    .task-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      transition: background 0.15s ease;
+    }
+
+    .task-row:active {
+      background: #313244;
+    }
+
+    .task-check {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid #6c7086;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      background: none;
+      padding: 0;
+      color: transparent;
+    }
+
+    .task-check.checked {
+      background: #89b4fa;
+      border-color: #89b4fa;
+      color: #1e1e2e;
+    }
+
+    .task-check svg {
+      display: block;
+    }
+
+    .task-text {
+      flex: 1;
+      font-size: 15px;
+      color: #cdd6f4;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .task-text.done {
+      text-decoration: line-through;
+      color: #6c7086;
+    }
+
+    .task-delete {
+      background: none;
+      border: none;
+      color: #6c7086;
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+
+    .task-delete:active {
+      background: rgba(243, 139, 168, 0.2);
+      color: #f38ba8;
     }
 
     .quick-actions-backdrop {
@@ -873,6 +1083,15 @@
               </span>
               <span class="action-text">Clear Terminal</span>
             </button>
+            <button class="quick-action-item" data-action="tasks" id="tasks-action-item">
+              <span class="action-icon tasks">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+                </svg>
+              </span>
+              <span class="action-text">Tasks</span>
+              <span class="action-badge" id="tasks-badge" style="display:none">0</span>
+            </button>
           </div>
         </div>
 
@@ -939,6 +1158,35 @@
       <div class="modal-actions">
         <button class="modal-btn cancel" id="modal-cancel">Cancel</button>
         <button class="modal-btn send" id="modal-send">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tasks Modal -->
+  <div id="tasks-modal">
+    <div class="tasks-modal-content">
+      <div class="tasks-modal-header">
+        <span class="tasks-modal-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+          </svg>
+          Tasks
+        </span>
+        <button class="modal-close" id="tasks-modal-close">✕</button>
+      </div>
+      <div class="tasks-input-row">
+        <input class="tasks-input" id="tasks-input" type="text" placeholder="Add a task..." />
+        <button class="tasks-add-btn" id="tasks-add-btn" disabled>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
+      </div>
+      <div class="tasks-list" id="tasks-list">
+        <div class="tasks-empty" id="tasks-empty">
+          <div class="tasks-empty-icon">📋</div>
+          No tasks yet
+        </div>
       </div>
     </div>
   </div>
@@ -1210,6 +1458,239 @@
       }
     }
 
+    // Tasks Manager for mobile terminal
+    class TasksManager {
+      constructor() {
+        this.tasks = [];
+        this.projectPath = null;
+        this.modal = document.getElementById('tasks-modal');
+        this.list = document.getElementById('tasks-list');
+        this.emptyState = document.getElementById('tasks-empty');
+        this.input = document.getElementById('tasks-input');
+        this.addBtn = document.getElementById('tasks-add-btn');
+        this.badge = document.getElementById('tasks-badge');
+
+        this.detectProject();
+        this.setupHandlers();
+        this.fetchTasks();
+      }
+
+      detectProject() {
+        // The project path is passed as a base64-encoded query param
+        const params = new URLSearchParams(window.location.search);
+        const encoded = params.get('project');
+        if (encoded) {
+          try {
+            this.projectPath = atob(encoded);
+          } catch { /* ignore */ }
+        }
+      }
+
+      getEncodedPath() {
+        if (!this.projectPath) return null;
+        return btoa(this.projectPath);
+      }
+
+      setupHandlers() {
+        // Close button
+        document.getElementById('tasks-modal-close').addEventListener('click', () => this.close());
+
+        // Backdrop click to close
+        this.modal.addEventListener('click', (e) => {
+          if (e.target === this.modal) this.close();
+        });
+
+        // Input change
+        this.input.addEventListener('input', () => {
+          this.addBtn.disabled = !this.input.value.trim();
+        });
+
+        // Enter to add
+        this.input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            this.addTask();
+          }
+        });
+
+        // Add button
+        this.addBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.addTask();
+        });
+      }
+
+      open() {
+        this.fetchTasks();
+        this.modal.classList.add('visible');
+        setTimeout(() => this.input.focus(), 100);
+      }
+
+      close() {
+        this.modal.classList.remove('visible');
+        this.input.value = '';
+        this.addBtn.disabled = true;
+      }
+
+      updateBadge() {
+        const pending = this.tasks.filter(t => !t.completed).length;
+        if (pending > 0) {
+          this.badge.textContent = pending;
+          this.badge.style.display = 'flex';
+        } else {
+          this.badge.style.display = 'none';
+        }
+      }
+
+      renderTasks() {
+        if (this.tasks.length === 0) {
+          this.emptyState.style.display = 'block';
+          // Remove all task rows
+          this.list.querySelectorAll('.task-row').forEach(r => r.remove());
+          return;
+        }
+
+        this.emptyState.style.display = 'none';
+
+        // Clear existing task rows
+        this.list.querySelectorAll('.task-row').forEach(r => r.remove());
+
+        this.tasks.forEach(task => {
+          const row = document.createElement('div');
+          row.className = 'task-row';
+          row.dataset.id = task.id;
+
+          row.innerHTML = `
+            <button class="task-check ${task.completed ? 'checked' : ''}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </button>
+            <span class="task-text ${task.completed ? 'done' : ''}">${this.escapeHtml(task.title)}</span>
+            <button class="task-delete">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              </svg>
+            </button>
+          `;
+
+          // Toggle completed
+          row.querySelector('.task-check').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleTask(task.id);
+          });
+
+          // Delete
+          row.querySelector('.task-delete').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.deleteTask(task.id);
+          });
+
+          this.list.appendChild(row);
+        });
+      }
+
+      escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      async fetchTasks() {
+        const encoded = this.getEncodedPath();
+        if (!encoded) return;
+
+        try {
+          const res = await fetch(`${window.location.origin}/api/projects/tasks?project=${encoded}`);
+          if (res.ok) {
+            this.tasks = await res.json();
+            this.renderTasks();
+            this.updateBadge();
+          }
+        } catch { /* ignore */ }
+      }
+
+      async addTask() {
+        const title = this.input.value.trim();
+        if (!title) return;
+
+        const encoded = this.getEncodedPath();
+        if (!encoded) return;
+
+        this.addBtn.disabled = true;
+
+        try {
+          const res = await fetch(`${window.location.origin}/api/projects/tasks?project=${encoded}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title }),
+          });
+          if (res.ok) {
+            const task = await res.json();
+            this.tasks.push(task);
+            this.input.value = '';
+            this.renderTasks();
+            this.updateBadge();
+            this.input.focus();
+          }
+        } catch { /* ignore */ }
+
+        this.addBtn.disabled = !this.input.value.trim();
+      }
+
+      async toggleTask(taskId) {
+        const task = this.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        const encoded = this.getEncodedPath();
+        if (!encoded) return;
+
+        // Optimistic update
+        task.completed = !task.completed;
+        task.completedAt = task.completed ? new Date().toISOString() : undefined;
+        this.renderTasks();
+        this.updateBadge();
+
+        try {
+          await fetch(`${window.location.origin}/api/projects/tasks/${taskId}?project=${encoded}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ completed: task.completed }),
+          });
+        } catch {
+          // Revert
+          task.completed = !task.completed;
+          this.renderTasks();
+          this.updateBadge();
+        }
+      }
+
+      async deleteTask(taskId) {
+        const encoded = this.getEncodedPath();
+        if (!encoded) return;
+
+        const prev = [...this.tasks];
+        this.tasks = this.tasks.filter(t => t.id !== taskId);
+        this.renderTasks();
+        this.updateBadge();
+
+        try {
+          const res = await fetch(`${window.location.origin}/api/projects/tasks/${taskId}?project=${encoded}`, {
+            method: 'DELETE',
+          });
+          if (!res.ok) {
+            this.tasks = prev;
+            this.renderTasks();
+            this.updateBadge();
+          }
+        } catch {
+          this.tasks = prev;
+          this.renderTasks();
+          this.updateBadge();
+        }
+      }
+    }
+
     class OrkaTerminal {
       constructor() {
         this.term = null;
@@ -1285,6 +1766,7 @@
         this.setupStatusBar();
         this.setupVoiceRecorder();
         this.setupQuickActions();
+        this.tasksManager = new TasksManager();
       }
 
       setupVoiceRecorder() {
@@ -2502,6 +2984,9 @@
           case 'clear':
             // Send Ctrl+L to clear terminal
             this.sendInput('\x0c');
+            break;
+          case 'tasks':
+            this.tasksManager.open();
             break;
         }
       }

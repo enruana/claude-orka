@@ -47,9 +47,10 @@ interface VoiceInputPopoverProps {
   onClose: () => void
   onSend: (text: string) => void
   sendLabel?: string
+  style?: React.CSSProperties
 }
 
-export function VoiceInputPopover({ isOpen, onClose, onSend, sendLabel = 'Send' }: VoiceInputPopoverProps) {
+export function VoiceInputPopover({ isOpen, onClose, onSend, sendLabel = 'Send', style }: VoiceInputPopoverProps) {
   const voice = useVoiceInput()
   const popoverRef = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
@@ -92,7 +93,7 @@ export function VoiceInputPopover({ isOpen, onClose, onSend, sendLabel = 'Send' 
   if (!isOpen) return null
 
   return (
-    <div className="voice-modal" ref={popoverRef}>
+    <div className="voice-modal" ref={popoverRef} style={style}>
       <div className="voice-modal-header">
         <h3>Voice Input</h3>
         <button className="voice-modal-close" onClick={handleClose}>

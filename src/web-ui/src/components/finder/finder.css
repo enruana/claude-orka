@@ -255,6 +255,13 @@
   background: var(--bg-active);
 }
 
+.finder-list-row.drag-over {
+  background: rgba(10, 132, 255, 0.12);
+  outline: 2px solid var(--accent-blue);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
 .finder-list-row .finder-list-col {
   font-size: 13px;
   color: var(--text-primary);
@@ -321,6 +328,12 @@
 .finder-grid-item.selected {
   background: var(--bg-active);
   outline: 2px solid var(--accent-blue);
+  outline-offset: -2px;
+}
+
+.finder-grid-item.drag-over {
+  background: rgba(10, 132, 255, 0.12);
+  outline: 2px dashed var(--accent-blue);
   outline-offset: -2px;
 }
 

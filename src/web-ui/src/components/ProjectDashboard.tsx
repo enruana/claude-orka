@@ -16,6 +16,7 @@ import {
   GitBranch,
 } from 'lucide-react'
 import { FolderBrowser } from './FolderBrowser'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 // Helper to encode/decode project paths for URLs
 export function encodeProjectPath(path: string): string {
@@ -43,6 +44,7 @@ interface ProjectWithSessions extends RegisteredProject {
 
 export function ProjectDashboard() {
   const navigate = useNavigate()
+  usePageTitle('Dashboard')
 
   const [projects, setProjects] = useState<ProjectWithSessions[]>([])
   const [loading, setLoading] = useState(true)

@@ -2,7 +2,7 @@ import path from 'path'
 import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
-import { ProjectState, Session, Fork, SessionFilters } from '../models'
+import { ProjectState, ProjectTask, Session, Fork, SessionFilters } from '../models'
 import { logger } from '../utils'
 
 // Get __dirname equivalent for ES modules
@@ -568,5 +568,47 @@ export class StateManager {
    */
   getExportPath(forkId: string, name: string): string {
     return `.claude-orka/exports/${forkId}-${name}.md`
+  }
+
+  // --- OPERACIONES DE TASKS ---
+
+  async listTasks(): Promise<ProjectTask[]> {
+    const state = await this.read()
+    return state.tasks || []
+  }
+
+  async addTask(task: ProjectTask): Promise<void> {
+    const state = await this.read()
+    if (!state.tasks) state.tasks = []
+    state.tasks.push(task)
+    await this.save(state)
+    logger.info(`Task added: ${task.id}`)
+  }
+
+  async updateTask(taskId: string, updates: Partial<Pick<ProjectTask, 'title' | 'completed'>>): Promise<ProjectTask> {
+    const state = await this.read()
+    if (!state.tasks) state.tasks = []
+    const task = state.tasks.find(t => t.id === taskId)
+    if (!task) throw new Error(`Task not found: ${taskId}`)
+
+    if (updates.title !== undefined) task.title = updates.title
+    if (updates.completed !== undefined) {
+      task.completed = updates.completed
+      task.completedAt = updates.completed ? new Date().toISOString() : undefined
+    }
+
+    await this.save(state)
+    logger.info(`Task updated: ${taskId}`)
+    return task
+  }
+
+  async deleteTask(taskId: string): Promise<void> {
+    const state = await this.read()
+    if (!state.tasks) state.tasks = []
+    const index = state.tasks.findIndex(t => t.id === taskId)
+    if (index === -1) throw new Error(`Task not found: ${taskId}`)
+    state.tasks.splice(index, 1)
+    await this.save(state)
+    logger.info(`Task deleted: ${taskId}`)
   }
 }

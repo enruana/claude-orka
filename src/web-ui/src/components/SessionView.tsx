@@ -17,12 +17,11 @@ import {
   ChevronUp,
   GitBranch,
   FolderOpen,
-  Mic,
 } from 'lucide-react'
 import { SessionCodeEditor } from './code-editor'
 import { FinderExplorer } from './finder'
 import { encodeProjectPath } from './ProjectDashboard'
-import { VoiceInputPopover } from './VoiceInputPopover'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 type RightPanelTab = 'terminal' | 'code' | 'files'
 
@@ -65,7 +64,6 @@ export function SessionView({
   const [showThreadsPopover, setShowThreadsPopover] = useState(false)
   const [isTerminalLoading, setIsTerminalLoading] = useState(true)
   const [isTerminalTabDragOver, setIsTerminalTabDragOver] = useState(false)
-  const [showVoicePopover, setShowVoicePopover] = useState(false)
   const terminalIframeRef = useRef<HTMLIFrameElement>(null)
   const threadsPopoverRef = useRef<HTMLDivElement>(null)
 
@@ -171,16 +169,12 @@ export function SessionView({
     }
   }, [session.ttydPort])
 
-  // Update browser tab title with project name
-  useEffect(() => {
-    const projectName = project.path.split('/').pop() || project.path
-    document.title = `${projectName} - Orka`
-
-    // Restore default title when leaving
-    return () => {
-      document.title = 'Claude Orka'
-    }
-  }, [project.path])
+  // Update browser tab title
+  const projectName = project.path.split('/').pop() || project.path
+  const branchLabel = selectedNode === 'main'
+    ? session.main?.name || session.name || 'main'
+    : session.forks.find((f) => f.id === selectedNode)?.name || selectedNode
+  usePageTitle(projectName, branchLabel)
 
   // Close threads popover when clicking outside
   useEffect(() => {
@@ -369,7 +363,7 @@ export function SessionView({
 
   // Get mobile terminal URL - uses our custom wrapper with virtual keyboard
   const getMobileTerminalUrl = () => {
-    return `/terminal/${session.ttydPort}`
+    return `/terminal/${session.ttydPort}?project=${btoa(project.path)}`
   }
 
   const handleOpenTerminalInNewTab = () => {
@@ -767,25 +761,6 @@ export function SessionView({
                     }}
                     onContextMenu={(e) => e.preventDefault()}
                   />
-                  {/* Floating voice button + popover */}
-                  <div className="voice-fab-container">
-                    <VoiceInputPopover
-                      isOpen={showVoicePopover}
-                      onClose={() => setShowVoicePopover(false)}
-                      onSend={(text) => {
-                        sendInputToTerminal(text)
-                        setTimeout(() => terminalIframeRef.current?.focus(), 100)
-                      }}
-                      sendLabel="Send to Terminal"
-                    />
-                    <button
-                      className="voice-fab"
-                      onClick={() => setShowVoicePopover(!showVoicePopover)}
-                      title="Voice input"
-                    >
-                      <Mic size={20} />
-                    </button>
-                  </div>
                 </>
               ) : (
                 <div className="terminal-placeholder">

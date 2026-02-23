@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, ChevronDown, ChevronUp, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2, Check } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronUp, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2, Check, Search } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
 import { GitPanel } from './GitPanel'
 import { DiffViewer } from './DiffViewer'
+import { SearchPanel } from './SearchPanel'
 import {
   ContextMenu,
   useContextMenu,
@@ -15,6 +16,7 @@ import {
   createDeleteItem
 } from './ContextMenu'
 import { api, FileTreeNode, GitStatus, GitDiff } from '../../api/client'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import './code-editor.css'
 
 interface CodeEditorViewProps {
@@ -57,6 +59,11 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
   const [fileTree, setFileTree] = useState<FileTreeNode[]>([])
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
+
+  const projectName = projectPath.split('/').pop() || projectPath
+  const activeFileName = activeTab ? activeTab.split('/').pop() : null
+  const activeTabDirty = activeTab ? openTabs.find(t => t.path === activeTab)?.isDirty : false
+  usePageTitle(projectName, activeFileName ? `${activeFileName}${activeTabDirty ? '*' : ''}` : 'Code')
   const [showGitPanel, setShowGitPanel] = useState(true)
   const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false)
   const [gitPanelCollapsed, setGitPanelCollapsed] = useState(false)
@@ -66,6 +73,8 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
   const [diffData, setDiffData] = useState<GitDiff | null>(null)
+  const [sidebarMode, setSidebarMode] = useState<'files' | 'search'>('files')
+  const [goToLine, setGoToLine] = useState<{ line: number; column?: number } | null>(null)
 
   // Context menu state
   const { contextMenu, hideContextMenu, handleContextMenu, handleLongPress } = useContextMenu()
@@ -107,6 +116,21 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
       setGitStatus(null)
     }
   }, [encodedPath])
+
+  // Handle drag-drop move
+  const handleMoveFile = useCallback(async (fromPath: string, toDirectory: string) => {
+    const fileName = fromPath.split('/').pop() || fromPath
+    const fromParent = fromPath.includes('/') ? fromPath.substring(0, fromPath.lastIndexOf('/')) : ''
+    if (fromParent === toDirectory) return
+    const destPath = toDirectory ? `${toDirectory}/${fileName}` : fileName
+    try {
+      await api.moveFile(encodedPath, fromPath, destPath)
+      await loadFileTree()
+      showToast(`Moved "${fileName}"`)
+    } catch (err: any) {
+      showToast(err.message || 'Move failed')
+    }
+  }, [encodedPath, loadFileTree, showToast])
 
   // Handle creating a new file or folder
   const handleCreateFile = async () => {
@@ -211,6 +235,10 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         handleSave()
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'f') {
+        e.preventDefault()
+        setSidebarMode(prev => prev === 'search' ? 'files' : 'search')
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -326,6 +354,14 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
     setLoading(false)
   }
 
+  // Handle search result click - open file and go to line
+  const handleSearchResultClick = async (filePath: string, line: number) => {
+    await handleFileSelect(filePath)
+    // Use a new object each time so useEffect fires even for same line
+    setGoToLine({ line })
+    setViewMode('editor')
+  }
+
   // View diff for a file
   const handleViewDiff = async (filePath: string, staged: boolean) => {
     try {
@@ -372,7 +408,6 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
   }
 
   const activeTabData = openTabs.find(t => t.path === activeTab)
-  const projectName = projectPath.split('/').pop() || projectPath
 
   if (loading) {
     return (
@@ -437,7 +472,7 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
 
       {/* Main Content */}
       <div className="code-editor-content">
-        {/* File Tree */}
+        {/* Sidebar */}
         <aside className={`file-tree-panel ${isMobile && fileTreeCollapsed ? 'collapsed' : ''}`}>
           {isMobile && (
             <div
@@ -450,20 +485,44 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
             </div>
           )}
           {(!isMobile || !fileTreeCollapsed) && (
-            <FileTree
-              tree={fileTree}
-              selectedFile={activeTab}
-              onFileSelect={handleFileSelect}
-              gitStatus={gitStatus}
-              onExpandDirectory={async (dirPath) => {
-                // Lazy load directory children
-                const children = await api.expandFileTree(encodedPath, dirPath)
-                // Update tree with new children
-                setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
-              }}
-              onContextMenu={handleTreeContextMenu}
-              onLongPress={handleTreeLongPress}
-            />
+            <>
+              <div className="sidebar-tabs">
+                <button
+                  className={`sidebar-tab ${sidebarMode === 'files' ? 'active' : ''}`}
+                  onClick={() => setSidebarMode('files')}
+                >
+                  <FolderOpen size={14} />
+                  <span>Files</span>
+                </button>
+                <button
+                  className={`sidebar-tab ${sidebarMode === 'search' ? 'active' : ''}`}
+                  onClick={() => setSidebarMode('search')}
+                >
+                  <Search size={14} />
+                  <span>Search</span>
+                </button>
+              </div>
+              {sidebarMode === 'files' ? (
+                <FileTree
+                  tree={fileTree}
+                  selectedFile={activeTab}
+                  onFileSelect={handleFileSelect}
+                  gitStatus={gitStatus}
+                  onExpandDirectory={async (dirPath) => {
+                    const children = await api.expandFileTree(encodedPath, dirPath)
+                    setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
+                  }}
+                  onContextMenu={handleTreeContextMenu}
+                  onLongPress={handleTreeLongPress}
+                  onMoveFile={handleMoveFile}
+                />
+              ) : (
+                <SearchPanel
+                  encodedPath={encodedPath}
+                  onResultClick={handleSearchResultClick}
+                />
+              )}
+            </>
           )}
         </aside>
 
@@ -505,6 +564,7 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
                   content={activeTabData.content}
                   filePath={activeTabData.path}
                   onChange={handleContentChange}
+                  goToLine={goToLine}
                 />
               ) : (
                 <div className="editor-placeholder">

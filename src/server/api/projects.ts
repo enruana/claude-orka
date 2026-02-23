@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { v4 as uuidv4 } from 'uuid'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
 import { ClaudeOrka } from '../../core/ClaudeOrka'
 import { StateManager, getOrkaVersion } from '../../core/StateManager'
@@ -150,6 +151,122 @@ projectsRouter.post('/:encodedPath/initialize', async (req, res) => {
     res.json({ success: true, path: path.join(projectPath, '.claude-orka') })
   } catch (error: any) {
     logger.error('Failed to initialize project:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// ============================================================
+// Task routes (CRUD for project tasks/todos)
+// Uses ?project= query param (same pattern as sessions/files/git)
+// because base64-encoded paths contain '/' which breaks path params.
+// ============================================================
+
+/** Helper to extract and decode the project query param */
+function getProjectPath(req: any, res: any): string | null {
+  const encoded = req.query.project as string
+  if (!encoded) {
+    res.status(400).json({ error: 'project query param is required (base64 encoded path)' })
+    return null
+  }
+  return Buffer.from(encoded, 'base64').toString('utf-8')
+}
+
+/**
+ * GET /api/projects/tasks?project=ENCODED
+ * List all tasks for a project
+ */
+projectsRouter.get('/tasks', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const stateManager = new StateManager(projectPath)
+    const tasks = await stateManager.listTasks()
+    res.json(tasks)
+  } catch (error: any) {
+    logger.error('Failed to list tasks:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/projects/tasks?project=ENCODED
+ * Create a new task
+ * Body: { title: string }
+ */
+projectsRouter.post('/tasks', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const { title } = req.body
+
+    if (!title || typeof title !== 'string') {
+      res.status(400).json({ error: 'title is required' })
+      return
+    }
+
+    const stateManager = new StateManager(projectPath)
+    const task = {
+      id: uuidv4(),
+      title: title.trim(),
+      completed: false,
+      createdAt: new Date().toISOString(),
+    }
+    await stateManager.addTask(task)
+    res.status(201).json(task)
+  } catch (error: any) {
+    logger.error('Failed to create task:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * PATCH /api/projects/tasks/:taskId?project=ENCODED
+ * Update a task
+ * Body: { title?: string, completed?: boolean }
+ */
+projectsRouter.patch('/tasks/:taskId', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const { taskId } = req.params
+    const { title, completed } = req.body
+
+    const stateManager = new StateManager(projectPath)
+    const updated = await stateManager.updateTask(taskId, { title, completed })
+    res.json(updated)
+  } catch (error: any) {
+    if (error.message.includes('not found')) {
+      res.status(404).json({ error: error.message })
+      return
+    }
+    logger.error('Failed to update task:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/projects/tasks/:taskId?project=ENCODED
+ * Delete a task
+ */
+projectsRouter.delete('/tasks/:taskId', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const { taskId } = req.params
+
+    const stateManager = new StateManager(projectPath)
+    await stateManager.deleteTask(taskId)
+    res.json({ success: true })
+  } catch (error: any) {
+    if (error.message.includes('not found')) {
+      res.status(404).json({ error: error.message })
+      return
+    }
+    logger.error('Failed to delete task:', error)
     res.status(500).json({ error: error.message })
   }
 })
