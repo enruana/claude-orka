@@ -10,6 +10,7 @@ interface FinderGridViewProps {
   onOpen: (item: FileListItem) => void
   onContextMenu: (e: React.MouseEvent, item: FileListItem) => void
   onMoveFile: (fromPath: string, toDirectory: string) => void
+  onUploadFiles: (files: File[], destination: string) => void
 }
 
 export function FinderGridView({
@@ -19,6 +20,7 @@ export function FinderGridView({
   onOpen,
   onContextMenu,
   onMoveFile,
+  onUploadFiles,
 }: FinderGridViewProps) {
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
 
@@ -30,10 +32,12 @@ export function FinderGridView({
 
   const handleDragOver = (e: React.DragEvent, item: FileListItem) => {
     if (item.type !== 'directory') return
-    if (!e.dataTransfer.types.includes('text/x-orka-path')) return
+    const isInternal = e.dataTransfer.types.includes('text/x-orka-path')
+    const isExternal = e.dataTransfer.types.includes('Files') && !isInternal
+    if (!isInternal && !isExternal) return
     e.preventDefault()
     e.stopPropagation()
-    e.dataTransfer.dropEffect = 'move'
+    e.dataTransfer.dropEffect = isExternal ? 'copy' : 'move'
     if (dragOverPath !== item.path) {
       setDragOverPath(item.path)
     }
@@ -50,7 +54,16 @@ export function FinderGridView({
     e.stopPropagation()
     setDragOverPath(null)
     if (targetItem.type !== 'directory') return
+
+    // External file upload to this folder
     const fromPath = e.dataTransfer.getData('text/x-orka-path')
+    if (!fromPath && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = Array.from(e.dataTransfer.files)
+      onUploadFiles(files, targetItem.path)
+      return
+    }
+
+    // Internal file move
     if (!fromPath || fromPath === targetItem.path) return
     if (targetItem.path.startsWith(fromPath + '/')) return
     onMoveFile(fromPath, targetItem.path)

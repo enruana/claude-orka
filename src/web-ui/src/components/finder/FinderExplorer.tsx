@@ -10,7 +10,7 @@ import {
   createNewFolderItem,
   createDeleteItem,
 } from '../code-editor/ContextMenu'
-import { AlertCircle, Check } from 'lucide-react'
+import { AlertCircle, Check, Upload } from 'lucide-react'
 import { FinderToolbar } from './FinderToolbar'
 import { FinderListView } from './FinderListView'
 import { FinderGridView } from './FinderGridView'
@@ -62,6 +62,11 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
   const [createName, setCreateName] = useState('')
 
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // External file drop state
+  const [isDraggingExternal, setIsDraggingExternal] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const dragCounter = useRef(0)
 
   const showToast = useCallback((message: string) => {
     setToast({ show: true, message })
@@ -208,21 +213,77 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
     }
   }, [encodedPath, currentPath, loadDirectory, showToast])
 
+  // Upload external files to a directory
+  const handleUploadFiles = useCallback(async (files: File[], destination: string) => {
+    if (files.length === 0) return
+    setIsUploading(true)
+    try {
+      const result = await api.uploadFiles(encodedPath, files, destination)
+      await loadDirectory(currentPath)
+      const count = result.uploaded.length
+      showToast(`Uploaded ${count} file${count !== 1 ? 's' : ''}`)
+    } catch (err: any) {
+      showToast(err.message || 'Upload failed')
+    } finally {
+      setIsUploading(false)
+    }
+  }, [encodedPath, currentPath, loadDirectory, showToast])
+
+  // Detect if drag contains external files (from OS)
+  const hasExternalFiles = useCallback((e: React.DragEvent) => {
+    return e.dataTransfer.types.includes('Files') && !e.dataTransfer.types.includes('text/x-orka-path')
+  }, [])
+
+  // Track drag enter/leave for the whole explorer (for overlay)
+  const handleExplorerDragEnter = useCallback((e: React.DragEvent) => {
+    if (hasExternalFiles(e)) {
+      e.preventDefault()
+      dragCounter.current++
+      if (dragCounter.current === 1) {
+        setIsDraggingExternal(true)
+      }
+    }
+  }, [hasExternalFiles])
+
+  const handleExplorerDragLeave = useCallback((e: React.DragEvent) => {
+    if (hasExternalFiles(e)) {
+      dragCounter.current--
+      if (dragCounter.current === 0) {
+        setIsDraggingExternal(false)
+      }
+    }
+  }, [hasExternalFiles])
+
   // Drop on content background = drop into current directory
   const handleContentDragOver = useCallback((e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes('text/x-orka-path')) {
+    if (e.dataTransfer.types.includes('text/x-orka-path') || hasExternalFiles(e)) {
       e.preventDefault()
-      e.dataTransfer.dropEffect = 'move'
+      e.dataTransfer.dropEffect = hasExternalFiles(e) ? 'copy' : 'move'
     }
-  }, [])
+  }, [hasExternalFiles])
 
   const handleContentDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
+    dragCounter.current = 0
+    setIsDraggingExternal(false)
+
+    // External file drop
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const fromPath = e.dataTransfer.getData('text/x-orka-path')
+      if (!fromPath) {
+        // External files from OS
+        const files = Array.from(e.dataTransfer.files)
+        handleUploadFiles(files, currentPath)
+        return
+      }
+    }
+
+    // Internal file move
     const fromPath = e.dataTransfer.getData('text/x-orka-path')
     if (fromPath) {
       handleMoveFile(fromPath, currentPath)
     }
-  }, [handleMoveFile, currentPath])
+  }, [handleMoveFile, handleUploadFiles, currentPath])
 
   const handleDelete = async (path: string, isDirectory: boolean) => {
     const name = path.split('/').pop() || path
@@ -311,6 +372,10 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
       ref={containerRef}
       tabIndex={0}
       onContextMenu={handleAreaContextMenu}
+      onDragEnter={handleExplorerDragEnter}
+      onDragLeave={handleExplorerDragLeave}
+      onDragOver={handleContentDragOver}
+      onDrop={handleContentDrop}
     >
       <FinderToolbar
         projectName={projectName}
@@ -328,8 +393,6 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
 
       <div
         className={`finder-content ${transitioning ? 'finder-transitioning' : ''}`}
-        onDragOver={handleContentDragOver}
-        onDrop={handleContentDrop}
       >
         {isLoading ? (
           <div className="finder-loading">
@@ -353,6 +416,7 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
             onOpen={handleOpen}
             onContextMenu={handleItemContextMenu}
             onMoveFile={handleMoveFile}
+            onUploadFiles={handleUploadFiles}
           />
         ) : (
           <FinderGridView
@@ -362,9 +426,29 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
             onOpen={handleOpen}
             onContextMenu={handleItemContextMenu}
             onMoveFile={handleMoveFile}
+            onUploadFiles={handleUploadFiles}
           />
         )}
       </div>
+
+      {/* Drop overlay for external files */}
+      {isDraggingExternal && (
+        <div className="finder-drop-overlay">
+          <div className="finder-drop-overlay-content">
+            <Upload size={40} />
+            <p>Drop files to upload</p>
+            <span>Files will be saved to <strong>{currentPath || '/'}</strong></span>
+          </div>
+        </div>
+      )}
+
+      {/* Upload progress indicator */}
+      {isUploading && (
+        <div className="finder-upload-indicator">
+          <div className="spinner" />
+          <span>Uploading...</span>
+        </div>
+      )}
 
       <FinderStatusBar
         itemCount={items.length}

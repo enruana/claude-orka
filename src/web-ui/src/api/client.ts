@@ -355,6 +355,23 @@ export const api = {
     }
   },
 
+  async uploadFiles(projectEncoded: string, files: File[], destination: string = ''): Promise<{ success: boolean; uploaded: { name: string; path: string }[] }> {
+    const formData = new FormData()
+    for (const file of files) {
+      formData.append('files', file)
+    }
+    formData.append('destination', destination)
+    const res = await fetch(`${API_BASE}/files/upload?project=${projectEncoded}`, {
+      method: 'POST',
+      body: formData,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Upload failed' }))
+      throw new Error(data.error || 'Upload failed')
+    }
+    return res.json()
+  },
+
   async searchFiles(projectEncoded: string, query: string, options?: { caseSensitive?: boolean; regex?: boolean }): Promise<SearchResponse> {
     const params = new URLSearchParams({
       project: projectEncoded,

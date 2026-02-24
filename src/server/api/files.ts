@@ -661,13 +661,14 @@ filesRouter.post('/move', async (req, res) => {
 
 /**
  * POST /api/files/upload?project=<base64>
- * Uploads a file to .claude-orka/uploads/ and returns the absolute path
+ * Uploads files to a specified directory within the project.
+ * Body (multipart): files[] + destination (relative path, defaults to project root)
  */
 const upload = multer({
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max per file
 })
 
-filesRouter.post('/upload', upload.single('file'), async (req, res) => {
+filesRouter.post('/upload', upload.array('files', 20), async (req, res) => {
   try {
     const projectEncoded = req.query.project as string
     if (!projectEncoded) {
@@ -682,34 +683,49 @@ filesRouter.post('/upload', upload.single('file'), async (req, res) => {
       return
     }
 
-    const file = req.file
-    if (!file) {
-      res.status(400).json({ error: 'No file provided' })
+    const files = req.files as Express.Multer.File[]
+    if (!files || files.length === 0) {
+      res.status(400).json({ error: 'No files provided' })
       return
     }
 
-    // Sanitize filename: remove path separators and null bytes
-    const sanitizedName = file.originalname
-      .replace(/[/\\]/g, '_')
-      .replace(/\0/g, '')
-      .replace(/\.\./g, '_')
+    // Destination directory (relative to project root)
+    const destination = (req.body?.destination as string) || ''
 
-    const timestamp = Date.now()
-    const fileName = `${timestamp}-${sanitizedName}`
-    const uploadsDir = path.join(projectPath, '.claude-orka', 'uploads')
-    await fs.ensureDir(uploadsDir)
-
-    const destPath = path.join(uploadsDir, fileName)
-
-    // Verify the resolved path is within the uploads directory
-    if (!path.resolve(destPath).startsWith(path.resolve(uploadsDir))) {
-      res.status(403).json({ error: 'Invalid file name' })
+    if (destination && !isPathSafe(projectPath, destination)) {
+      res.status(403).json({ error: 'Access denied' })
       return
     }
 
-    await fs.writeFile(destPath, file.buffer)
+    const targetDir = destination
+      ? path.join(projectPath, destination)
+      : projectPath
 
-    res.json({ success: true, absolutePath: destPath })
+    await fs.ensureDir(targetDir)
+
+    const uploaded: { name: string; path: string }[] = []
+
+    for (const file of files) {
+      // Sanitize filename: remove path separators and null bytes
+      const sanitizedName = file.originalname
+        .replace(/[/\\]/g, '_')
+        .replace(/\0/g, '')
+        .replace(/\.\./g, '_')
+
+      const destPath = path.join(targetDir, sanitizedName)
+
+      // Verify the resolved path is within the project directory
+      if (!path.resolve(destPath).startsWith(path.resolve(projectPath))) {
+        continue // Skip unsafe files
+      }
+
+      await fs.writeFile(destPath, file.buffer)
+
+      const relativePath = path.relative(projectPath, destPath)
+      uploaded.push({ name: sanitizedName, path: relativePath })
+    }
+
+    res.json({ success: true, uploaded })
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }

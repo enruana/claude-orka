@@ -8,6 +8,7 @@
   background: var(--bg-primary);
   color: var(--text-primary);
   outline: none;
+  position: relative;
 }
 
 .finder-embedded {
@@ -491,6 +492,59 @@
   gap: var(--space-xs);
   text-align: center;
   font-size: 13px;
+}
+
+/* ==================== Drop Overlay ==================== */
+
+.finder-drop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 132, 255, 0.08);
+  border: 2px dashed var(--accent-blue);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.finder-drop-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--accent-blue);
+  text-align: center;
+}
+
+.finder-drop-overlay-content p {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.finder-drop-overlay-content span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.finder-upload-indicator {
+  position: absolute;
+  bottom: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 /* ==================== Mobile Responsive ==================== */
