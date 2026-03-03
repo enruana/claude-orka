@@ -31,4 +31,7 @@ export interface Fork {
 
   /** Fecha en que se hizo merge (ISO timestamp) */
   mergedAt?: string
+
+  /** Cached context summary from last close/detach (used during resume as fallback) */
+  lastContextSummary?: string
 }

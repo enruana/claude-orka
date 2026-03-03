@@ -1,12 +1,18 @@
 import fs from 'fs-extra'
 import os from 'os'
 import path from 'path'
+import readline from 'readline'
 import { logger } from './logger'
 
 /**
  * Path al archivo history.jsonl de Claude
  */
 const CLAUDE_HISTORY_PATH = path.join(os.homedir(), '.claude', 'history.jsonl')
+
+/**
+ * Base path for Claude project session files
+ */
+const CLAUDE_PROJECTS_PATH = path.join(os.homedir(), '.claude', 'projects')
 
 /**
  * Entrada del history.jsonl de Claude
@@ -175,4 +181,161 @@ export async function getLatestSessionForProject(
 ): Promise<ClaudeSessionSummary | null> {
   const sessions = await listClaudeSessions(projectPath, 1)
   return sessions.length > 0 ? sessions[0] : null
+}
+
+// ==========================================
+// SESSION VALIDATION & CONTEXT UTILITIES
+// ==========================================
+
+/**
+ * Encode a project path for Claude's projects directory lookup.
+ * Claude uses the pattern: replace '/' with '-' and strip leading '-'
+ * e.g. "/Users/foo/project" → "-Users-foo-project"
+ */
+export function encodeProjectPath(projectPath: string): string {
+  return projectPath.replace(/\//g, '-')
+}
+
+/**
+ * Check if a Claude session JSONL file exists on disk.
+ * @param projectPath Absolute project path
+ * @param sessionId Claude session UUID
+ * @returns true if the JSONL file exists
+ */
+export async function claudeSessionFileExists(
+  projectPath: string,
+  sessionId: string
+): Promise<boolean> {
+  const encoded = encodeProjectPath(projectPath)
+  const sessionFile = path.join(CLAUDE_PROJECTS_PATH, encoded, `${sessionId}.jsonl`)
+  return fs.pathExists(sessionFile)
+}
+
+/**
+ * Entry in Claude's sessions-index.json
+ */
+interface SessionsIndexEntry {
+  sessionId: string
+  fullPath: string
+  fileMtime: number
+  firstPrompt: string
+  summary: string
+  messageCount: number
+  created: string
+  modified: string
+  gitBranch?: string
+  projectPath: string
+  isSidechain: boolean
+}
+
+/**
+ * Get context summary for a Claude session.
+ * Strategy:
+ *   1. Read sessions-index.json and find the entry (fast, small file)
+ *   2. If not found, fall back to reading the tail of the JSONL file for a summary entry
+ * @returns Summary string or null if not found
+ */
+export async function getSessionContextSummary(
+  projectPath: string,
+  sessionId: string
+): Promise<string | null> {
+  const encoded = encodeProjectPath(projectPath)
+  const projectDir = path.join(CLAUDE_PROJECTS_PATH, encoded)
+
+  // Strategy 1: sessions-index.json (fast)
+  try {
+    const indexPath = path.join(projectDir, 'sessions-index.json')
+    if (await fs.pathExists(indexPath)) {
+      const indexData = await fs.readJson(indexPath)
+      const entries: SessionsIndexEntry[] = indexData.entries || []
+      const entry = entries.find((e) => e.sessionId === sessionId)
+      if (entry?.summary) {
+        logger.debug(`Found session summary in index: "${entry.summary}"`)
+        return entry.summary
+      }
+    }
+  } catch (error) {
+    logger.debug(`Could not read sessions-index.json: ${error}`)
+  }
+
+  // Strategy 2: Read tail of JSONL file for summary entry
+  try {
+    const sessionFile = path.join(projectDir, `${sessionId}.jsonl`)
+    if (!(await fs.pathExists(sessionFile))) {
+      return null
+    }
+
+    // Read last 200 lines efficiently using reverse line reader
+    const lines = await readLastLines(sessionFile, 200)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i])
+        if (entry.type === 'summary' && entry.summary) {
+          logger.debug(`Found summary in JSONL tail: "${entry.summary}"`)
+          return entry.summary
+        }
+      } catch {
+        // Skip unparseable lines
+      }
+    }
+  } catch (error) {
+    logger.debug(`Could not read session JSONL for summary: ${error}`)
+  }
+
+  return null
+}
+
+/**
+ * Find the most recent Claude session for a project from sessions-index.json.
+ * Useful as fallback when the original session JSONL no longer exists
+ * (e.g., after /clear which creates a new session).
+ * @param projectPath Absolute project path
+ * @param excludeSessionId Optional session ID to exclude from results
+ * @returns The most recent session entry or null
+ */
+export async function findLatestSessionFromIndex(
+  projectPath: string,
+  excludeSessionId?: string
+): Promise<SessionsIndexEntry | null> {
+  const encoded = encodeProjectPath(projectPath)
+  const indexPath = path.join(CLAUDE_PROJECTS_PATH, encoded, 'sessions-index.json')
+
+  try {
+    if (!(await fs.pathExists(indexPath))) {
+      return null
+    }
+
+    const indexData = await fs.readJson(indexPath)
+    const entries: SessionsIndexEntry[] = (indexData.entries || [])
+      .filter((e: SessionsIndexEntry) => !e.isSidechain)
+      .filter((e: SessionsIndexEntry) => !excludeSessionId || e.sessionId !== excludeSessionId)
+
+    if (entries.length === 0) return null
+
+    // Sort by modified date descending
+    entries.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime())
+
+    return entries[0]
+  } catch (error) {
+    logger.debug(`Could not read sessions-index.json: ${error}`)
+    return null
+  }
+}
+
+/**
+ * Read the last N lines of a file efficiently.
+ */
+async function readLastLines(filePath: string, count: number): Promise<string[]> {
+  const lines: string[] = []
+  const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' })
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity })
+
+  for await (const line of rl) {
+    lines.push(line)
+    if (lines.length > count) {
+      lines.shift()
+    }
+  }
+
+  return lines
 }

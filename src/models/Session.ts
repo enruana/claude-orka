@@ -61,4 +61,7 @@ export interface MainBranch {
 
   /** Path al contexto exportado (solo para merge, relativo a projectPath) */
   contextPath?: string
+
+  /** Cached context summary from last close/detach (used during resume as fallback) */
+  lastContextSummary?: string
 }

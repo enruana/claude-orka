@@ -1,7 +1,13 @@
 import { StateManager } from './StateManager'
 import { getGlobalStateManager } from './GlobalStateManager'
 import { Session, Fork, SessionFilters } from '../models'
-import { TmuxCommands, logger } from '../utils'
+import {
+  TmuxCommands,
+  logger,
+  claudeSessionFileExists,
+  getSessionContextSummary,
+  findLatestSessionFromIndex,
+} from '../utils'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
 import fs from 'fs-extra'
@@ -14,13 +20,14 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * Opciones para inicializar Claude
  */
 interface InitOptions {
-  type: 'new' | 'resume' | 'fork' | 'continue'
-  sessionId?: string // Para new
+  type: 'new' | 'resume' | 'fork' | 'continue' | 'new-fallback'
+  sessionId?: string // Para new and new-fallback
   resumeSessionId?: string // Para resume y continue
   parentSessionId?: string // Para fork
   forkSessionId?: string // Pre-generated session ID for fork (eliminates detection wait)
   sessionName?: string // Para contexto en el prompt
   forkName?: string // Para forks
+  contextSummary?: string // Context summary for enhanced resume prompts
 }
 
 /**
@@ -236,12 +243,54 @@ export class SessionManager {
     // 2.5. Set pane title for main branch
     await TmuxCommands.setPaneTitle(paneId, `🎭 MAIN`)
 
-    // 3. Resume Claude session (Claude handles context automatically)
-    await this.initializeClaude(paneId, {
-      type: 'resume',
-      resumeSessionId: session.main.claudeSessionId,
-      sessionName: session.name,
-    })
+    // 3. Validate Claude session exists before resuming
+    const claudeSessionId = session.main.claudeSessionId
+    const sessionFileExists = await claudeSessionFileExists(this.projectPath, claudeSessionId)
+
+    // Get context summary (try live first, fall back to cached)
+    let contextSummary = await getSessionContextSummary(this.projectPath, claudeSessionId)
+    if (!contextSummary) {
+      contextSummary = session.main.lastContextSummary || null
+    }
+
+    if (sessionFileExists) {
+      // Session file exists - resume normally with enhanced prompt
+      logger.info(`Claude session file found, resuming with context...`)
+      await this.initializeClaude(paneId, {
+        type: 'resume',
+        resumeSessionId: claudeSessionId,
+        sessionName: session.name,
+        contextSummary: contextSummary || undefined,
+      })
+    } else {
+      // Session file missing - try to find latest session for project (e.g. after /clear)
+      logger.warn(`Claude session file not found for ${claudeSessionId}`)
+      const latestSession = await findLatestSessionFromIndex(this.projectPath, claudeSessionId)
+
+      if (latestSession) {
+        // Found a newer session - resume from that instead
+        logger.info(`Found newer session ${latestSession.sessionId}, resuming from it...`)
+        const latestSummary = latestSession.summary || contextSummary
+        session.main.claudeSessionId = latestSession.sessionId
+        await this.initializeClaude(paneId, {
+          type: 'resume',
+          resumeSessionId: latestSession.sessionId,
+          sessionName: session.name,
+          contextSummary: latestSummary || undefined,
+        })
+      } else {
+        // No session found at all - create fresh with context
+        logger.warn(`No Claude session found, creating new session with context recovery...`)
+        const newClaudeSessionId = uuidv4()
+        session.main.claudeSessionId = newClaudeSessionId
+        await this.initializeClaude(paneId, {
+          type: 'new-fallback',
+          sessionId: newClaudeSessionId,
+          sessionName: session.name,
+          contextSummary: contextSummary || undefined,
+        })
+      }
+    }
 
     // 4. Start ttyd web terminal
     const ttydResult = await this.startTtyd(tmuxSessionId)
@@ -289,10 +338,35 @@ export class SessionManager {
       await this.stopTtyd(session.ttydPid || 0, session.ttydPort)
     }
 
-    // 2. Keep tmux session alive (processes continue running)
+    // 2. Cache context summaries before detaching
+    try {
+      const mainSummary = await getSessionContextSummary(this.projectPath, session.main.claudeSessionId)
+      if (mainSummary) {
+        session.main.lastContextSummary = mainSummary
+        logger.debug(`Cached main context summary on detach: "${mainSummary}"`)
+      }
+    } catch (error) {
+      logger.debug(`Could not cache main context summary: ${error}`)
+    }
+
+    for (const fork of session.forks) {
+      if (fork.status === 'active') {
+        try {
+          const forkSummary = await getSessionContextSummary(this.projectPath, fork.claudeSessionId)
+          if (forkSummary) {
+            fork.lastContextSummary = forkSummary
+            logger.debug(`Cached fork "${fork.name}" context summary on detach: "${forkSummary}"`)
+          }
+        } catch (error) {
+          logger.debug(`Could not cache fork context summary: ${error}`)
+        }
+      }
+    }
+
+    // 3. Keep tmux session alive (processes continue running)
     // Just clear pane IDs but don't kill anything
 
-    // 3. Update state - mark as saved but keep tmux running
+    // 4. Update state - mark as saved but keep tmux running
     session.main.status = 'saved'
     session.main.tmuxPaneId = undefined
     session.status = 'saved'
@@ -338,7 +412,32 @@ export class SessionManager {
       }
     }
 
-    // 3. Update state - mark as saved, clear all pane IDs
+    // 3. Cache context summaries before closing
+    try {
+      const mainSummary = await getSessionContextSummary(this.projectPath, session.main.claudeSessionId)
+      if (mainSummary) {
+        session.main.lastContextSummary = mainSummary
+        logger.debug(`Cached main context summary: "${mainSummary}"`)
+      }
+    } catch (error) {
+      logger.debug(`Could not cache main context summary: ${error}`)
+    }
+
+    for (const fork of session.forks) {
+      if (fork.status === 'active' || fork.status === 'saved') {
+        try {
+          const forkSummary = await getSessionContextSummary(this.projectPath, fork.claudeSessionId)
+          if (forkSummary) {
+            fork.lastContextSummary = forkSummary
+            logger.debug(`Cached fork "${fork.name}" context summary: "${forkSummary}"`)
+          }
+        } catch (error) {
+          logger.debug(`Could not cache fork context summary: ${error}`)
+        }
+      }
+    }
+
+    // 4. Update state - mark as saved, clear all pane IDs
     session.main.status = 'saved'
     session.main.tmuxPaneId = undefined
     session.status = 'saved'
@@ -545,14 +644,63 @@ export class SessionManager {
     // 4. Set pane title to show fork name
     await TmuxCommands.setPaneTitle(forkPaneId, `🔀 ${fork.name}`)
 
-    // 3. Restaurar Claude fork session (Claude maneja el contexto)
-    await this.initializeClaude(forkPaneId, {
-      type: 'resume',
-      resumeSessionId: fork.claudeSessionId,
-      sessionName: fork.name,
-    })
+    // 5. Validate fork session exists before resuming
+    const forkSessionExists = await claudeSessionFileExists(this.projectPath, fork.claudeSessionId)
 
-    // 4. Actualizar fork
+    // Get context summary (try live first, fall back to cached)
+    let forkContextSummary = await getSessionContextSummary(this.projectPath, fork.claudeSessionId)
+    if (!forkContextSummary) {
+      forkContextSummary = fork.lastContextSummary || null
+    }
+
+    if (forkSessionExists) {
+      // Fork session file exists - resume normally
+      await this.initializeClaude(forkPaneId, {
+        type: 'resume',
+        resumeSessionId: fork.claudeSessionId,
+        sessionName: fork.name,
+        contextSummary: forkContextSummary || undefined,
+      })
+    } else {
+      // Fork session file missing - re-fork from parent
+      logger.warn(`Fork session file not found for ${fork.claudeSessionId}, re-forking from parent...`)
+
+      let parentClaudeSessionId: string
+      if (fork.parentId === 'main') {
+        parentClaudeSessionId = session.main.claudeSessionId
+      } else {
+        const parentFork = session.forks.find((f) => f.id === fork.parentId)
+        parentClaudeSessionId = parentFork?.claudeSessionId || session.main.claudeSessionId
+      }
+
+      // Check if parent session exists
+      const parentExists = await claudeSessionFileExists(this.projectPath, parentClaudeSessionId)
+      if (parentExists) {
+        // Re-fork from parent with new session ID
+        const newForkSessionId = uuidv4()
+        fork.claudeSessionId = newForkSessionId
+        await this.initializeClaude(forkPaneId, {
+          type: 'fork',
+          parentSessionId: parentClaudeSessionId,
+          forkSessionId: newForkSessionId,
+          forkName: fork.name,
+        })
+        logger.info(`Fork re-created from parent with new session ${newForkSessionId}`)
+      } else {
+        // Parent also missing - create fresh session with context
+        logger.warn(`Parent session also missing, creating fresh fork session...`)
+        const newForkSessionId = uuidv4()
+        fork.claudeSessionId = newForkSessionId
+        await this.initializeClaude(forkPaneId, {
+          type: 'new-fallback',
+          sessionId: newForkSessionId,
+          sessionName: fork.name,
+          contextSummary: forkContextSummary || undefined,
+        })
+      }
+    }
+
+    // 6. Update fork
     fork.tmuxPaneId = forkPaneId
     fork.status = 'active'
 
@@ -1070,7 +1218,7 @@ Analyze the content and help me integrate the changes and learnings from the for
    * Initialize Claude en un pane con prompt inicial
    */
   private async initializeClaude(paneId: string, options: InitOptions): Promise<void> {
-    const { type, sessionId, resumeSessionId, parentSessionId, forkSessionId, sessionName, forkName } = options
+    const { type, sessionId, resumeSessionId, parentSessionId, forkSessionId, sessionName, forkName, contextSummary } = options
 
     // 1. cd al proyecto
     await TmuxCommands.sendKeys(paneId, `cd ${this.projectPath}`)
@@ -1079,28 +1227,51 @@ Analyze the content and help me integrate the changes and learnings from the for
 
     // 2. Build command based on type
     let command = ''
+    // Helper to escape double quotes for shell safety
+    const escapeQuotes = (s: string) => s.replace(/"/g, '\\"')
 
     switch (type) {
-      case 'new':
-        const newPrompt = `Hello, this is a new main session called "${sessionName}". We are working on the project.`
+      case 'new': {
+        const newPrompt = `Hello, this is a new main session called "${escapeQuotes(sessionName || '')}". We are working on the project.`
         command = `claude --session-id ${sessionId} "${newPrompt}"`
         break
+      }
 
-      case 'resume':
-        const resumePrompt = `Resuming session "${sessionName}".`
+      case 'resume': {
+        let resumePrompt: string
+        if (contextSummary) {
+          resumePrompt = `Resuming session "${escapeQuotes(sessionName || '')}". Context from previous work: ${escapeQuotes(contextSummary)}. Please continue where we left off.`
+        } else {
+          resumePrompt = `Resuming session "${escapeQuotes(sessionName || '')}". Please review CLAUDE.md and continue where we left off.`
+        }
         command = `claude --resume ${resumeSessionId} "${resumePrompt}"`
         break
+      }
 
-      case 'continue':
-        const continuePrompt = `Continuing previous conversation in Orka session "${sessionName}".`
+      case 'continue': {
+        const continuePrompt = `Continuing previous conversation in Orka session "${escapeQuotes(sessionName || '')}".`
         command = `claude --resume ${resumeSessionId} "${continuePrompt}"`
         break
+      }
 
-      case 'fork':
-        const forkPrompt = `This is a fork called "${forkName}". Keep in mind we are exploring an alternative to the main conversation.`
+      case 'fork': {
+        const forkPrompt = `This is a fork called "${escapeQuotes(forkName || '')}". Keep in mind we are exploring an alternative to the main conversation.`
         // Use --session-id to pre-set the fork's session ID (eliminates need to detect from history)
         command = `claude --resume ${parentSessionId} --fork-session --session-id ${forkSessionId} "${forkPrompt}"`
         break
+      }
+
+      case 'new-fallback': {
+        // Session was lost - create fresh with context recovery
+        let fallbackPrompt: string
+        if (contextSummary) {
+          fallbackPrompt = `This is session "${escapeQuotes(sessionName || '')}" being recovered. Previous context: ${escapeQuotes(contextSummary)}. The previous session was lost. Please read CLAUDE.md and continue where we left off.`
+        } else {
+          fallbackPrompt = `This is session "${escapeQuotes(sessionName || '')}" being recovered. The previous session was lost. Please read CLAUDE.md and let me know how I can help.`
+        }
+        command = `claude --session-id ${sessionId} "${fallbackPrompt}"`
+        break
+      }
     }
 
     logger.info(`Executing: ${command}`)
