@@ -2543,9 +2543,11 @@
                   body: formData
                 });
                 const data = await res.json();
-                if (data.success) {
-                  paths.push(data.absolutePath.includes(' ') ? `"${data.absolutePath}"` : data.absolutePath);
-                } else {
+                if (data.success && data.uploaded) {
+                  for (const item of data.uploaded) {
+                    paths.push(item.absolutePath.includes(' ') ? `"${item.absolutePath}"` : item.absolutePath);
+                  }
+                } else if (!data.success) {
                   console.error('Upload failed:', data.error);
                 }
               } catch (err) {

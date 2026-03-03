@@ -128,8 +128,10 @@ export function SessionView({
             body: formData,
           })
           const data = await res.json()
-          if (data.success) {
-            paths.push(data.absolutePath.includes(' ') ? `"${data.absolutePath}"` : data.absolutePath)
+          if (data.success && data.uploaded) {
+            for (const item of data.uploaded) {
+              paths.push(item.absolutePath.includes(' ') ? `"${item.absolutePath}"` : item.absolutePath)
+            }
           }
         } catch (err) {
           console.error('Upload failed:', err)

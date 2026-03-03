@@ -668,7 +668,13 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max per file
 })
 
-filesRouter.post('/upload', upload.array('files', 20), async (req, res) => {
+// Accept both 'files' (plural, from finder) and 'file' (singular, from terminal drag-drop)
+const uploadFields = upload.fields([
+  { name: 'files', maxCount: 20 },
+  { name: 'file', maxCount: 1 },
+])
+
+filesRouter.post('/upload', uploadFields, async (req, res) => {
   try {
     const projectEncoded = req.query.project as string
     if (!projectEncoded) {
@@ -683,27 +689,37 @@ filesRouter.post('/upload', upload.array('files', 20), async (req, res) => {
       return
     }
 
-    const files = req.files as Express.Multer.File[]
-    if (!files || files.length === 0) {
+    const reqFiles = req.files as Record<string, Express.Multer.File[]> | undefined
+    const files = [
+      ...(reqFiles?.['files'] || []),
+      ...(reqFiles?.['file'] || []),
+    ]
+    if (files.length === 0) {
       res.status(400).json({ error: 'No files provided' })
       return
     }
 
     // Destination directory (relative to project root)
+    // Finder always sends 'destination' field (even empty for root).
+    // Terminal callers don't send it at all → fall back to .claude-orka/uploads/
+    const hasDestination = req.body != null && 'destination' in req.body
     const destination = (req.body?.destination as string) || ''
+
+    const useUploadsDir = !hasDestination
+    const targetDir = useUploadsDir
+      ? path.join(projectPath, '.claude-orka', 'uploads')
+      : destination
+        ? path.join(projectPath, destination)
+        : projectPath
 
     if (destination && !isPathSafe(projectPath, destination)) {
       res.status(403).json({ error: 'Access denied' })
       return
     }
 
-    const targetDir = destination
-      ? path.join(projectPath, destination)
-      : projectPath
-
     await fs.ensureDir(targetDir)
 
-    const uploaded: { name: string; path: string }[] = []
+    const uploaded: { name: string; path: string; absolutePath: string }[] = []
 
     for (const file of files) {
       // Sanitize filename: remove path separators and null bytes
@@ -712,7 +728,9 @@ filesRouter.post('/upload', upload.array('files', 20), async (req, res) => {
         .replace(/\0/g, '')
         .replace(/\.\./g, '_')
 
-      const destPath = path.join(targetDir, sanitizedName)
+      // Add timestamp prefix for uploads dir to avoid collisions
+      const fileName = useUploadsDir ? `${Date.now()}-${sanitizedName}` : sanitizedName
+      const destPath = path.join(targetDir, fileName)
 
       // Verify the resolved path is within the project directory
       if (!path.resolve(destPath).startsWith(path.resolve(projectPath))) {
@@ -722,7 +740,7 @@ filesRouter.post('/upload', upload.array('files', 20), async (req, res) => {
       await fs.writeFile(destPath, file.buffer)
 
       const relativePath = path.relative(projectPath, destPath)
-      uploaded.push({ name: sanitizedName, path: relativePath })
+      uploaded.push({ name: sanitizedName, path: relativePath, absolutePath: destPath })
     }
 
     res.json({ success: true, uploaded })
