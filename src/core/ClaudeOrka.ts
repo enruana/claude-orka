@@ -122,6 +122,17 @@ export class ClaudeOrka {
   }
 
   /**
+   * Sync session IDs for an active session.
+   * Detects when Claude session IDs change at runtime (e.g., /clear, crash/restart)
+   * and updates Orka state with the new ID.
+   * @param sessionId Orka session ID
+   * @returns Object describing changes, or null if nothing changed
+   */
+  async syncSessionIds(sessionId: string): Promise<{ mainChanged: boolean; forksChanged: string[] } | null> {
+    return await this.sessionManager.syncSessionIds(sessionId)
+  }
+
+  /**
    * Get complete project summary
    * Includes statistics of all sessions and their forks
    * @returns Project summary with all sessions and statistics

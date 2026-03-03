@@ -323,6 +323,72 @@ export async function findLatestSessionFromIndex(
 }
 
 /**
+ * Find the latest Claude session for a project that is NOT already tracked by Orka.
+ * Used for runtime detection: if the user does /clear, a new session appears
+ * that isn't in our tracked set — that's the replacement.
+ *
+ * @param projectPath Absolute project path
+ * @param trackedSessionIds Set of all Claude session IDs currently tracked by Orka
+ * @param afterTimestamp Only consider sessions created/modified after this ISO timestamp
+ * @returns The most recent untracked session entry or null
+ */
+export async function findLatestUnassignedSession(
+  projectPath: string,
+  trackedSessionIds: Set<string>,
+  afterTimestamp?: string
+): Promise<SessionsIndexEntry | null> {
+  const encoded = encodeProjectPath(projectPath)
+  const indexPath = path.join(CLAUDE_PROJECTS_PATH, encoded, 'sessions-index.json')
+
+  try {
+    if (!(await fs.pathExists(indexPath))) {
+      return null
+    }
+
+    const indexData = await fs.readJson(indexPath)
+    let entries: SessionsIndexEntry[] = (indexData.entries || [])
+      .filter((e: SessionsIndexEntry) => !e.isSidechain)
+      .filter((e: SessionsIndexEntry) => !trackedSessionIds.has(e.sessionId))
+
+    // Filter by timestamp if provided
+    if (afterTimestamp) {
+      const afterMs = new Date(afterTimestamp).getTime()
+      entries = entries.filter(
+        (e) => new Date(e.created).getTime() > afterMs || new Date(e.modified).getTime() > afterMs
+      )
+    }
+
+    if (entries.length === 0) return null
+
+    // Sort by modified date descending (most recent first)
+    entries.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime())
+
+    return entries[0]
+  } catch (error) {
+    logger.debug(`Could not search for unassigned sessions: ${error}`)
+    return null
+  }
+}
+
+/**
+ * Get the modification time of a Claude session JSONL file.
+ * @returns mtime in ms or null if file doesn't exist
+ */
+export async function getSessionFileMtime(
+  projectPath: string,
+  sessionId: string
+): Promise<number | null> {
+  const encoded = encodeProjectPath(projectPath)
+  const sessionFile = path.join(CLAUDE_PROJECTS_PATH, encoded, `${sessionId}.jsonl`)
+  try {
+    const stat = await fs.stat(sessionFile)
+    return stat.mtimeMs
+  } catch {
+    return null
+  }
+}
+
+/**
  * Read the last N lines of a file efficiently.
  */
 async function readLastLines(filePath: string, count: number): Promise<string[]> {

@@ -76,6 +76,7 @@ sessionsRouter.post('/', async (req, res) => {
 /**
  * GET /api/sessions/:sessionId?project=<base64-path>
  * Get a specific session
+ * Automatically syncs session IDs for active sessions (detects /clear, crashes, etc.)
  */
 sessionsRouter.get('/:sessionId', async (req, res) => {
   try {
@@ -91,6 +92,16 @@ sessionsRouter.get('/:sessionId', async (req, res) => {
     const orka = new ClaudeOrka(projectPath)
     await orka.initialize()
 
+    // Auto-sync session IDs for active sessions (non-blocking best-effort)
+    try {
+      const syncResult = await orka.syncSessionIds(sessionId)
+      if (syncResult) {
+        logger.info(`Session ${sessionId} IDs synced: main=${syncResult.mainChanged}, forks=${syncResult.forksChanged.join(',')}`)
+      }
+    } catch (syncError) {
+      logger.debug(`Session sync skipped: ${syncError}`)
+    }
+
     const session = await orka.getSession(sessionId)
     if (!session) {
       res.status(404).json({ error: 'Session not found' })
@@ -100,6 +111,33 @@ sessionsRouter.get('/:sessionId', async (req, res) => {
     res.json(session)
   } catch (error: any) {
     logger.error('Failed to get session:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/sessions/:sessionId/sync?project=<base64-path>
+ * Explicitly sync session IDs (detect /clear, crashes, etc.)
+ */
+sessionsRouter.post('/:sessionId/sync', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const encodedPath = req.query.project as string
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    const result = await orka.syncSessionIds(sessionId)
+
+    res.json({ synced: !!result, changes: result })
+  } catch (error: any) {
+    logger.error('Failed to sync session IDs:', error)
     res.status(500).json({ error: error.message })
   }
 })

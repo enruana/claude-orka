@@ -7,6 +7,8 @@ import {
   claudeSessionFileExists,
   getSessionContextSummary,
   findLatestSessionFromIndex,
+  findLatestUnassignedSession,
+  getSessionFileMtime,
 } from '../utils'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
@@ -500,6 +502,96 @@ export class SessionManager {
    */
   async getSession(sessionId: string): Promise<Session | null> {
     return await this.stateManager.getSession(sessionId)
+  }
+
+  /**
+   * Sync session IDs for an active session.
+   * Detects when Claude session IDs change at runtime (e.g., user did /clear,
+   * Claude crashed and restarted, etc.) and updates Orka state accordingly.
+   *
+   * Detection strategy:
+   *   1. Check if the stored session's JSONL has been modified recently
+   *   2. Look for untracked sessions in sessions-index.json (newer ones not in Orka state)
+   *   3. If found, update the Orka session's claudeSessionId
+   *
+   * @returns Object describing what changed, or null if nothing changed
+   */
+  async syncSessionIds(sessionId: string): Promise<{ mainChanged: boolean; forksChanged: string[] } | null> {
+    const session = await this.getSession(sessionId)
+    if (!session || session.status !== 'active') return null
+
+    // Collect all Claude session IDs tracked by ALL Orka sessions in this project
+    const allSessions = await this.listSessions()
+    const trackedIds = new Set<string>()
+    for (const s of allSessions) {
+      trackedIds.add(s.main.claudeSessionId)
+      for (const f of s.forks) {
+        trackedIds.add(f.claudeSessionId)
+      }
+    }
+
+    let mainChanged = false
+    const forksChanged: string[] = []
+
+    // Check main session
+    const mainMtime = await getSessionFileMtime(this.projectPath, session.main.claudeSessionId)
+    const sessionLastActivity = new Date(session.lastActivity).getTime()
+
+    // Look for unassigned sessions created/modified after our last known activity
+    const unassigned = await findLatestUnassignedSession(
+      this.projectPath,
+      trackedIds,
+      session.lastActivity
+    )
+
+    if (unassigned) {
+      const unassignedModified = new Date(unassigned.modified).getTime()
+
+      // If the unassigned session is newer than our current session's file,
+      // and our file hasn't been updated since lastActivity, it's likely a replacement
+      const isNewer = mainMtime ? unassignedModified > mainMtime : true
+      const mainIsStale = mainMtime ? mainMtime < sessionLastActivity : true
+
+      if (isNewer || mainIsStale) {
+        const oldId = session.main.claudeSessionId
+        session.main.claudeSessionId = unassigned.sessionId
+        session.main.lastContextSummary = unassigned.summary || session.main.lastContextSummary
+        trackedIds.add(unassigned.sessionId) // Track the new ID
+        mainChanged = true
+        logger.info(`[syncSessionIds] Main session ID updated: ${oldId} → ${unassigned.sessionId} (${unassigned.summary || 'no summary'})`)
+      }
+    }
+
+    // Check active forks
+    for (const fork of session.forks) {
+      if (fork.status !== 'active') continue
+
+      const forkMtime = await getSessionFileMtime(this.projectPath, fork.claudeSessionId)
+      if (forkMtime === null) {
+        // Fork session file doesn't exist at all - look for unassigned replacement
+        const forkReplacement = await findLatestUnassignedSession(
+          this.projectPath,
+          trackedIds,
+          fork.createdAt
+        )
+        if (forkReplacement) {
+          const oldForkId = fork.claudeSessionId
+          fork.claudeSessionId = forkReplacement.sessionId
+          fork.lastContextSummary = forkReplacement.summary || fork.lastContextSummary
+          trackedIds.add(forkReplacement.sessionId)
+          forksChanged.push(fork.id)
+          logger.info(`[syncSessionIds] Fork "${fork.name}" session ID updated: ${oldForkId} → ${forkReplacement.sessionId}`)
+        }
+      }
+    }
+
+    if (mainChanged || forksChanged.length > 0) {
+      session.lastActivity = new Date().toISOString()
+      await this.stateManager.replaceSession(session)
+      return { mainChanged, forksChanged }
+    }
+
+    return null
   }
 
   // ==========================================
