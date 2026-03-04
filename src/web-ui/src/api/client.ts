@@ -126,6 +126,20 @@ export interface GitCommitLog {
   relativeDate: string
 }
 
+// AI Query types
+export interface AIQueryContext {
+  type: 'terminal' | 'code' | 'none'
+  projectPath?: string
+  terminalPaneId?: string
+  fileContent?: string
+  filePath?: string
+  selection?: string
+}
+
+export interface AIQueryResponse {
+  answer: string
+}
+
 // Use origin-based URL for VPN/remote access compatibility
 const API_BASE = `${window.location.origin}/api`
 
@@ -477,5 +491,19 @@ export const api = {
       method: 'DELETE',
     })
     if (!res.ok) throw new Error(await res.text())
+  },
+
+  // AI Query
+  async aiQuery(question: string, context?: AIQueryContext): Promise<AIQueryResponse> {
+    const res = await fetch(`${API_BASE}/ai/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, context }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'AI query failed' }))
+      throw new Error(data.error || 'AI query failed')
+    }
+    return res.json()
   },
 }

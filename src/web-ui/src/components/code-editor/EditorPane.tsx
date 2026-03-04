@@ -124,6 +124,32 @@ export function EditorPane({ content, filePath, onChange, readOnly = false, goTo
     }
   }, [isMobile])
 
+  // Listen for Quick AI context requests (Cmd+K)
+  useEffect(() => {
+    const handleContextRequest = () => {
+      const ed = editorRef.current
+      if (!ed) return
+
+      const model = ed.getModel()
+      const selection = ed.getSelection()
+      let selectedText = ''
+      if (selection && !selection.isEmpty()) {
+        selectedText = model?.getValueInRange(selection) || ''
+      }
+
+      window.dispatchEvent(new CustomEvent('orka-editor-context', {
+        detail: {
+          fileContent: model?.getValue() || '',
+          filePath,
+          selection: selectedText,
+        },
+      }))
+    }
+
+    window.addEventListener('orka-get-editor-context', handleContextRequest)
+    return () => window.removeEventListener('orka-get-editor-context', handleContextRequest)
+  }, [filePath])
+
   // Handle goToLine
   useEffect(() => {
     const ed = editorRef.current

@@ -2144,6 +2144,16 @@
         // Handle drag and drop of files
         this.setupDragAndDrop();
 
+        // Forward Cmd+K / Ctrl+K to parent window for Quick AI dialog
+        window.addEventListener('keydown', (e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            e.preventDefault();
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: 'orka-cmd-k' }, '*');
+            }
+          }
+        });
+
         // Listen for postMessage from parent (for cross-tab drag and drop)
         window.addEventListener('message', (event) => {
           if (event.data && event.data.type === 'terminal-input' && event.data.text) {

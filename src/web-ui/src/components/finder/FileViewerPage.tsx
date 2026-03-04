@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, AlertCircle } from 'lucide-react'
-import Editor from '@monaco-editor/react'
+import { ArrowLeft, ExternalLink, AlertCircle, Printer } from 'lucide-react'
+import Editor, { useMonaco } from '@monaco-editor/react'
 import { api } from '../../api/client'
 import { MarkdownViewer } from '../code-editor/MarkdownViewer'
 import { getFileType, getMonacoLanguage, getFileIcon, getFileKind } from '../../utils/fileTypes'
 import { usePageTitle } from '../../hooks/usePageTitle'
+import { printFile } from '../../utils/printFile'
 import './finder.css'
 
 export function FileViewerPage() {
@@ -17,6 +18,8 @@ export function FileViewerPage() {
   const [content, setContent] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const monaco = useMonaco()
+  const markdownRef = useRef<HTMLDivElement>(null)
 
   if (!encodedPath || !filePath) {
     return (
@@ -65,6 +68,21 @@ export function FileViewerPage() {
     navigate(`/projects/${encodedPath}/code`)
   }
 
+  const handlePrint = () => {
+    printFile({
+      content: content || '',
+      fileName,
+      filePath,
+      fileType,
+      language: getMonacoLanguage(filePath),
+      monaco: monaco || undefined,
+      renderedHtml: markdownRef.current?.innerHTML,
+      imageUrl: fileType === 'image'
+        ? `/api/files/image?project=${encodedPath}&path=${encodeURIComponent(filePath)}`
+        : undefined,
+    })
+  }
+
   const renderContent = () => {
     if (isLoading) {
       return (
@@ -87,7 +105,7 @@ export function FileViewerPage() {
     switch (fileType) {
       case 'markdown':
         return (
-          <div style={{ padding: 'var(--space-md)' }}>
+          <div ref={markdownRef} style={{ padding: 'var(--space-md)' }}>
             <MarkdownViewer content={content || ''} fileName={fileName} />
           </div>
         )
@@ -158,6 +176,9 @@ export function FileViewerPage() {
           <span className="file-name">{fileName}</span>
         </div>
         <span className="file-viewer-path">{dirPath || '/'}</span>
+        <button className="icon-button" onClick={handlePrint} title="Print / Save as PDF">
+          <Printer size={16} />
+        </button>
         <button className="icon-button" onClick={handleOpenInCodeEditor} title="Open in Code Editor">
           <ExternalLink size={16} />
         </button>
