@@ -57,15 +57,10 @@ export function SessionPage() {
     }
 
     loadData()
-  }, [encodedPath, sessionId, navigate])
+  }, [encodedPath, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBack = () => {
-    if (project) {
-      const encoded = encodeProjectPath(project.path)
-      navigate(`/projects/${encoded}`)
-    } else {
-      navigate('/dashboard')
-    }
+    navigate('/dashboard')
   }
 
   const handleGoHome = () => {

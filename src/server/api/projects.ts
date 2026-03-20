@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
 import { ClaudeOrka } from '../../core/ClaudeOrka'
 import { StateManager, getOrkaVersion } from '../../core/StateManager'
+import { TmuxCommands } from '../../utils/tmux'
 import { logger } from '../../utils'
 import fs from 'fs-extra'
 import path from 'path'
@@ -123,6 +124,22 @@ projectsRouter.post('/:encodedPath/reinitialize', async (req, res) => {
 
     const stateManager = new StateManager(projectPath)
     await stateManager.reinitialize()
+
+    // Apply updated tmux config to all active sessions
+    try {
+      const state = await stateManager.read()
+      const activeSessions = state.sessions.filter(s => s.status === 'active')
+      for (const session of activeSessions) {
+        try {
+          await TmuxCommands.applyOrkaTheme(session.tmuxSessionId, projectPath)
+          logger.info(`Reloaded tmux config for session ${session.tmuxSessionId}`)
+        } catch (err: any) {
+          logger.warn(`Failed to reload tmux config for session ${session.tmuxSessionId}: ${err.message}`)
+        }
+      }
+    } catch (err: any) {
+      logger.warn(`Failed to reload tmux config for active sessions: ${err.message}`)
+    }
 
     const currentVersion = await getOrkaVersion()
 

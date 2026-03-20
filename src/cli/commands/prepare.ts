@@ -40,7 +40,8 @@ export function prepareCommand(program: Command) {
         console.log('  • ffmpeg (audio processing for voice input)')
         console.log('  • cmake (build tool for Whisper)')
         console.log('  • Whisper model (speech-to-text)')
-        console.log('  • Puppeteer + Chromium (terminal screenshots)\n')
+        console.log('  • Puppeteer + Chromium (terminal screenshots)')
+        console.log('  • xclip (clipboard support for tmux on Linux)\n')
 
         if (!options.yes) {
           const rl = readline.createInterface({
@@ -87,6 +88,9 @@ export function prepareCommand(program: Command) {
 
         // Build Whisper and download model
         await setupWhisper()
+
+        // Install xclip (clipboard support for tmux on Linux)
+        await installXclip(system)
 
         // Setup Puppeteer + Chromium (for terminal screenshots)
         await setupPuppeteer()
@@ -370,6 +374,42 @@ async function installCmake(system: SystemInfo) {
     console.log(chalk.yellow('\nPlease install cmake manually:'))
     console.log(chalk.cyan('  macOS: brew install cmake'))
     console.log(chalk.cyan('  Ubuntu: sudo apt-get install cmake'))
+  }
+}
+
+async function installXclip(system: SystemInfo) {
+  // Only needed on Linux
+  if (system.platform !== 'linux') {
+    return
+  }
+
+  console.log(chalk.bold('\n📋 Checking xclip (clipboard for tmux)...\n'))
+
+  // Check if already installed
+  try {
+    await execa('which', ['xclip'])
+    Output.success('xclip is already installed')
+    return
+  } catch {
+    // Not installed, continue
+  }
+
+  try {
+    if (system.hasApt) {
+      await runVisible('sudo', ['apt-get', 'install', '-y', 'xclip'])
+      Output.success('xclip installed via apt')
+    } else if (system.hasYum) {
+      await runVisible('sudo', ['yum', 'install', '-y', 'xclip'])
+      Output.success('xclip installed via yum')
+    } else {
+      Output.error('Unknown package manager')
+      console.log(chalk.yellow('\nPlease install xclip manually'))
+    }
+  } catch (error: any) {
+    Output.error('Failed to install xclip')
+    console.log(chalk.red(`\nError: ${error.message}`))
+    console.log(chalk.yellow('\nPlease install xclip manually:'))
+    console.log(chalk.cyan('  Ubuntu: sudo apt-get install xclip'))
   }
 }
 

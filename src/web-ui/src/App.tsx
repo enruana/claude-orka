@@ -1,4 +1,14 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom'
+import {
+  createBrowserRouter,
+  createRoutesFromElements,
+  RouterProvider,
+  Route,
+  Navigate,
+  Outlet,
+  useLocation,
+  useSearchParams,
+  useRouteError,
+} from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { ProjectDashboard, decodeProjectPath } from './components/ProjectDashboard'
 import { SessionPage } from './components/SessionPage'
@@ -10,16 +20,75 @@ import { TaskWidget } from './components/TaskWidget'
 import { QuickAIDialog } from './components/QuickAIDialog'
 import { api, AIQueryContext } from './api/client'
 
+/**
+ * Error page shown when a route throws during render.
+ * Displays the actual error message for debugging.
+ */
+function RouteErrorPage() {
+  const error = useRouteError() as Error | { statusText?: string; message?: string }
+  const message = error instanceof Error
+    ? error.message
+    : (error as any)?.statusText || (error as any)?.message || JSON.stringify(error)
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', height: '100%', gap: '16px', padding: '24px',
+      color: 'var(--text-primary)', background: 'var(--bg-primary)'
+    }}>
+      <h2>Something went wrong</h2>
+      <pre style={{
+        color: 'var(--text-secondary)', maxWidth: '600px', textAlign: 'left',
+        background: 'var(--bg-secondary)', padding: '16px', borderRadius: '8px',
+        overflow: 'auto', fontSize: '13px', whiteSpace: 'pre-wrap', wordBreak: 'break-word'
+      }}>
+        {message}
+      </pre>
+      {error instanceof Error && error.stack && (
+        <details style={{ maxWidth: '600px', width: '100%' }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}>Stack trace</summary>
+          <pre style={{
+            color: 'var(--text-tertiary)', fontSize: '11px',
+            background: 'var(--bg-secondary)', padding: '12px', borderRadius: '6px',
+            overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: '8px'
+          }}>
+            {error.stack}
+          </pre>
+        </details>
+      )}
+      <button
+        onClick={() => window.location.reload()}
+        style={{
+          padding: '8px 16px', borderRadius: '6px', border: 'none',
+          background: 'var(--accent-blue)', color: 'white', cursor: 'pointer'
+        }}
+      >
+        Reload Page
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Root layout - renders matched child route via Outlet.
+ */
+function RootLayout() {
+  return (
+    <div className="app">
+      <Outlet />
+      <GlobalProjectWidgets />
+    </div>
+  )
+}
+
 function GlobalProjectWidgets() {
   const { pathname } = useLocation()
   const [searchParams] = useSearchParams()
+
   const match = pathname.match(/^\/projects\/([^/]+)/)
-  if (!match) return null
+  const encodedPath = match?.[1] ?? ''
+  const projectPath = match ? decodeProjectPath(encodedPath) : ''
 
-  const encodedPath = match[1]
-  const projectPath = decodeProjectPath(encodedPath)
-
-  // Determine context type from current route
   const sessionMatch = pathname.match(/\/sessions\/([^/]+)/)
   const isCodeRoute = pathname.endsWith('/code')
   const tab = searchParams.get('tab')
@@ -32,7 +101,6 @@ function GlobalProjectWidgets() {
       contextType = 'code'
       contextLabel = 'Code'
     } else {
-      // Default tab is terminal
       contextType = 'terminal'
       contextLabel = 'Terminal'
     }
@@ -43,7 +111,6 @@ function GlobalProjectWidgets() {
 
   const sessionId = sessionMatch?.[1] || null
 
-  // Get context data based on current view
   const getContext = useCallback(async (): Promise<Omit<AIQueryContext, 'type'>> => {
     const base: Omit<AIQueryContext, 'type'> = { projectPath }
 
@@ -54,15 +121,13 @@ function GlobalProjectWidgets() {
           return { ...base, terminalPaneId: session.main.tmuxPaneId }
         }
       } catch {
-        // Fall through to no terminal context
+        // Fall through
       }
     }
 
     if (contextType === 'code') {
-      // Request context from Monaco editor via custom event
       return new Promise((resolve) => {
         const timeout = setTimeout(() => resolve(base), 500)
-
         const handler = (e: Event) => {
           clearTimeout(timeout)
           window.removeEventListener('orka-editor-context', handler)
@@ -74,7 +139,6 @@ function GlobalProjectWidgets() {
             selection: detail.selection,
           })
         }
-
         window.addEventListener('orka-editor-context', handler)
         window.dispatchEvent(new CustomEvent('orka-get-editor-context'))
       })
@@ -82,6 +146,9 @@ function GlobalProjectWidgets() {
 
     return base
   }, [projectPath, contextType, sessionId])
+
+  // Don't render widgets on non-project routes
+  if (!match) return null
 
   return (
     <>
@@ -113,7 +180,6 @@ function QuickAIDialogWrapper({
         setOpen(true)
       }
     }
-    // Listen for Cmd+K forwarded from terminal iframe via postMessage
     const handleMessage = (e: MessageEvent) => {
       if (e.data?.type === 'orka-cmd-k') {
         setOpen(true)
@@ -138,40 +204,22 @@ function QuickAIDialogWrapper({
   )
 }
 
-export function App() {
-  return (
-    <BrowserRouter>
-      <div className="app">
-        <Routes>
-          {/* Home page */}
-          <Route path="/" element={<HomePage />} />
-
-          {/* Dashboard - unified view of all projects and sessions */}
-          <Route path="/dashboard" element={<ProjectDashboard />} />
-
-          {/* Agent Canvas - manage Master Agents */}
-          <Route path="/agents" element={<AgentCanvasPage />} />
-
-          {/* Legacy project view - redirect to dashboard */}
-          <Route path="/projects/:encodedPath" element={<Navigate to="/dashboard" replace />} />
-
-          {/* Session view - shows a specific session */}
-          <Route path="/projects/:encodedPath/sessions/:sessionId" element={<SessionPage />} />
-
-          {/* Code editor view */}
-          <Route path="/projects/:encodedPath/code" element={<CodeEditorPage />} />
-
-          {/* Files explorer view */}
-          <Route path="/projects/:encodedPath/files" element={<FilesPage />} />
-
-          {/* File viewer (opened from Finder in new tab) */}
-          <Route path="/projects/:encodedPath/files/view" element={<FileViewerPage />} />
-
-          {/* Fallback - redirect unknown routes to home */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-        <GlobalProjectWidgets />
-      </div>
-    </BrowserRouter>
+const router = createBrowserRouter(
+  createRoutesFromElements(
+    <Route element={<RootLayout />} errorElement={<RouteErrorPage />}>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/dashboard" element={<ProjectDashboard />} />
+      <Route path="/agents" element={<AgentCanvasPage />} />
+      <Route path="/projects/:encodedPath" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/projects/:encodedPath/sessions/:sessionId" element={<SessionPage />} />
+      <Route path="/projects/:encodedPath/code" element={<CodeEditorPage />} />
+      <Route path="/projects/:encodedPath/files" element={<FilesPage />} />
+      <Route path="/projects/:encodedPath/files/view" element={<FileViewerPage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Route>
   )
+)
+
+export function App() {
+  return <RouterProvider router={router} />
 }

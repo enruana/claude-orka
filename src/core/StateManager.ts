@@ -123,12 +123,13 @@ export class StateManager {
       const state = await this.read()
       const projectVersion = state.version || '0.0.0'
 
-      // Compare major.minor versions (ignore patch)
-      const [currentMajor, currentMinor] = currentVersion.split('.').map(Number)
-      const [projectMajor, projectMinor] = projectVersion.split('.').map(Number)
+      // Compare full semver (major.minor.patch)
+      const [currentMajor, currentMinor, currentPatch] = currentVersion.split('.').map(Number)
+      const [projectMajor, projectMinor, projectPatch] = projectVersion.split('.').map(Number)
 
       const isOutdated = currentMajor > projectMajor ||
-        (currentMajor === projectMajor && currentMinor > projectMinor)
+        (currentMajor === projectMajor && currentMinor > projectMinor) ||
+        (currentMajor === projectMajor && currentMinor === projectMinor && currentPatch > projectPatch)
 
       return {
         isOutdated,
