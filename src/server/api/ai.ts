@@ -179,27 +179,55 @@ aiRouter.post('/report', async (req, res) => {
       return
     }
 
-    const prompt = `You are an expert note-taker and report writer. Given the following transcript, produce a comprehensive, well-organized markdown report.
+    const prompt = `You are an expert note-taker producing a comprehensive report from a transcript provided via stdin.
 
-The report MUST include these sections (skip any that don't apply):
-- **Summary**: A concise 2-3 sentence overview
-- **Key Points**: Bullet list of the most important points discussed
-- **Topics Discussed**: Each major topic as a subsection (### heading) with details
-- **Decisions Made**: Any decisions or conclusions reached
-- **Action Items**: Tasks, next steps, or follow-ups mentioned (with owners if identifiable)
-- **Questions Raised**: Open questions or unresolved issues
-- **Notable Quotes**: Important or memorable statements (quoted)
+Your goal is COMPLETENESS — the reader should never need to go back to the original transcript. DO NOT omit or summarize away any substantive information. Be thorough and detailed, not wordy.
+
+Produce a markdown report with ALL of the following sections. If a section has no content, write "N/A" — do not skip it.
+
+## Summary
+2-3 sentence overview of what the transcript covers: who, what, why, outcome.
+
+## Participants
+List every person identified or implied, with their role/affiliation if discernible. If participants cannot be identified, write "Not identifiable from transcript."
+
+## Key Points
+Bullet list of the most important takeaways. Each bullet should be a complete, self-contained statement.
+
+## Detailed Discussion
+This is the core of the report. Reconstruct the full discussion organized by topic.
+- Use ### subheadings for each major topic or theme
+- Under each topic, include ALL points made, arguments presented, examples given, and context provided
+- Preserve the logical flow and reasoning, not just conclusions
+- Include specific details: numbers, names, dates, technical terms, examples mentioned
+- If there was disagreement or debate, capture all sides
+
+## Decisions Made
+Each decision as a bullet with the reasoning/context behind it. If no decisions were made, write "N/A".
+
+## Action Items
+Format: **[Owner]** — Task description (deadline if mentioned). If no action items, write "N/A".
+
+## Data & References
+Capture ALL specific data points mentioned in the transcript:
+- Numbers, statistics, percentages, amounts
+- Dates, deadlines, timeframes
+- Names of people, companies, products, tools, technologies
+- URLs, documents, resources referenced
+- Technical specifications or configurations
+
+## Questions & Open Issues
+Unresolved questions, concerns raised without resolution, topics deferred for later.
+
+## Notable Quotes
+Direct or near-direct quotes that are particularly important, insightful, or represent key positions. Use blockquote format.
 
 Rules:
 - Write in the same language as the transcript
-- Be thorough but organized — group related information
-- Use markdown formatting (headers, bullets, bold, quotes)
-- If the transcript is a meeting, identify participants when possible
-- If it's a lecture/presentation, focus on the educational content
-- Output ONLY the markdown report, no preamble
-
-Transcript:
-${transcript}`
+- Use rich markdown: headers, bullets, bold for emphasis, blockquotes for quotes, tables if data warrants it
+- Prioritize completeness over brevity — include everything substantive
+- Group related information logically, but do not lose details in the process
+- Output ONLY the markdown report, no preamble or closing remarks`
 
     const args = ['-p', prompt, '--model', 'sonnet', '--no-session-persistence']
 
