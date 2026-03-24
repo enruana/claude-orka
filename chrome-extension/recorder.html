@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Orka Recorder</title>
+  <link rel="stylesheet" href="recorder.css">
+</head>
+<body>
+  <div class="recorder">
+    <div id="state-starting" class="state">
+      <div class="spinner"></div>
+      <span class="hint">Starting...</span>
+    </div>
+
+    <div id="state-recording" class="state hidden">
+      <div class="rec-header">
+        <span class="rec-dot"></span>
+        <span id="duration" class="duration">00:00</span>
+      </div>
+      <div id="bars" class="bars">
+        <div class="bar"></div>
+        <div class="bar"></div>
+        <div class="bar"></div>
+        <div class="bar"></div>
+        <div class="bar"></div>
+      </div>
+      <button id="btn-stop" class="btn-stop">Stop Recording</button>
+    </div>
+
+    <div id="state-stopped" class="state hidden">
+      <svg class="icon-check-big" viewBox="0 0 24 24" fill="none" stroke="#a6e3a1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <span class="success-text">Recording saved!</span>
+      <button id="btn-recordings" class="btn-recordings">View Recordings</button>
+    </div>
+
+    <div id="state-error" class="state hidden">
+      <span class="error-text" id="error-msg"></span>
+    </div>
+  </div>
+
+  <script src="storage.js"></script>
+  <script src="recorder.js"></script>
+</body>
+</html>

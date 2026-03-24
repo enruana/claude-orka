@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orka Writer</title>
+  <link rel="stylesheet" href="writer.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Orka Writer</h1>
+      <div class="tone-select">
+        <label for="tone">Tone</label>
+        <select id="tone">
+          <option value="professional">Professional</option>
+          <option value="casual">Casual</option>
+          <option value="formal">Formal</option>
+          <option value="friendly">Friendly</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="input-section">
+      <div class="textarea-group">
+        <label for="english">English</label>
+        <textarea id="english" placeholder="Type English text here..." rows="6"></textarea>
+      </div>
+      <div class="textarea-group">
+        <label for="spanish">Español</label>
+        <textarea id="spanish" placeholder="Escribe texto en español aquí..." rows="6"></textarea>
+      </div>
+    </div>
+
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <span>Processing...</span>
+    </div>
+
+    <div id="results" class="results hidden">
+      <div class="results-divider">Results</div>
+
+      <div class="result-card">
+        <div class="result-label">Improved</div>
+        <div class="result-content">
+          <div id="improved" class="result-text"></div>
+          <button class="copy-btn" data-target="improved" title="Copy">
+            <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="result-card">
+        <div class="result-label">Grammar Fix</div>
+        <div class="result-content">
+          <div id="grammarFix" class="result-text"></div>
+          <button class="copy-btn" data-target="grammarFix" title="Copy">
+            <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="result-card">
+        <div class="result-label">Summary</div>
+        <div class="result-content">
+          <div id="summary" class="result-text"></div>
+          <button class="copy-btn" data-target="summary" title="Copy">
+            <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span id="server-status" class="status-indicator">
+        <span class="status-dot"></span>
+        <span class="status-text">Checking...</span>
+      </span>
+      <span class="server-url">localhost:3456</span>
+    </div>
+  </div>
+
+  <script src="writer.js"></script>
+</body>
+</html>

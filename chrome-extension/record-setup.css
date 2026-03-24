@@ -1,0 +1,118 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  background: #11111b;
+  color: #cdd6f4;
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.setup {
+  padding: 28px 24px;
+  width: 100%;
+  max-width: 320px;
+}
+
+h1 {
+  font-size: 17px;
+  font-weight: 600;
+  color: #fab387;
+  margin-bottom: 20px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #a6adc8;
+  margin-bottom: 6px;
+}
+
+.form-group select {
+  width: 100%;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.form-group select:focus {
+  border-color: #fab387;
+}
+
+.hint {
+  font-size: 12px;
+  color: #585b70;
+  margin-bottom: 8px;
+}
+
+.btn {
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid #313244;
+}
+
+.btn-secondary {
+  background: #1e1e2e;
+  color: #cdd6f4;
+}
+.btn-secondary:hover { background: #313244; }
+
+.btn-record {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  background: #f38ba8;
+  color: #11111b;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  margin-top: 8px;
+}
+.btn-record:hover { opacity: 0.85; }
+.btn-record:disabled { opacity: 0.4; cursor: default; }
+.btn-record svg { width: 18px; height: 18px; }
+
+.error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(243,139,168,0.1);
+  border: 1px solid rgba(243,139,168,0.2);
+  border-radius: 8px;
+  color: #f38ba8;
+  font-size: 13px;
+}
+
+.footer-hint {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: #45475a;
+}
+
+.hidden { display: none !important; }

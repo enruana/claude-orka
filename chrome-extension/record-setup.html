@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Orka Recorder</title>
+  <link rel="stylesheet" href="record-setup.css">
+</head>
+<body>
+  <div class="setup">
+    <h1>Record Tab Audio</h1>
+
+    <div class="form-group">
+      <label>Capture Mode</label>
+      <select id="capture-mode">
+        <option value="tab">Tab Audio Only</option>
+        <option value="mic">Microphone Only</option>
+        <option value="both">Tab + Microphone</option>
+      </select>
+    </div>
+
+    <div id="mic-section" class="form-group hidden">
+      <div id="mic-permission-needed" class="hidden">
+        <p class="hint">Microphone permission required</p>
+        <button id="btn-request-mic" class="btn btn-secondary">Grant Microphone Access</button>
+      </div>
+      <div id="mic-select-group" class="hidden">
+        <label>Microphone</label>
+        <select id="mic-device"></select>
+      </div>
+    </div>
+
+    <button id="btn-start" class="btn btn-record">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg>
+      Start Recording
+    </button>
+
+    <div id="error" class="error hidden"></div>
+
+    <div class="footer-hint">
+      <span>Recording will open in a small window</span>
+    </div>
+  </div>
+
+  <script src="record-setup.js"></script>
+</body>
+</html>

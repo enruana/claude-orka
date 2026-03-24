@@ -293,6 +293,31 @@ projectsRouter.delete('/tasks/:taskId', async (req, res) => {
 // ============================================================
 
 /**
+ * PATCH /api/projects/:encodedPath
+ * Update project metadata (name, group)
+ * Body: { name?: string, group?: string | null }
+ */
+projectsRouter.patch('/:encodedPath', async (req, res) => {
+  try {
+    const projectPath = Buffer.from(req.params.encodedPath, 'base64').toString('utf-8')
+    const { name, group } = req.body
+
+    const globalState = await getGlobalStateManager()
+    const updated = await globalState.updateProject(projectPath, { name, group })
+
+    if (!updated) {
+      res.status(404).json({ error: 'Project not found' })
+      return
+    }
+
+    res.json(updated)
+  } catch (error: any) {
+    logger.error('Failed to update project:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * GET /api/projects/:encodedPath
  * Get a specific project by its path (base64 encoded)
  */

@@ -123,7 +123,7 @@ transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> =>
       '--no-prints',       // Suppress progress output
     ], {
       cwd: whisperPath,
-      timeout: 60000, // 60 second timeout
+      timeout: 600000, // 10 minute timeout for long recordings
     })
 
     // The text output goes to stdout when using -otxt

@@ -7,6 +7,7 @@ export interface RegisteredProject {
   name: string
   addedAt: string
   lastOpened?: string
+  group?: string
   initialized?: boolean
   sessionCount?: number
   activeSessions?: number
@@ -167,6 +168,16 @@ export const api = {
 
   async getProject(path: string): Promise<RegisteredProject & { sessions: Session[] }> {
     const res = await fetch(`${API_BASE}/projects/${encodeProjectPath(path)}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async updateProject(path: string, updates: { name?: string; group?: string | null }): Promise<RegisteredProject> {
+    const res = await fetch(`${API_BASE}/projects/${encodeProjectPath(path)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
     if (!res.ok) throw new Error(await res.text())
     return res.json()
   },

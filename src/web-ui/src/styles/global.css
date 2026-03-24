@@ -3219,6 +3219,136 @@ body {
   width: 100%;
 }
 
+/* Project Groups */
+.project-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.project-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.project-group-header:hover {
+  background: var(--bg-hover);
+}
+
+.project-group-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-secondary);
+}
+
+.project-group-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.project-group-count {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.project-group-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.project-group-active {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 12px;
+  color: var(--accent-green);
+}
+
+.project-group-sessions {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.project-group-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-top: var(--space-sm);
+}
+
+/* Group Tag Button */
+.group-tag-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.group-tag-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border-color: var(--text-tertiary);
+}
+
+.group-tag-label {
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Group Suggestions */
+.group-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.group-suggestion-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.group-suggestion-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.group-suggestion-btn.selected {
+  background: rgba(10, 132, 255, 0.15);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
 /* Project Card */
 .project-card-unified {
   background: var(--bg-secondary);

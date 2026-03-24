@@ -11,6 +11,7 @@ export interface RegisteredProject {
   name: string
   addedAt: string
   lastOpened?: string
+  group?: string
 }
 
 /**
@@ -150,6 +151,26 @@ export class GlobalStateManager {
 
     logger.info(`Unregistered project: ${removed.name}`)
     return true
+  }
+
+  /**
+   * Update a project's metadata (name, group)
+   */
+  async updateProject(projectPath: string, updates: { name?: string; group?: string | null }): Promise<RegisteredProject | null> {
+    const normalizedPath = path.resolve(projectPath)
+    const project = this.config!.projects.find(p => path.resolve(p.path) === normalizedPath)
+
+    if (!project) return null
+
+    if (updates.name !== undefined) project.name = updates.name
+    if (updates.group === null) {
+      delete project.group
+    } else if (updates.group !== undefined) {
+      project.group = updates.group
+    }
+
+    await this.save()
+    return project
   }
 
   /**
