@@ -1909,10 +1909,16 @@
           }
         });
 
-        // Enable/disable send button based on input
-        modalTextarea.addEventListener('input', () => {
+        // Enable/disable send button based on input, paste, or change
+        const updateSendState = () => {
           modalSend.disabled = !modalTextarea.value.trim();
+        };
+        modalTextarea.addEventListener('input', updateSendState);
+        modalTextarea.addEventListener('paste', () => {
+          // paste event fires before content is inserted, so check after a tick
+          setTimeout(updateSendState, 0);
         });
+        modalTextarea.addEventListener('change', updateSendState);
       }
 
       openInputModal(type) {
@@ -1940,7 +1946,22 @@
         modal.classList.add('visible');
 
         // Focus textarea after modal is visible
-        setTimeout(() => modalTextarea.focus(), 100);
+        setTimeout(() => {
+          modalTextarea.focus();
+          // If paste mode, try to auto-read clipboard and send directly
+          if (type === 'paste' && navigator.clipboard && navigator.clipboard.readText) {
+            navigator.clipboard.readText().then(text => {
+              if (text && text.length > 0) {
+                // Send directly and close modal — no user interaction needed
+                this.sendInput(text);
+                modal.classList.remove('visible');
+                modalTextarea.value = '';
+              }
+            }).catch(() => {
+              // Permission denied or unavailable - user will paste manually
+            });
+          }
+        }, 100);
       }
 
       showProcessingState() {
@@ -1986,10 +2007,11 @@
         newTextarea.focus();
         newTextarea.setSelectionRange(text.length, text.length);
 
-        // Re-add input listener
-        newTextarea.addEventListener('input', () => {
-          modalSend.disabled = !newTextarea.value.trim();
-        });
+        // Re-add input/paste listeners
+        const updateSend = () => { modalSend.disabled = !newTextarea.value.trim(); };
+        newTextarea.addEventListener('input', updateSend);
+        newTextarea.addEventListener('paste', () => setTimeout(updateSend, 0));
+        newTextarea.addEventListener('change', updateSend);
       }
 
       showErrorInModal(error) {
@@ -2016,9 +2038,10 @@
         modalSend.disabled = true;
         newTextarea.focus();
 
-        newTextarea.addEventListener('input', () => {
-          modalSend.disabled = !newTextarea.value.trim();
-        });
+        const updateSendErr = () => { modalSend.disabled = !newTextarea.value.trim(); };
+        newTextarea.addEventListener('input', updateSendErr);
+        newTextarea.addEventListener('paste', () => setTimeout(updateSendErr, 0));
+        newTextarea.addEventListener('change', updateSendErr);
 
         modal.classList.add('visible');
       }

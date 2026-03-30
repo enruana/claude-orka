@@ -206,10 +206,20 @@ body {
 }
 
 .detail-header { margin-bottom: 14px; }
-.detail-header h2 {
+.detail-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.detail-name-row h2 {
   font-size: 16px; font-weight: 600;
   word-break: break-all;
   margin-bottom: 4px;
+}
+.detail-name-row .btn-icon { flex-shrink: 0; }
+.detail-name-row .btn-icon.naming {
+  color: #f9e2af;
+  animation: spin 0.8s linear infinite;
 }
 .detail-meta { font-size: 12px; color: #585b70; }
 

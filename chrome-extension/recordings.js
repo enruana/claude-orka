@@ -35,6 +35,7 @@ document.getElementById('btn-generate-report').addEventListener('click', () => g
 document.getElementById('btn-report-from-tab').addEventListener('click', () => generateReport())
 document.getElementById('btn-copy').addEventListener('click', () => copyActiveTab())
 document.getElementById('btn-download-text').addEventListener('click', () => downloadActiveTab())
+document.getElementById('btn-auto-name').addEventListener('click', () => autoNameSelected())
 
 // Tab switching
 document.querySelectorAll('.tab').forEach(tab => {
@@ -151,6 +152,7 @@ function selectRecording(id) {
   // Actions
   document.getElementById('btn-transcribe').classList.toggle('hidden', hasTranscript || isProcessing)
   document.getElementById('btn-generate-report').classList.toggle('hidden', !hasTranscript || hasReport)
+  document.getElementById('btn-auto-name').classList.toggle('hidden', !hasTranscript)
   processingStatusEl.classList.toggle('hidden', !isProcessing)
   if (isProcessing) processingLabelEl.textContent = 'Transcribing...'
 
@@ -262,6 +264,52 @@ async function generateReport() {
     reportEmptyEl.classList.remove('hidden')
     reportEmptyEl.querySelector('p').textContent = 'Report generation failed: ' + err.message
     document.getElementById('btn-generate-report').classList.remove('hidden')
+  }
+}
+
+async function autoNameSelected() {
+  const rec = recordings.find(r => r.id === selectedId)
+  if (!rec) return
+
+  const text = rec.report || rec.transcription
+  if (!text) return
+
+  const btn = document.getElementById('btn-auto-name')
+  btn.classList.add('naming')
+  btn.disabled = true
+
+  try {
+    const res = await fetch(`${SERVER}/api/ai/name`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || 'Naming failed')
+    }
+
+    const data = await res.json()
+
+    // Format: dd-mm-yy_title
+    const d = new Date(rec.createdAt)
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const yy = String(d.getFullYear()).slice(-2)
+    const newName = `${dd}-${mm}-${yy}_${data.title}`
+
+    rec.name = newName
+    await updateRecording(rec.id, { name: newName })
+
+    detailNameEl.textContent = newName
+    renderList()
+  } catch (err) {
+    console.error('Auto-name error:', err)
+    alert('Failed to generate name: ' + err.message)
+  } finally {
+    btn.classList.remove('naming')
+    btn.disabled = false
   }
 }
 

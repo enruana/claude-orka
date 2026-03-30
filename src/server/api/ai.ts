@@ -167,6 +167,41 @@ Text: ${text}`
 })
 
 /**
+ * POST /api/ai/name
+ * Generate a short descriptive title from a transcript or report
+ */
+aiRouter.post('/name', async (req, res) => {
+  try {
+    const { text } = req.body as { text: string }
+
+    if (!text?.trim()) {
+      res.status(400).json({ error: 'text is required' })
+      return
+    }
+
+    const prompt = `Given the following text (a transcript or report), generate a short descriptive title (3-6 words max) that captures the main topic. Output ONLY the title in snake_case, lowercase, no quotes, no explanation. Examples: weekly_standup_backend_bugs, product_launch_planning, client_feedback_review, onboarding_process_discussion`
+
+    const args = ['-p', prompt, '--model', 'haiku', '--no-session-persistence']
+
+    const { stdout } = await execa('claude', args, {
+      timeout: 30000,
+      env: { ...process.env, CLAUDECODE: '' },
+      extendEnv: false,
+      input: text.slice(0, 3000),
+    })
+
+    // Clean: remove quotes, trim, enforce snake_case
+    const raw = stdout.trim().replace(/['"]/g, '').replace(/\s+/g, '_').replace(/[^a-z0-9_]/gi, '').toLowerCase()
+    const title = raw || 'untitled_recording'
+
+    res.json({ title })
+  } catch (error: any) {
+    console.error('Error in AI name:', error)
+    res.status(500).json({ error: error.message || 'Failed to generate name' })
+  }
+})
+
+/**
  * POST /api/ai/report
  * Generate a structured markdown report from a transcript
  */
