@@ -9,6 +9,7 @@ import {
   createNewFileItem,
   createNewFolderItem,
   createDeleteItem,
+  createPreviewHtmlItem,
 } from '../code-editor/ContextMenu'
 import { AlertCircle, Check, Upload } from 'lucide-react'
 import { FinderToolbar } from './FinderToolbar'
@@ -302,7 +303,9 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
   // Build context menu items
   const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
     const fullPath = `${projectPath}/${path}`
+    const previewItem = !isDirectory ? createPreviewHtmlItem(projectPath, path) : null
     const items = [
+      ...(previewItem ? [previewItem] : []),
       createCopyPathItem(fullPath, () => showToast('Path copied')),
       createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),
       ...(!isDirectory ? [createCopyFileNameItem(path, () => showToast('File name copied'))] : []),

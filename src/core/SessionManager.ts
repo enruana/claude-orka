@@ -1374,3 +1374,111 @@ Analyze the content and help me integrate the changes and learnings from the for
     await sleep(2000) // 2 segundos para que Claude inicie
   }
 }
+
+// ============================================================
+// System Terminal (standalone tmux terminal for dashboard)
+// ============================================================
+
+const SYSTEM_TERMINAL_SESSION = 'orka-system-terminal'
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function startSystemTerminal(): Promise<{ port: number }> {
+  const globalState = await getGlobalStateManager()
+  const existing = globalState.getSystemTerminal()
+
+  // Reuse existing if process is alive
+  if (existing && isProcessAlive(existing.ttydPid)) {
+    logger.info(`System terminal already running on port ${existing.ttydPort}`)
+    return { port: existing.ttydPort }
+  }
+
+  // Clean up stale entry if any
+  if (existing) {
+    logger.info('Cleaning up stale system terminal entry')
+    await globalState.clearSystemTerminal()
+  }
+
+  // Check ttyd is available
+  try {
+    await execa('which', ['ttyd'])
+  } catch {
+    throw new Error('ttyd not found. Run: orka prepare')
+  }
+
+  // Create tmux session (or reuse if it exists)
+  try {
+    await execa('tmux', ['has-session', '-t', SYSTEM_TERMINAL_SESSION])
+    logger.info('System tmux session already exists')
+  } catch {
+    await execa('tmux', ['new-session', '-d', '-s', SYSTEM_TERMINAL_SESSION])
+    logger.info('Created system tmux session')
+  }
+
+  // Get next available port
+  const port = await globalState.getNextTtydPort()
+
+  // Spawn ttyd
+  const ttydProcess = spawn(
+    'ttyd',
+    [
+      '-W', '-p', port.toString(),
+      '-t', 'fontSize=10',
+      '-t', 'fontFamily=monospace',
+      '-t', 'cursorBlink=true',
+      '-t', 'macOptionIsMeta=true',
+      '-t', 'scrollOnUserInput=true',
+      'tmux', 'attach', '-t', SYSTEM_TERMINAL_SESSION,
+    ],
+    { detached: true, stdio: 'ignore' }
+  )
+  ttydProcess.unref()
+
+  const pid = ttydProcess.pid
+  if (!pid) {
+    throw new Error('Failed to start ttyd for system terminal')
+  }
+
+  await globalState.setSystemTerminal({
+    tmuxSessionId: SYSTEM_TERMINAL_SESSION,
+    ttydPort: port,
+    ttydPid: pid,
+  })
+
+  logger.info(`System terminal started on port ${port} (PID: ${pid})`)
+  return { port }
+}
+
+export async function stopSystemTerminal(): Promise<void> {
+  const globalState = await getGlobalStateManager()
+  const existing = globalState.getSystemTerminal()
+
+  if (existing) {
+    // Kill ttyd
+    if (isProcessAlive(existing.ttydPid)) {
+      try {
+        process.kill(existing.ttydPid, 'SIGTERM')
+        logger.info(`Killed system terminal ttyd (PID: ${existing.ttydPid})`)
+      } catch (err: any) {
+        logger.warn(`Failed to kill ttyd: ${err.message}`)
+      }
+    }
+
+    // Kill tmux session
+    try {
+      await execa('tmux', ['kill-session', '-t', SYSTEM_TERMINAL_SESSION])
+      logger.info('Killed system tmux session')
+    } catch {
+      // Session may not exist
+    }
+
+    await globalState.clearSystemTerminal()
+  }
+}

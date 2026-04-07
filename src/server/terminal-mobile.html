@@ -376,6 +376,10 @@
       background: linear-gradient(135deg, #cba6f7 0%, #b4befe 100%);
     }
 
+    .quick-action-item .action-icon.upload {
+      background: linear-gradient(135deg, #a6e3a1 0%, #40a02b 100%);
+    }
+
     .quick-action-item .action-icon.tasks {
       background: linear-gradient(135deg, #89b4fa 0%, #6366f1 100%);
     }
@@ -1083,6 +1087,16 @@
               </span>
               <span class="action-text">Clear Terminal</span>
             </button>
+            <button class="quick-action-item" data-action="upload">
+              <span class="action-icon upload">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </span>
+              <span class="action-text">Upload File</span>
+            </button>
             <button class="quick-action-item" data-action="tasks" id="tasks-action-item">
               <span class="action-icon tasks">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1110,6 +1124,9 @@
 
     <!-- Quick Actions Backdrop -->
     <div class="quick-actions-backdrop" id="quick-actions-backdrop"></div>
+
+    <!-- Hidden file input for mobile upload -->
+    <input type="file" id="file-upload-input" multiple accept="image/*,audio/*,video/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.go,.rs,.java,.c,.cpp,.h,.sh,.yml,.yaml,.toml,.env,.log" style="display:none">
 
     <div id="status-bar">
       <span id="status">Connecting...</span>
@@ -3020,10 +3037,66 @@
             // Send Ctrl+L to clear terminal
             this.sendInput('\x0c');
             break;
+          case 'upload':
+            this.triggerFileUpload();
+            break;
           case 'tasks':
             this.tasksManager.open();
             break;
         }
+      }
+
+      triggerFileUpload() {
+        const fileInput = document.getElementById('file-upload-input');
+        // Reset so the same file can be re-selected
+        fileInput.value = '';
+
+        fileInput.onchange = async () => {
+          const files = Array.from(fileInput.files);
+          if (files.length === 0) return;
+
+          const projectEncoded = new URLSearchParams(window.location.search).get('project');
+          if (!projectEncoded) {
+            // No project context — just send filenames
+            const names = files.map(f => f.name.includes(' ') ? `"${f.name}"` : f.name);
+            this.sendInput(names.join(' '));
+            this.term.focus();
+            return;
+          }
+
+          const terminalContainer = document.getElementById('terminal-container');
+          terminalContainer.classList.add('uploading');
+          const paths = [];
+
+          for (const file of files) {
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+              const res = await fetch(`/api/files/upload?project=${projectEncoded}`, {
+                method: 'POST',
+                body: formData,
+              });
+              const data = await res.json();
+              if (data.success && data.uploaded) {
+                for (const item of data.uploaded) {
+                  paths.push(item.absolutePath.includes(' ') ? `"${item.absolutePath}"` : item.absolutePath);
+                }
+              }
+            } catch (err) {
+              console.error('Upload failed:', err);
+            }
+          }
+
+          terminalContainer.classList.remove('uploading');
+
+          if (paths.length > 0) {
+            this.sendInput(paths.join(' '));
+            this.term.focus();
+            console.log('Uploaded files:', paths);
+          }
+        };
+
+        fileInput.click();
       }
 
       openNativeKeyboard() {

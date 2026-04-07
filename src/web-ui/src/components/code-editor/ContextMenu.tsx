@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2 } from 'lucide-react'
+import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe } from 'lucide-react'
 
 export interface ContextMenuItem {
   label: string
@@ -345,5 +345,20 @@ export function createDeleteItem(onDelete: () => void, label: string = 'Delete')
     label,
     icon: <Trash2 size={14} />,
     onClick: onDelete
+  }
+}
+
+export function createPreviewHtmlItem(projectPath: string, relativePath: string): ContextMenuItem | null {
+  const lower = relativePath.toLowerCase()
+  if (!lower.endsWith('.html') && !lower.endsWith('.htm')) return null
+
+  return {
+    label: 'Preview in Browser',
+    icon: <Globe size={14} />,
+    onClick: () => {
+      const encodedProject = btoa(projectPath).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+      const url = `/api/files/raw?project=${encodedProject}&path=${encodeURIComponent(relativePath)}`
+      window.open(url, '_blank')
+    }
   }
 }

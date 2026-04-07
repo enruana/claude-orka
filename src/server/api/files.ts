@@ -491,6 +491,59 @@ filesRouter.get('/image', async (req, res) => {
 })
 
 /**
+ * GET /api/files/raw?project=<base64>&path=<relative>
+ * Serve a file with its native content type (for HTML preview, etc.)
+ */
+filesRouter.get('/raw', async (req, res) => {
+  try {
+    const projectEncoded = req.query.project as string
+    const filePath = req.query.path as string
+
+    if (!projectEncoded || !filePath) {
+      res.status(400).json({ error: 'project and path are required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(projectEncoded)
+
+    if (!isPathSafe(projectPath, filePath)) {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
+    const fullPath = path.resolve(projectPath, filePath)
+
+    if (!await fs.pathExists(fullPath)) {
+      res.status(404).json({ error: 'File not found' })
+      return
+    }
+
+    const stat = await fs.stat(fullPath)
+    if (stat.isDirectory()) {
+      res.status(400).json({ error: 'Cannot serve a directory' })
+      return
+    }
+
+    const ext = path.extname(fullPath).slice(1).toLowerCase()
+    const MIME_TYPES: Record<string, string> = {
+      html: 'text/html', htm: 'text/html',
+      css: 'text/css', js: 'text/javascript',
+      json: 'application/json', xml: 'application/xml',
+      svg: 'image/svg+xml', png: 'image/png',
+      jpg: 'image/jpeg', jpeg: 'image/jpeg',
+      gif: 'image/gif', webp: 'image/webp',
+      pdf: 'application/pdf', txt: 'text/plain',
+      md: 'text/markdown',
+    }
+
+    res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream')
+    fs.createReadStream(fullPath).pipe(res)
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * GET /api/files/search?project=<base64>&query=<string>&caseSensitive=<bool>&regex=<bool>
  * Search for text across project files using grep
  */

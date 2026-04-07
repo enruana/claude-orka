@@ -211,6 +211,13 @@ export const api = {
     return res.json()
   },
 
+  // System Terminal
+  async getSystemTerminal(): Promise<{ port: number }> {
+    const res = await fetch(`${API_BASE}/projects/system-terminal`, { method: 'POST' })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   // Sessions
   async listSessions(projectPath: string): Promise<Session[]> {
     const res = await fetch(`${API_BASE}/sessions?project=${encodeProjectPath(projectPath)}`)

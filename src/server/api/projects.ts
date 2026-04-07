@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
 import { ClaudeOrka } from '../../core/ClaudeOrka'
+import { startSystemTerminal, stopSystemTerminal } from '../../core/SessionManager'
 import { StateManager, getOrkaVersion } from '../../core/StateManager'
 import { TmuxCommands } from '../../utils/tmux'
 import { logger } from '../../utils'
@@ -87,6 +88,38 @@ projectsRouter.post('/', async (req, res) => {
     res.status(201).json(project)
   } catch (error: any) {
     logger.error('Failed to register project:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// ============================================================
+// System Terminal (standalone tmux terminal for dashboard)
+// ============================================================
+
+/**
+ * POST /api/projects/system-terminal
+ * Create or return existing system terminal
+ */
+projectsRouter.post('/system-terminal', async (_req, res) => {
+  try {
+    const result = await startSystemTerminal()
+    res.json(result)
+  } catch (error: any) {
+    logger.error('Failed to start system terminal:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/projects/system-terminal
+ * Stop and clean up system terminal
+ */
+projectsRouter.delete('/system-terminal', async (_req, res) => {
+  try {
+    await stopSystemTerminal()
+    res.json({ success: true })
+  } catch (error: any) {
+    logger.error('Failed to stop system terminal:', error)
     res.status(500).json({ error: error.message })
   }
 })

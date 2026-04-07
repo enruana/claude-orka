@@ -1,21 +1,19 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { api, RegisteredProject, Session } from '../api/client'
 import {
+  Folder,
   FolderOpen,
   Plus,
   Trash2,
   RefreshCw,
-  Settings,
-  ChevronRight,
-  ChevronDown,
-  ChevronUp,
   AlertTriangle,
-  Check,
   RotateCw,
   GitBranch,
   Tag,
-  X,
+  ArrowLeft,
+  Settings,
+  Terminal,
 } from 'lucide-react'
 import { FolderBrowser } from './FolderBrowser'
 import { usePageTitle } from '../hooks/usePageTitle'
@@ -26,7 +24,6 @@ export function encodeProjectPath(path: string): string {
 }
 
 export function decodeProjectPath(encoded: string): string {
-  // Add back padding
   let padded = encoded.replace(/-/g, '+').replace(/_/g, '/')
   while (padded.length % 4) padded += '='
   return atob(padded)
@@ -54,24 +51,48 @@ export function ProjectDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showAddProject, setShowAddProject] = useState(false)
-  const [showNewSession, setShowNewSession] = useState<string | null>(null) // project path
+  const [showNewSession, setShowNewSession] = useState<string | null>(null)
   const [newSessionName, setNewSessionName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [resumingSessionId, setResumingSessionId] = useState<string | null>(null)
   const [reinitializingProject, setReinitializingProject] = useState<string | null>(null)
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
-  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([])
 
   // Group assignment state
-  const [showGroupModal, setShowGroupModal] = useState<string | null>(null) // project path
+  const [showGroupModal, setShowGroupModal] = useState<string | null>(null)
   const [groupInput, setGroupInput] = useState('')
+
+  // Folder navigation
+  const [activeFolder, setActiveFolder] = useState<string | null>(() => {
+    return sessionStorage.getItem('orka-active-folder') || null
+  })
+
+  // System terminal
+  const [systemTerminalPort, setSystemTerminalPort] = useState<number | null>(null)
+  const [terminalLoading, setTerminalLoading] = useState(true)
+  const terminalIframeRef = useRef<HTMLIFrameElement>(null)
+
+  // Persist activeFolder
+  useEffect(() => {
+    if (activeFolder) {
+      sessionStorage.setItem('orka-active-folder', activeFolder)
+    } else {
+      sessionStorage.removeItem('orka-active-folder')
+    }
+  }, [activeFolder])
+
+  // Load system terminal on mount
+  useEffect(() => {
+    api.getSystemTerminal()
+      .then(({ port }) => setSystemTerminalPort(port))
+      .catch(() => {}) // Terminal unavailable is fine
+  }, [])
 
   // Load all projects with their sessions
   const loadAllData = useCallback(async () => {
     try {
       const projectList = await api.listProjects()
 
-      // Load sessions and version info for each project in parallel
       const projectsWithData = await Promise.all(
         projectList.map(async (project) => {
           let sessions: Session[] = []
@@ -79,15 +100,11 @@ export function ProjectDashboard() {
 
           try {
             sessions = await api.listSessions(project.path)
-          } catch {
-            // Ignore session loading errors
-          }
+          } catch {}
 
           try {
             versionInfo = await api.checkProjectVersion(project.path)
-          } catch {
-            // Ignore version check errors
-          }
+          } catch {}
 
           return {
             ...project,
@@ -106,30 +123,22 @@ export function ProjectDashboard() {
     }
   }, [])
 
-  // Initial load
-  useEffect(() => {
-    loadAllData()
-  }, [loadAllData])
-
-  // Auto-refresh every 5 seconds
+  useEffect(() => { loadAllData() }, [loadAllData])
   useEffect(() => {
     const interval = setInterval(loadAllData, 5000)
     return () => clearInterval(interval)
   }, [loadAllData])
 
-  // Group projects by group field
+  // Group projects
   const groupedProjects = useMemo(() => {
     const groups = new Map<string, ProjectWithSessions[]>()
-
     for (const project of projects) {
       const key = project.group || UNGROUPED_KEY
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key)!.push(project)
     }
 
-    // Sort: named groups alphabetically first, ungrouped last
     const sorted: { key: string; label: string; projects: ProjectWithSessions[] }[] = []
-
     const namedGroups = [...groups.entries()]
       .filter(([k]) => k !== UNGROUPED_KEY)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -146,7 +155,6 @@ export function ProjectDashboard() {
     return sorted
   }, [projects])
 
-  // Get all existing group names for suggestions
   const existingGroups = useMemo(() => {
     const groups = new Set<string>()
     for (const project of projects) {
@@ -155,6 +163,9 @@ export function ProjectDashboard() {
     return [...groups].sort()
   }, [projects])
 
+  const hasGroups = groupedProjects.some(g => g.key !== UNGROUPED_KEY)
+
+  // Handlers
   const handleReinitialize = async (projectPath: string) => {
     setReinitializingProject(projectPath)
     try {
@@ -199,7 +210,6 @@ export function ProjectDashboard() {
       setNewSessionName('')
       setShowNewSession(null)
       await loadAllData()
-      // Navigate to session view
       const encoded = encodeProjectPath(projectPath)
       navigate(`/projects/${encoded}/sessions/${session.id}`)
     } catch (err: any) {
@@ -214,7 +224,6 @@ export function ProjectDashboard() {
     try {
       await api.resumeSession(projectPath, session.id)
       await loadAllData()
-      // Navigate to session view
       const encoded = encodeProjectPath(projectPath)
       navigate(`/projects/${encoded}/sessions/${session.id}`)
     } catch (err: any) {
@@ -243,14 +252,6 @@ export function ProjectDashboard() {
     )
   }
 
-  const toggleGroupCollapsed = (groupKey: string) => {
-    setCollapsedGroups((prev) =>
-      prev.includes(groupKey)
-        ? prev.filter((g) => g !== groupKey)
-        : [...prev, groupKey]
-    )
-  }
-
   const handleSetGroup = async (projectPath: string, group: string | null) => {
     try {
       await api.updateProject(projectPath, { group })
@@ -268,6 +269,7 @@ export function ProjectDashboard() {
     setGroupInput(currentGroup || '')
   }
 
+  // Loading state
   if (loading) {
     return (
       <div className="unified-dashboard loading">
@@ -277,153 +279,117 @@ export function ProjectDashboard() {
     )
   }
 
+  // Render a project card — clean card style matching folder aesthetic
   const renderProjectCard = (project: ProjectWithSessions) => {
     const isReinitializing = reinitializingProject === project.path
     const activeSessions = project.sessions.filter((s) => s.status === 'active')
     const savedSessions = project.sessions.filter((s) => s.status === 'saved')
-    const isExpanded = expandedProjects.includes(project.path)
 
     return (
-      <div key={project.path} className="project-card-unified">
-        {/* Header - clickable on mobile to expand/collapse */}
-        <div
-          className="project-card-header-unified"
-          onClick={() => toggleProjectExpanded(project.path)}
-        >
-          <div className="project-header-left">
-            <FolderOpen size={18} className="project-icon" />
-            <div className="project-header-info">
-              <div className="project-header-title">
-                <span className="project-name">{project.name}</span>
-                {activeSessions.length > 0 && <span className="status-dot active" />}
-                {project.versionInfo && !project.versionInfo.isOutdated && (
-                  <span className="version-badge-small">v{project.versionInfo.currentVersion}</span>
-                )}
-              </div>
-              <span className="project-path">{project.path}</span>
-            </div>
+      <div key={project.path} className="pcard">
+        {/* Card header */}
+        <div className="pcard-header">
+          <div className="pcard-icon">
+            <FolderOpen size={28} />
+            {activeSessions.length > 0 && <span className="pcard-active-dot" />}
           </div>
-          <div className="project-header-right">
+          <div className="pcard-info">
+            <span className="pcard-name">{project.name}</span>
+            <span className="pcard-path">{project.path}</span>
+          </div>
+          <div className="pcard-badges">
+            {project.versionInfo && !project.versionInfo.isOutdated && (
+              <span className="pcard-badge version">v{project.versionInfo.currentVersion}</span>
+            )}
+            {project.versionInfo?.isOutdated && (
+              <button
+                className="pcard-badge outdated"
+                onClick={(e) => { e.stopPropagation(); handleReinitialize(project.path) }}
+                disabled={isReinitializing}
+                title="Sync version"
+              >
+                <RotateCw size={11} className={isReinitializing ? 'spinning' : ''} />
+                Sync
+              </button>
+            )}
             <button
-              className="group-tag-btn"
+              className="pcard-badge tag-btn"
               onClick={(e) => openGroupModal(e, project.path, project.group)}
               title="Set group"
             >
-              <Tag size={13} />
-              {project.group && <span className="group-tag-label">{project.group}</span>}
+              <Tag size={11} />
+              {project.group || 'Tag'}
             </button>
-            <span className="sessions-count">{project.sessions.length} session{project.sessions.length !== 1 ? 's' : ''}</span>
-            <span className="expand-icon mobile-only">
-              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-            </span>
           </div>
         </div>
 
-        {/* Content - always visible on desktop, collapsible on mobile */}
-        <div className={`project-card-content ${isExpanded ? 'expanded' : ''}`}>
-          {/* Version Alert */}
-          {project.versionInfo?.isOutdated && (
-            <div className="version-alert">
-              <div className="version-alert-info">
-                <AlertTriangle size={16} />
-                <span>v{project.versionInfo.projectVersion} → v{project.versionInfo.currentVersion}</span>
-              </div>
-              <button
-                className="version-alert-btn"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleReinitialize(project.path)
-                }}
-                disabled={isReinitializing}
+        {/* Sessions */}
+        <div className="pcard-sessions">
+          {[...activeSessions, ...savedSessions].map((session) => {
+            const isResuming = resumingSessionId === session.id
+            return (
+              <div
+                key={session.id}
+                className={`pcard-session ${session.status}`}
+                onClick={() => { if (!isResuming) handleResumeSession(project.path, session) }}
               >
-                <RotateCw size={14} className={isReinitializing ? 'spinning' : ''} />
-                {isReinitializing ? 'Syncing...' : 'Sync'}
-              </button>
-            </div>
+                {isResuming ? (
+                  <span className="spinner-small" />
+                ) : (
+                  <span className={`pcard-session-dot ${session.status}`} />
+                )}
+                <span className="pcard-session-name">{session.name || 'Unnamed'}</span>
+                {session.forks.length > 0 && (
+                  <span className="pcard-session-forks">
+                    <GitBranch size={11} /> {session.forks.length}
+                  </span>
+                )}
+                <span className="pcard-session-date">
+                  {new Date(session.lastActivity || session.createdAt).toLocaleDateString()}
+                </span>
+                <button
+                  className="pcard-session-del"
+                  onClick={(e) => handleDeleteSession(e, project.path, session.id)}
+                  disabled={isResuming}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            )
+          })}
+          {project.sessions.length === 0 && (
+            <div className="pcard-empty">No sessions yet</div>
           )}
+        </div>
 
-          {/* Quick Actions */}
-          <div className="project-actions">
-            <button
-              className="project-action-btn primary"
-              onClick={(e) => {
-                e.stopPropagation()
-                setShowNewSession(project.path)
-              }}
-            >
-              <Plus size={18} />
-              <span>New Session</span>
-            </button>
-            <button
-              className="project-action-btn danger"
-              onClick={(e) => handleRemoveProject(e, project.path)}
-            >
-              <Trash2 size={18} />
-              <span>Remove</span>
-            </button>
-          </div>
-
-          {/* Sessions List */}
-          {project.sessions.length === 0 ? (
-            <div className="no-sessions-msg">
-              <Settings size={20} />
-              <span>No sessions yet</span>
-            </div>
-          ) : (
-            <div className="sessions-list">
-              {[...activeSessions, ...savedSessions].map((session) => {
-                const isResuming = resumingSessionId === session.id
-                return (
-                  <div
-                    key={session.id}
-                    className={`session-row-unified ${session.status} ${isResuming ? 'resuming' : ''}`}
-                    onClick={() => {
-                      if (isResuming) return
-                      handleResumeSession(project.path, session)
-                    }}
-                  >
-                    <div className="session-status">
-                      {isResuming ? (
-                        <span className="spinner-small" />
-                      ) : (
-                        <span className={`status-indicator ${session.status}`} />
-                      )}
-                    </div>
-                    <div className="session-info">
-                      <span className="session-name">{session.name || session.id}</span>
-                      <span className="session-meta">
-                        {isResuming ? 'Opening...' : (
-                          <>
-                            {session.forks.length > 0 && (
-                              <>
-                                <GitBranch size={12} />
-                                {session.forks.length}
-                                <span className="separator">·</span>
-                              </>
-                            )}
-                            {new Date(session.lastActivity || session.createdAt).toLocaleDateString()}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <button
-                      className="session-delete"
-                      onClick={(e) => handleDeleteSession(e, project.path, session.id)}
-                      disabled={isResuming}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+        {/* Actions */}
+        <div className="pcard-actions">
+          <button
+            className="pcard-action primary"
+            onClick={(e) => { e.stopPropagation(); setShowNewSession(project.path) }}
+          >
+            <Plus size={14} /> New Session
+          </button>
+          <button
+            className="pcard-action danger"
+            onClick={(e) => handleRemoveProject(e, project.path)}
+          >
+            <Trash2 size={14} /> Remove
+          </button>
         </div>
       </div>
     )
   }
 
-  const hasGroups = groupedProjects.some(g => g.key !== UNGROUPED_KEY)
+  // Get projects for the active folder
+  const activeFolderGroup = activeFolder
+    ? groupedProjects.find(g => g.key === activeFolder)
+    : null
+
+  // If activeFolder is set but group doesn't exist anymore, reset
+  if (activeFolder && !activeFolderGroup) {
+    setActiveFolder(null)
+  }
 
   return (
     <div className="unified-dashboard">
@@ -450,70 +416,108 @@ export function ProjectDashboard() {
         </div>
       )}
 
-      {/* Projects List */}
-      <div className="dashboard-content">
-        {projects.length === 0 ? (
-          <div className="content-empty">
-            <div className="empty-icon">
-              <FolderOpen size={48} />
+      {/* Body: split view */}
+      <div className="dashboard-body">
+        {/* Left: Projects panel */}
+        <div className="dashboard-projects-panel">
+          {projects.length === 0 ? (
+            <div className="content-empty">
+              <div className="empty-icon">
+                <FolderOpen size={48} />
+              </div>
+              <h3>No projects yet</h3>
+              <p>Add your first project to start working with Claude Code</p>
+              <button className="add-button primary" onClick={() => setShowAddProject(true)}>
+                <Plus size={16} />
+                Add Your First Project
+              </button>
             </div>
-            <h3>No projects yet</h3>
-            <p>Add your first project to start working with Claude Code</p>
-            <button className="add-button primary" onClick={() => setShowAddProject(true)}>
-              <Plus size={16} />
-              Add Your First Project
-            </button>
-          </div>
-        ) : (
-          <div className="projects-list">
-            {groupedProjects.map((group) => {
-              const isCollapsed = collapsedGroups.includes(group.key)
-              const totalSessions = group.projects.reduce((sum, p) => sum + p.sessions.length, 0)
-              const activeCount = group.projects.reduce(
-                (sum, p) => sum + p.sessions.filter(s => s.status === 'active').length, 0
-              )
+          ) : !hasGroups || activeFolder !== null ? (
+            // Project list view (inside a folder or no groups)
+            <>
+              {hasGroups && activeFolderGroup && (
+                <button className="folder-nav-back" onClick={() => setActiveFolder(null)}>
+                  <ArrowLeft size={16} />
+                  <span>{activeFolderGroup.label}</span>
+                </button>
+              )}
+              <div className="projects-list">
+                {(activeFolderGroup?.projects || projects).map(renderProjectCard)}
+              </div>
+            </>
+          ) : (
+            // Folder grid view
+            <div className="folder-grid">
+              {groupedProjects.map((group) => {
+                const activeCount = group.projects.reduce(
+                  (sum, p) => sum + p.sessions.filter(s => s.status === 'active').length, 0
+                )
+                const totalSessions = group.projects.reduce((sum, p) => sum + p.sessions.length, 0)
 
-              // If there's only ungrouped projects, render them flat (no group header)
-              if (!hasGroups) {
-                return group.projects.map(renderProjectCard)
-              }
-
-              return (
-                <div key={group.key} className="project-group">
+                return (
                   <div
-                    className="project-group-header"
-                    onClick={() => toggleGroupCollapsed(group.key)}
+                    key={group.key}
+                    className="folder-card"
+                    onClick={() => setActiveFolder(group.key)}
                   >
-                    <div className="project-group-header-left">
-                      {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                      <span className="project-group-name">{group.label}</span>
-                      <span className="project-group-count">
-                        {group.projects.length} project{group.projects.length !== 1 ? 's' : ''}
-                      </span>
+                    <div className="folder-card-icon">
+                      <Folder size={40} />
+                      {activeCount > 0 && <span className="folder-active-dot" />}
                     </div>
-                    <div className="project-group-header-right">
-                      {activeCount > 0 && (
-                        <span className="project-group-active">
-                          <span className="status-dot active" />
-                          {activeCount} active
-                        </span>
-                      )}
-                      <span className="project-group-sessions">
+                    <span className="folder-card-name">{group.label}</span>
+                    <span className="folder-card-meta">
+                      {group.projects.length} project{group.projects.length !== 1 ? 's' : ''}
+                    </span>
+                    {totalSessions > 0 && (
+                      <span className="folder-card-meta">
                         {totalSessions} session{totalSessions !== 1 ? 's' : ''}
                       </span>
-                    </div>
+                    )}
                   </div>
-                  {!isCollapsed && (
-                    <div className="project-group-content">
-                      {group.projects.map(renderProjectCard)}
-                    </div>
-                  )}
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Right: Terminal panel */}
+        <div className="dashboard-terminal-panel">
+          {systemTerminalPort ? (
+            <>
+              {terminalLoading && (
+                <div className="terminal-loading-overlay">
+                  <div className="terminal-loading-spinner" />
+                  <p>Loading terminal...</p>
                 </div>
-              )
-            })}
-          </div>
-        )}
+              )}
+              <iframe
+                ref={terminalIframeRef}
+                src={`/terminal/${systemTerminalPort}${window.innerWidth >= 769 ? '?desktop=1' : ''}`}
+                title="System Terminal"
+                className="terminal-iframe"
+                allow="clipboard-read; clipboard-write"
+                onLoad={() => setTerminalLoading(false)}
+              />
+            </>
+          ) : (
+            <div className="terminal-placeholder">
+              <Settings size={24} />
+              <span>Terminal unavailable</span>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Mobile: floating terminal button */}
+      {systemTerminalPort && (
+        <button
+          className="dashboard-terminal-fab"
+          onClick={() => window.open(`/terminal/${systemTerminalPort}`, '_blank')}
+          title="Open Terminal"
+        >
+          <Terminal size={24} />
+        </button>
+      )}
 
       {/* Add Project Modal */}
       {showAddProject && (

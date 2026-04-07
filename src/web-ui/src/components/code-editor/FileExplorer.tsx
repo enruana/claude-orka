@@ -10,7 +10,8 @@ import {
   createCopyFileNameItem,
   createNewFileItem,
   createNewFolderItem,
-  createDeleteItem
+  createDeleteItem,
+  createPreviewHtmlItem
 } from './ContextMenu'
 import Editor from '@monaco-editor/react'
 import { FileText, Image as ImageIcon, File, AlertCircle, ArrowLeft, FolderOpen, Check } from 'lucide-react'
@@ -234,7 +235,9 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
   const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
     const fullPath = `${projectPath}/${path}`
 
+    const previewItem = !isDirectory ? createPreviewHtmlItem(projectPath, path) : null
     const items = [
+      ...(previewItem ? [previewItem] : []),
       createCopyPathItem(fullPath, () => showToast('Path copied')),
       createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),
       ...(!isDirectory ? [createCopyFileNameItem(path, () => showToast('File name copied'))] : []),

@@ -17,11 +17,18 @@ export interface RegisteredProject {
 /**
  * Global Orka configuration
  */
+export interface SystemTerminalInfo {
+  tmuxSessionId: string
+  ttydPort: number
+  ttydPid: number
+}
+
 export interface GlobalConfig {
   projects: RegisteredProject[]
   serverPort: number
   ttydBasePort: number
   lastUpdated: string
+  systemTerminal?: SystemTerminalInfo
 }
 
 const DEFAULT_CONFIG: GlobalConfig = {
@@ -249,6 +256,31 @@ export class GlobalStateManager {
    */
   getConfigPath(): string {
     return this.configPath
+  }
+
+  /**
+   * Get system terminal info
+   */
+  getSystemTerminal(): SystemTerminalInfo | null {
+    return this.config?.systemTerminal || null
+  }
+
+  /**
+   * Set system terminal info
+   */
+  async setSystemTerminal(info: SystemTerminalInfo): Promise<void> {
+    this.config!.systemTerminal = info
+    await this.save()
+    logger.info(`System terminal saved: port=${info.ttydPort}, pid=${info.ttydPid}`)
+  }
+
+  /**
+   * Clear system terminal info
+   */
+  async clearSystemTerminal(): Promise<void> {
+    delete this.config!.systemTerminal
+    await this.save()
+    logger.info('System terminal cleared')
   }
 }
 
