@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe } from 'lucide-react'
+import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe, Pencil } from 'lucide-react'
 
 export interface ContextMenuItem {
   label: string
@@ -345,6 +345,14 @@ export function createDeleteItem(onDelete: () => void, label: string = 'Delete')
     label,
     icon: <Trash2 size={14} />,
     onClick: onDelete
+  }
+}
+
+export function createRenameItem(onRename: () => void): ContextMenuItem {
+  return {
+    label: 'Rename',
+    icon: <Pencil size={14} />,
+    onClick: onRename
   }
 }
 

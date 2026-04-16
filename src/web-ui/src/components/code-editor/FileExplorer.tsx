@@ -11,6 +11,7 @@ import {
   createNewFileItem,
   createNewFolderItem,
   createDeleteItem,
+  createRenameItem,
   createPreviewHtmlItem
 } from './ContextMenu'
 import Editor from '@monaco-editor/react'
@@ -155,6 +156,14 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
   }>({ show: false, type: 'file', parentPath: '' })
   const [createName, setCreateName] = useState('')
 
+  // Rename modal state
+  const [renameModal, setRenameModal] = useState<{
+    show: boolean
+    path: string
+    isDirectory: boolean
+  }>({ show: false, path: '', isDirectory: false })
+  const [renameName, setRenameName] = useState('')
+
   // Show toast notification
   const showToast = useCallback((message: string) => {
     setToast({ show: true, message })
@@ -211,6 +220,46 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
     }
   }
 
+  // Open rename modal for a path
+  const openRenameModal = (path: string, isDirectory: boolean) => {
+    const name = path.split('/').pop() || path
+    setRenameModal({ show: true, path, isDirectory })
+    setRenameName(name)
+  }
+
+  // Execute rename (uses api.moveFile — keeps parent directory, replaces last segment)
+  const handleRename = async () => {
+    const newName = renameName.trim()
+    if (!newName) return
+    const oldPath = renameModal.path
+    const oldName = oldPath.split('/').pop() || oldPath
+    if (newName === oldName) {
+      setRenameModal({ show: false, path: '', isDirectory: false })
+      setRenameName('')
+      return
+    }
+    if (newName.includes('/')) {
+      showToast('Name cannot contain "/"')
+      return
+    }
+    const parent = oldPath.includes('/') ? oldPath.substring(0, oldPath.lastIndexOf('/')) : ''
+    const newPath = parent ? `${parent}/${newName}` : newName
+
+    try {
+      await api.moveFile(encodedPath, oldPath, newPath)
+      setRenameModal({ show: false, path: '', isDirectory: false })
+      setRenameName('')
+      await loadTree()
+      showToast(`Renamed to "${newName}"`)
+      // Update selection if we were viewing the renamed file
+      if (selectedFile === oldPath) {
+        setSelectedFile(newPath)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Rename failed')
+    }
+  }
+
   // Handle deleting a file or folder
   const handleDelete = async (path: string, isDirectory: boolean) => {
     const name = path.split('/').pop() || path
@@ -257,7 +306,8 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
       )
     }
 
-    // Add delete option
+    // Rename + delete at the bottom
+    items.push(createRenameItem(() => openRenameModal(path, isDirectory)))
     items.push(createDeleteItem(() => handleDelete(path, isDirectory)))
 
     return items
@@ -577,6 +627,52 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
     )
   }
 
+  // Render rename modal
+  const renderRenameModal = () => {
+    if (!renameModal.show) return null
+    const closeModal = () => {
+      setRenameModal({ show: false, path: '', isDirectory: false })
+      setRenameName('')
+    }
+    return (
+      <div className="modal-overlay" onClick={closeModal}>
+        <div className="create-file-modal" onClick={(e) => e.stopPropagation()}>
+          <h3>Rename {renameModal.isDirectory ? 'folder' : 'file'}</h3>
+          <p className="modal-subtitle">
+            Path: <strong>{renameModal.path}</strong>
+          </p>
+          <input
+            type="text"
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            autoFocus
+            onFocus={(e) => {
+              // Select base name (before extension) so user can quickly retype
+              const name = e.target.value
+              const dot = name.lastIndexOf('.')
+              const end = dot > 0 ? dot : name.length
+              e.target.setSelectionRange(0, end)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRename()
+              if (e.key === 'Escape') closeModal()
+            }}
+          />
+          <div className="modal-buttons">
+            <button className="button-secondary" onClick={closeModal}>Cancel</button>
+            <button
+              className="button-primary"
+              onClick={handleRename}
+              disabled={!renameName.trim()}
+            >
+              Rename
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Mobile layout - show one view at a time
   if (isMobile) {
     return (
@@ -608,6 +704,7 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
         {renderContextMenu()}
         {renderToast()}
         {renderCreateModal()}
+        {renderRenameModal()}
       </div>
     )
   }
@@ -633,6 +730,7 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
       {renderContextMenu()}
       {renderToast()}
       {renderCreateModal()}
+      {renderRenameModal()}
     </div>
   )
 }

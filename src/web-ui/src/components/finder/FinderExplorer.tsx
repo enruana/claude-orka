@@ -9,6 +9,7 @@ import {
   createNewFileItem,
   createNewFolderItem,
   createDeleteItem,
+  createRenameItem,
   createPreviewHtmlItem,
 } from '../code-editor/ContextMenu'
 import { AlertCircle, Check, Upload } from 'lucide-react'
@@ -61,6 +62,14 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
     parentPath: string
   }>({ show: false, type: 'file', parentPath: '' })
   const [createName, setCreateName] = useState('')
+
+  // Rename modal
+  const [renameModal, setRenameModal] = useState<{
+    show: boolean
+    path: string
+    isDirectory: boolean
+  }>({ show: false, path: '', isDirectory: false })
+  const [renameName, setRenameName] = useState('')
 
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -300,6 +309,39 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
     }
   }
 
+  const openRenameModal = (path: string, isDirectory: boolean) => {
+    const name = path.split('/').pop() || path
+    setRenameModal({ show: true, path, isDirectory })
+    setRenameName(name)
+  }
+
+  const handleRename = async () => {
+    const newName = renameName.trim()
+    if (!newName) return
+    const oldPath = renameModal.path
+    const oldName = oldPath.split('/').pop() || oldPath
+    if (newName === oldName) {
+      setRenameModal({ show: false, path: '', isDirectory: false })
+      setRenameName('')
+      return
+    }
+    if (newName.includes('/')) {
+      showToast('Name cannot contain "/"')
+      return
+    }
+    const parent = oldPath.includes('/') ? oldPath.substring(0, oldPath.lastIndexOf('/')) : ''
+    const newPath = parent ? `${parent}/${newName}` : newName
+    try {
+      await api.moveFile(encodedPath, oldPath, newPath)
+      setRenameModal({ show: false, path: '', isDirectory: false })
+      setRenameName('')
+      await loadDirectory(currentPath)
+      showToast(`Renamed to "${newName}"`)
+    } catch (err: any) {
+      setError(err.message || 'Rename failed')
+    }
+  }
+
   // Build context menu items
   const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
     const fullPath = `${projectPath}/${path}`
@@ -322,6 +364,7 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
         })
       )
     }
+    items.push(createRenameItem(() => openRenameModal(path, isDirectory)))
     items.push(createDeleteItem(() => handleDelete(path, isDirectory)))
     return items
   }, [projectPath, showToast])
@@ -501,6 +544,55 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
                 disabled={!createName.trim()}
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename modal */}
+      {renameModal.show && (
+        <div
+          className="modal-overlay"
+          onClick={() => { setRenameModal({ show: false, path: '', isDirectory: false }); setRenameName('') }}
+        >
+          <div className="create-file-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Rename {renameModal.isDirectory ? 'folder' : 'file'}</h3>
+            <p className="modal-subtitle">
+              Path: <strong>{renameModal.path}</strong>
+            </p>
+            <input
+              type="text"
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+              autoFocus
+              onFocus={(e) => {
+                const name = e.target.value
+                const dot = name.lastIndexOf('.')
+                const end = dot > 0 ? dot : name.length
+                e.target.setSelectionRange(0, end)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRename()
+                if (e.key === 'Escape') {
+                  setRenameModal({ show: false, path: '', isDirectory: false })
+                  setRenameName('')
+                }
+              }}
+            />
+            <div className="modal-buttons">
+              <button
+                className="button-secondary"
+                onClick={() => { setRenameModal({ show: false, path: '', isDirectory: false }); setRenameName('') }}
+              >
+                Cancel
+              </button>
+              <button
+                className="button-primary"
+                onClick={handleRename}
+                disabled={!renameName.trim()}
+              >
+                Rename
               </button>
             </div>
           </div>
