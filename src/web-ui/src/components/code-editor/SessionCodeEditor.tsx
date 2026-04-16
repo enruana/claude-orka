@@ -13,8 +13,13 @@ import {
   createCopyFileNameItem,
   createNewFileItem,
   createNewFolderItem,
-  createDeleteItem
+  createDeleteItem,
+  createRenameItem,
+  createPreviewHtmlItem,
+  createOpenInFilesItem,
+  createOpenInViewerItem,
 } from './ContextMenu'
+import { useNavigate } from 'react-router-dom'
 import { api, FileTreeNode, GitStatus, GitDiff } from '../../api/client'
 import './code-editor.css'
 
@@ -35,6 +40,7 @@ interface OpenTab {
 type ViewMode = 'editor' | 'diff'
 
 export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: SessionCodeEditorProps) {
+  const navigate = useNavigate()
   const [fileTree, setFileTree] = useState<FileTreeNode[]>([])
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
@@ -61,6 +67,14 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
     parentPath: string
   }>({ show: false, type: 'file', parentPath: '' })
   const [createName, setCreateName] = useState('')
+
+  // Rename modal state
+  const [renameModal, setRenameModal] = useState<{
+    show: boolean
+    path: string
+    isDirectory: boolean
+  }>({ show: false, path: '', isDirectory: false })
+  const [renameName, setRenameName] = useState('')
 
   // Show toast notification
   const showToast = useCallback((message: string) => {
@@ -92,6 +106,47 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
     }
   }
 
+  // Open rename modal
+  const openRenameModal = (path: string, isDirectory: boolean) => {
+    const name = path.split('/').pop() || path
+    setRenameModal({ show: true, path, isDirectory })
+    setRenameName(name)
+  }
+
+  // Execute rename via moveFile
+  const handleRename = async () => {
+    const newName = renameName.trim()
+    if (!newName) return
+    const oldPath = renameModal.path
+    const oldName = oldPath.split('/').pop() || oldPath
+    if (newName === oldName) {
+      setRenameModal({ show: false, path: '', isDirectory: false })
+      setRenameName('')
+      return
+    }
+    if (newName.includes('/')) {
+      showToast('Name cannot contain "/"')
+      return
+    }
+    const parent = oldPath.includes('/') ? oldPath.substring(0, oldPath.lastIndexOf('/')) : ''
+    const newPath = parent ? `${parent}/${newName}` : newName
+    try {
+      await api.moveFile(encodedPath, oldPath, newPath)
+      setRenameModal({ show: false, path: '', isDirectory: false })
+      setRenameName('')
+      await loadFileTree()
+      showToast(`Renamed to "${newName}"`)
+      if (!renameModal.isDirectory) {
+        setOpenTabs(prev => prev.map(t =>
+          t.path === oldPath ? { ...t, path: newPath, name: newName } : t
+        ))
+        if (activeTab === oldPath) setActiveTab(newPath)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Rename failed')
+    }
+  }
+
   // Handle deleting a file or folder
   const handleDelete = async (path: string, isDirectory: boolean) => {
     const name = path.split('/').pop() || path
@@ -119,7 +174,27 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
   const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
     const fullPath = `${projectPath}/${path}`
 
+    // File-only actions
+    const viewerItem = !isDirectory
+      ? createOpenInViewerItem(() => {
+          navigate(`/projects/${encodedPath}/files/view?path=${encodeURIComponent(path)}`)
+        })
+      : null
+    const previewItem = !isDirectory ? createPreviewHtmlItem(projectPath, path) : null
+
+    // Reveal in Files — parent directory for files, the dir itself for folders
+    const revealItem = createOpenInFilesItem(() => {
+      const targetPath = isDirectory
+        ? path
+        : (path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '')
+      const qs = targetPath ? `?path=${encodeURIComponent(targetPath)}` : ''
+      navigate(`/projects/${encodedPath}/files${qs}`)
+    })
+
     const items = [
+      ...(viewerItem ? [viewerItem] : []),
+      ...(previewItem ? [previewItem] : []),
+      revealItem,
       createCopyPathItem(fullPath, () => showToast('Path copied')),
       createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),
       ...(!isDirectory ? [createCopyFileNameItem(path, () => showToast('File name copied'))] : []),
@@ -139,11 +214,12 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
       )
     }
 
-    // Add delete option
+    // Rename + delete
+    items.push(createRenameItem(() => openRenameModal(path, isDirectory)))
     items.push(createDeleteItem(() => handleDelete(path, isDirectory)))
 
     return items
-  }, [projectPath, showToast, encodedPath])
+  }, [projectPath, showToast, encodedPath, navigate])
 
   // Handle context menu (right click)
   const handleTreeContextMenu = useCallback((e: React.MouseEvent, path: string, isDirectory: boolean) => {
@@ -577,6 +653,55 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
                 disabled={!createName.trim()}
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Modal */}
+      {renameModal.show && (
+        <div
+          className="modal-overlay"
+          onClick={() => { setRenameModal({ show: false, path: '', isDirectory: false }); setRenameName('') }}
+        >
+          <div className="create-file-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Rename {renameModal.isDirectory ? 'folder' : 'file'}</h3>
+            <p className="modal-subtitle">
+              Path: <strong>{renameModal.path}</strong>
+            </p>
+            <input
+              type="text"
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+              autoFocus
+              onFocus={(e) => {
+                const name = e.target.value
+                const dot = name.lastIndexOf('.')
+                const end = dot > 0 ? dot : name.length
+                e.target.setSelectionRange(0, end)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRename()
+                if (e.key === 'Escape') {
+                  setRenameModal({ show: false, path: '', isDirectory: false })
+                  setRenameName('')
+                }
+              }}
+            />
+            <div className="modal-buttons">
+              <button
+                className="button-secondary"
+                onClick={() => { setRenameModal({ show: false, path: '', isDirectory: false }); setRenameName('') }}
+              >
+                Cancel
+              </button>
+              <button
+                className="button-primary"
+                onClick={handleRename}
+                disabled={!renameName.trim()}
+              >
+                Rename
               </button>
             </div>
           </div>

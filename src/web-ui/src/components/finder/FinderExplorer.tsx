@@ -11,7 +11,9 @@ import {
   createDeleteItem,
   createRenameItem,
   createPreviewHtmlItem,
+  createOpenInCodeItem,
 } from '../code-editor/ContextMenu'
+import { useNavigate } from 'react-router-dom'
 import { AlertCircle, Check, Upload } from 'lucide-react'
 import { FinderToolbar } from './FinderToolbar'
 import { FinderListView } from './FinderListView'
@@ -23,16 +25,19 @@ interface FinderExplorerProps {
   projectPath: string
   encodedPath: string
   embedded?: boolean
+  /** Directory path to navigate to on mount (relative to project root) */
+  initialPath?: string
 }
 
 const VIEW_MODE_KEY = 'orka-finder-view-mode'
 
-export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExplorerProps) {
+export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath }: FinderExplorerProps) {
   const projectName = projectPath.split('/').pop() || projectPath
+  const navigate = useNavigate()
 
-  // Navigation state
-  const [currentPath, setCurrentPath] = useState('')
-  const [history, setHistory] = useState<string[]>([''])
+  // Navigation state — start at initialPath if provided
+  const [currentPath, setCurrentPath] = useState(initialPath || '')
+  const [history, setHistory] = useState<string[]>([initialPath || ''])
   const [historyIndex, setHistoryIndex] = useState(0)
 
   // Data
@@ -346,7 +351,14 @@ export function FinderExplorer({ projectPath, encodedPath, embedded }: FinderExp
   const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
     const fullPath = `${projectPath}/${path}`
     const previewItem = !isDirectory ? createPreviewHtmlItem(projectPath, path) : null
+    // "Open in Code Editor" only makes sense for files (not directories)
+    const openInCode = !isDirectory
+      ? createOpenInCodeItem(() => {
+          navigate(`/projects/${encodedPath}/code?file=${encodeURIComponent(path)}`)
+        })
+      : null
     const items = [
+      ...(openInCode ? [openInCode] : []),
       ...(previewItem ? [previewItem] : []),
       createCopyPathItem(fullPath, () => showToast('Path copied')),
       createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),

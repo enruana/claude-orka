@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { FinderExplorer } from '../finder/FinderExplorer'
 import { ArrowLeft } from 'lucide-react'
 import { usePageTitle } from '../../hooks/usePageTitle'
@@ -6,7 +6,9 @@ import './code-editor.css'
 
 export function FilesPage() {
   const { encodedPath } = useParams<{ encodedPath: string }>()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const initialPath = searchParams.get('path') || undefined
 
   if (!encodedPath) {
     return (
@@ -40,6 +42,7 @@ export function FilesPage() {
         <FinderExplorer
           projectPath={projectPath}
           encodedPath={encodedPath}
+          initialPath={initialPath}
         />
       </div>
     </div>

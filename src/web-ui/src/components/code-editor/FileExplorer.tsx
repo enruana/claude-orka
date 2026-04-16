@@ -12,8 +12,11 @@ import {
   createNewFolderItem,
   createDeleteItem,
   createRenameItem,
-  createPreviewHtmlItem
+  createPreviewHtmlItem,
+  createOpenInFilesItem,
+  createOpenInViewerItem
 } from './ContextMenu'
+import { useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import { FileText, Image as ImageIcon, File, AlertCircle, ArrowLeft, FolderOpen, Check } from 'lucide-react'
 
@@ -130,6 +133,7 @@ function useIsMobile() {
 }
 
 export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
+  const navigate = useNavigate()
   const [tree, setTree] = useState<FileTreeNode[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
@@ -285,8 +289,29 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
     const fullPath = `${projectPath}/${path}`
 
     const previewItem = !isDirectory ? createPreviewHtmlItem(projectPath, path) : null
+
+    // "Open in Viewer" — full-page file viewer (markdown renders, images, etc.)
+    const viewerItem = !isDirectory
+      ? createOpenInViewerItem(() => {
+          navigate(`/projects/${encodedPath}/files/view?path=${encodeURIComponent(path)}`)
+        })
+      : null
+
+    // "Reveal in Files" navigates to the Files tab.
+    // For a file: open its parent directory in Finder, so the user sees it in context.
+    // For a directory: open that directory directly.
+    const revealItem = createOpenInFilesItem(() => {
+      const targetPath = isDirectory
+        ? path
+        : (path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '')
+      const qs = targetPath ? `?path=${encodeURIComponent(targetPath)}` : ''
+      navigate(`/projects/${encodedPath}/files${qs}`)
+    })
+
     const items = [
+      ...(viewerItem ? [viewerItem] : []),
       ...(previewItem ? [previewItem] : []),
+      revealItem,
       createCopyPathItem(fullPath, () => showToast('Path copied')),
       createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),
       ...(!isDirectory ? [createCopyFileNameItem(path, () => showToast('File name copied'))] : []),

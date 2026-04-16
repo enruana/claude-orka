@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe, Pencil } from 'lucide-react'
+import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe, Pencil, Code, FolderOpen, Eye } from 'lucide-react'
 
 export interface ContextMenuItem {
   label: string
@@ -353,6 +353,30 @@ export function createRenameItem(onRename: () => void): ContextMenuItem {
     label: 'Rename',
     icon: <Pencil size={14} />,
     onClick: onRename
+  }
+}
+
+export function createOpenInCodeItem(onOpen: () => void): ContextMenuItem {
+  return {
+    label: 'Open in Code Editor',
+    icon: <Code size={14} />,
+    onClick: onOpen,
+  }
+}
+
+export function createOpenInFilesItem(onOpen: () => void): ContextMenuItem {
+  return {
+    label: 'Reveal in Files',
+    icon: <FolderOpen size={14} />,
+    onClick: onOpen,
+  }
+}
+
+export function createOpenInViewerItem(onOpen: () => void): ContextMenuItem {
+  return {
+    label: 'Open in Viewer',
+    icon: <Eye size={14} />,
+    onClick: onOpen,
   }
 }
 
