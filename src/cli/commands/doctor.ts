@@ -6,6 +6,7 @@ import chalk from 'chalk'
 import { Output } from '../utils/output'
 import { handleError } from '../utils/errors'
 import { getPackageNodeModulesPath } from '../../utils/paths'
+import { CERTS_DIR, findCertPair, getTailscaleHostname } from '../../utils/certs'
 
 interface CheckResult {
   name: string
@@ -56,6 +57,12 @@ export function doctorCommand(program: Command) {
 
         // Check Puppeteer (for terminal screenshots)
         results.push(await checkPuppeteer())
+
+        // Check Tailscale (for HTTPS remote access)
+        results.push(await checkTailscale())
+
+        // Check SSL certs
+        results.push(await checkSSLCerts())
 
         // Display results
         displayResults(results)
@@ -491,6 +498,76 @@ async function checkPuppeteer(): Promise<CheckResult> {
       message: 'Unknown',
       details: (error as Error).message,
     }
+  }
+}
+
+async function checkTailscale(): Promise<CheckResult> {
+  try {
+    await execa('which', ['tailscale'])
+  } catch {
+    return {
+      name: 'Tailscale (HTTPS)',
+      status: 'warn',
+      message: 'Not installed',
+      details: 'Tailscale enables HTTPS for remote access (clipboard API, etc.)',
+      fix: 'Run: orka prepare',
+    }
+  }
+
+  try {
+    const { stdout } = await execa('tailscale', ['status'])
+    if (stdout.includes('Logged out') || stdout.includes('NeedsLogin')) {
+      return {
+        name: 'Tailscale (HTTPS)',
+        status: 'warn',
+        message: 'Installed but not logged in',
+        fix: 'Run: sudo tailscale up',
+      }
+    }
+    const hostname = await getTailscaleHostname()
+    return {
+      name: 'Tailscale (HTTPS)',
+      status: 'pass',
+      message: hostname ? `Connected as ${hostname}` : 'Connected',
+    }
+  } catch (error) {
+    return {
+      name: 'Tailscale (HTTPS)',
+      status: 'warn',
+      message: 'Not connected',
+      details: (error as Error).message,
+      fix: 'Run: sudo tailscale up',
+    }
+  }
+}
+
+async function checkSSLCerts(): Promise<CheckResult> {
+  const found = await findCertPair()
+  if (found) {
+    return {
+      name: 'SSL Certificates',
+      status: 'pass',
+      message: `Cert found for ${found.hostname}`,
+      details: CERTS_DIR,
+    }
+  }
+
+  const hostname = await getTailscaleHostname()
+  if (hostname) {
+    return {
+      name: 'SSL Certificates',
+      status: 'warn',
+      message: 'No cert found (Orka will start in HTTP mode)',
+      fix: `cd ${CERTS_DIR} && sudo tailscale cert ${hostname}`,
+    }
+  }
+
+  return {
+    name: 'SSL Certificates',
+    status: 'warn',
+    message: 'No cert found (Orka will start in HTTP mode)',
+    details: `Looked in ${CERTS_DIR}`,
+    fix: 'Run: orka prepare (after logging into Tailscale)',
   }
 }
 

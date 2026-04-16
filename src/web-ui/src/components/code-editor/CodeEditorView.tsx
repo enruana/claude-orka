@@ -15,7 +15,8 @@ import {
   createNewFolderItem,
   createDeleteItem
 } from './ContextMenu'
-import { api, FileTreeNode, GitStatus, GitDiff } from '../../api/client'
+import { api, FileTreeNode, GitStatus, GitDiff, ProjectComment } from '../../api/client'
+import { AddCommentDialog } from '../AddCommentDialog'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import './code-editor.css'
 
@@ -75,6 +76,15 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
   const [diffData, setDiffData] = useState<GitDiff | null>(null)
   const [sidebarMode, setSidebarMode] = useState<'files' | 'search'>('files')
   const [goToLine, setGoToLine] = useState<{ line: number; column?: number } | null>(null)
+
+  // Comments state
+  const [comments, setComments] = useState<ProjectComment[]>([])
+  const [commentDialog, setCommentDialog] = useState<{
+    show: boolean
+    startLine: number
+    endLine: number
+    selectedText: string
+  } | null>(null)
 
   // Context menu state
   const { contextMenu, hideContextMenu, handleContextMenu, handleLongPress } = useContextMenu()
@@ -219,15 +229,38 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
     handleLongPress(e, { path, isDirectory })
   }, [handleLongPress])
 
+  // Fetch comments
+  const fetchComments = useCallback(async () => {
+    try {
+      const data = await api.listComments(projectPath)
+      setComments(data)
+    } catch {
+      // Ignore - comments are optional
+    }
+  }, [projectPath])
+
   // Initial load
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-      await Promise.all([loadFileTree(), loadGitStatus()])
+      await Promise.all([loadFileTree(), loadGitStatus(), fetchComments()])
       setLoading(false)
     }
     load()
-  }, [loadFileTree, loadGitStatus])
+  }, [loadFileTree, loadGitStatus, fetchComments])
+
+  // Listen for navigate-to-comment events from CommentWidget
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { filePath: commentFile, startLine } = (e as CustomEvent).detail
+      // Open the file if not already open
+      handleFileSelect(commentFile)
+      // Go to line after a brief delay to allow the file to load
+      setTimeout(() => setGoToLine({ line: startLine }), 200)
+    }
+    window.addEventListener('orka-navigate-to-comment', handler)
+    return () => window.removeEventListener('orka-navigate-to-comment', handler)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -565,6 +598,8 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
                   filePath={activeTabData.path}
                   onChange={handleContentChange}
                   goToLine={goToLine}
+                  comments={comments.filter(c => c.filePath === activeTab)}
+                  onAddComment={(data) => setCommentDialog({ show: true, ...data })}
                 />
               ) : (
                 <div className="editor-placeholder">
@@ -670,6 +705,32 @@ export function CodeEditorView({ projectPath, encodedPath, onBack }: CodeEditorV
             </div>
           </div>
         </div>
+      )}
+
+      {/* Add Comment Dialog */}
+      {commentDialog && activeTab && (
+        <AddCommentDialog
+          filePath={activeTab}
+          startLine={commentDialog.startLine}
+          endLine={commentDialog.endLine}
+          selectedText={commentDialog.selectedText}
+          onSave={async (body) => {
+            try {
+              await api.createComment(projectPath, {
+                filePath: activeTab,
+                startLine: commentDialog.startLine,
+                endLine: commentDialog.endLine,
+                selectedText: commentDialog.selectedText,
+                body,
+              })
+              setCommentDialog(null)
+              await fetchComments()
+            } catch (err: any) {
+              console.error('Failed to create comment:', err)
+            }
+          }}
+          onCancel={() => setCommentDialog(null)}
+        />
       )}
     </div>
   )

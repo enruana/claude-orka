@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, X, Check, Trash2, ClipboardList, Mic, ListTodo } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Plus, X, Check, Trash2, ClipboardList, Mic, ListTodo, MessageSquare, Terminal, Copy as CopyIcon } from 'lucide-react'
+import { AnsiUp } from 'ansi_up'
 import { api, ProjectTask } from '../api/client'
 import { VoiceInputPopover } from './VoiceInputPopover'
+import { CommentWidget } from './CommentWidget'
 import './task-widget.css'
 
-type ActivePanel = 'none' | 'menu' | 'tasks' | 'voice'
+type ActivePanel = 'none' | 'menu' | 'tasks' | 'voice' | 'comments' | 'copy-terminal'
 
 interface TaskWidgetProps {
   projectPath: string
@@ -58,6 +61,12 @@ function hasTerminal(): boolean {
   return !!document.querySelector('iframe.terminal-iframe')
 }
 
+// Extract sessionId from current URL path: /projects/:encodedPath/sessions/:sessionId
+function getSessionIdFromUrl(): string | null {
+  const match = window.location.pathname.match(/\/projects\/[^/]+\/sessions\/([^/?#]+)/)
+  return match ? match[1] : null
+}
+
 export function TaskWidget({ projectPath }: TaskWidgetProps) {
   const [active, setActive] = useState<ActivePanel>('none')
   const [tasks, setTasks] = useState<ProjectTask[]>([])
@@ -66,6 +75,10 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
   const [terminalAvailable, setTerminalAvailable] = useState(false)
   const [position, setPosition] = useState<FabPosition>(() => loadPosition() || getDefaultPosition())
   const [dragging, setDragging] = useState(false)
+  const [terminalCapture, setTerminalCapture] = useState<string>('')
+  const [terminalCaptureHtml, setTerminalCaptureHtml] = useState<string>('')
+  const [capturing, setCapturing] = useState(false)
+  const [copyFeedback, setCopyFeedback] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -79,6 +92,20 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
   })
 
   const pendingCount = tasks.filter(t => !t.completed).length
+  const [commentCount, setCommentCount] = useState(0)
+
+  // Fetch comment count for badge
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        const comments = await api.listComments(projectPath)
+        setCommentCount(comments.filter(c => !c.resolved).length)
+      } catch { /* ignore */ }
+    }
+    fetchCount()
+    const interval = setInterval(fetchCount, 5000)
+    return () => clearInterval(interval)
+  }, [projectPath])
 
   // Determine which side popovers should open toward
   const fabCenterX = position.x + FAB_SIZE / 2
@@ -202,6 +229,59 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
     setActive(prev => prev === panel ? 'none' : panel)
   }
 
+  const openCopyTerminal = async () => {
+    setActive('copy-terminal')
+    setCapturing(true)
+    setTerminalCapture('')
+    setTerminalCaptureHtml('')
+    setCopyFeedback(false)
+    try {
+      const sessionId = getSessionIdFromUrl()
+      if (!sessionId) {
+        setTerminalCapture('(No active session found in URL)')
+        return
+      }
+      // Fetch both plain (for clipboard) and ANSI-colored (for display) versions
+      const [plainRes, ansiRes] = await Promise.all([
+        api.captureTerminalPane(projectPath, sessionId, { lines: 400 }),
+        api.captureTerminalPane(projectPath, sessionId, { lines: 400, ansi: true }),
+      ])
+
+      let plain = plainRes.text.replace(/\n+$/, '')
+      if (plain.length > 5000) plain = '…' + plain.slice(-5000)
+      setTerminalCapture(plain)
+
+      try {
+        const converter = new AnsiUp()
+        ;(converter as any).use_classes = false
+        const html = converter.ansi_to_html(ansiRes.text || '')
+        setTerminalCaptureHtml(html)
+      } catch {
+        setTerminalCaptureHtml('')
+      }
+    } catch (err: any) {
+      setTerminalCapture(`(Failed to capture terminal: ${err.message || err})`)
+    } finally {
+      setCapturing(false)
+    }
+  }
+
+  const handleCopyTerminalText = async () => {
+    if (!terminalCapture) return
+    try {
+      await navigator.clipboard.writeText(terminalCapture)
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = terminalCapture
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+    setCopyFeedback(true)
+    setTimeout(() => setCopyFeedback(false), 1500)
+  }
+
   // --- Task CRUD ---
   const handleAdd = async () => {
     const title = newTitle.trim()
@@ -316,6 +396,44 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
               </>
             )}
           </div>
+          <div className="speed-dial-item">
+            {opensRight ? (
+              <>
+                <button className="speed-dial-btn comments" onClick={() => openPanel('comments')} title="Comments">
+                  <MessageSquare size={20} />
+                  {commentCount > 0 && <span className="task-count-badge">{commentCount}</span>}
+                </button>
+                <span className="speed-dial-label">Comments</span>
+              </>
+            ) : (
+              <>
+                <span className="speed-dial-label">Comments</span>
+                <button className="speed-dial-btn comments" onClick={() => openPanel('comments')} title="Comments">
+                  <MessageSquare size={20} />
+                  {commentCount > 0 && <span className="task-count-badge">{commentCount}</span>}
+                </button>
+              </>
+            )}
+          </div>
+          {terminalAvailable && (
+            <div className="speed-dial-item">
+              {opensRight ? (
+                <>
+                  <button className="speed-dial-btn copy-terminal" onClick={openCopyTerminal} title="Copy from Terminal">
+                    <Terminal size={20} />
+                  </button>
+                  <span className="speed-dial-label">Copy Terminal</span>
+                </>
+              ) : (
+                <>
+                  <span className="speed-dial-label">Copy Terminal</span>
+                  <button className="speed-dial-btn copy-terminal" onClick={openCopyTerminal} title="Copy from Terminal">
+                    <Terminal size={20} />
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -399,6 +517,65 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
         />
       )}
 
+      {/* Comments popover */}
+      {active === 'comments' && (
+        <CommentWidget
+          projectPath={projectPath}
+          onClose={() => setActive('none')}
+          popoverStyle={popoverStyle}
+        />
+      )}
+
+      {/* Copy from Terminal fullscreen modal — rendered via portal to escape
+          ancestor stacking contexts (the FAB container has position:fixed which
+          creates its own context, trapping child z-indexes). */}
+      {active === 'copy-terminal' && createPortal(
+        <div className="copy-terminal-overlay" onClick={() => setActive('none')}>
+          <div className="copy-terminal-modal" onClick={e => e.stopPropagation()}>
+            <div className="copy-terminal-modal-header">
+              <span className="copy-terminal-modal-title">
+                <Terminal size={18} />
+                Terminal capture
+                {terminalCapture && <span className="copy-terminal-chars">{terminalCapture.length} chars</span>}
+              </span>
+              <div className="copy-terminal-modal-actions">
+                <button
+                  className={`copy-terminal-btn-primary ${copyFeedback ? 'success' : ''}`}
+                  disabled={!terminalCapture || capturing}
+                  onClick={handleCopyTerminalText}
+                >
+                  {copyFeedback ? (<><Check size={14} /> Copied</>) : (<><CopyIcon size={14} /> Copy all</>)}
+                </button>
+                <button className="copy-terminal-btn-close" onClick={() => setActive('none')} title="Close">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="copy-terminal-modal-body">
+              {capturing ? (
+                <div className="copy-terminal-loading-fs">
+                  <div className="spinner" />
+                  <span>Capturing terminal…</span>
+                </div>
+              ) : terminalCaptureHtml ? (
+                <pre
+                  className="copy-terminal-pre"
+                  dangerouslySetInnerHTML={{ __html: terminalCaptureHtml }}
+                />
+              ) : (
+                <pre className="copy-terminal-pre">{terminalCapture}</pre>
+              )}
+            </div>
+            <div className="copy-terminal-modal-footer">
+              <span className="copy-terminal-hint-fs">
+                Select any text and Cmd+C to copy, or use "Copy all" to grab everything
+              </span>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* Main FAB - draggable */}
       <button
         className={`actions-fab ${active !== 'none' ? 'open' : ''} ${dragging ? 'dragging' : ''}`}
@@ -410,8 +587,8 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
         <span className="actions-fab-icon">
           <Plus size={24} />
         </span>
-        {active === 'none' && pendingCount > 0 && (
-          <span className="actions-fab-badge">{pendingCount}</span>
+        {active === 'none' && (pendingCount + commentCount) > 0 && (
+          <span className="actions-fab-badge">{pendingCount + commentCount}</span>
         )}
       </button>
     </div>

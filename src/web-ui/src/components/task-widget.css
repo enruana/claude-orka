@@ -137,6 +137,171 @@
   color: white;
 }
 
+.speed-dial-btn.comments {
+  background: linear-gradient(135deg, #34d399 0%, #06b6d4 100%);
+  color: white;
+}
+
+.speed-dial-btn.copy-terminal {
+  background: linear-gradient(135deg, #fab387 0%, #f9e2af 100%);
+  color: #1e1e2e;
+}
+
+/* Copy from Terminal — fullscreen modal */
+.copy-terminal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 10001; /* above headers and popovers (some use 9999) */
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 24px;
+  animation: copy-term-fade 0.15s ease;
+}
+
+@keyframes copy-term-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.copy-terminal-modal {
+  flex: 1;
+  background: #11111b;
+  border: 1px solid #313244;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+
+.copy-terminal-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #313244;
+  background: #181825;
+}
+
+.copy-terminal-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #cdd6f4;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.copy-terminal-modal-title svg { color: #fab387; }
+
+.copy-terminal-chars {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6c7086;
+  padding: 2px 8px;
+  background: #1e1e2e;
+  border-radius: 10px;
+  border: 1px solid #313244;
+  margin-left: 4px;
+}
+
+.copy-terminal-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.copy-terminal-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #fab387 0%, #f9e2af 100%);
+  color: #11111b;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.2s;
+}
+
+.copy-terminal-btn-primary:hover { opacity: 0.9; }
+.copy-terminal-btn-primary:disabled { opacity: 0.4; cursor: default; }
+
+.copy-terminal-btn-primary.success {
+  background: linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%);
+}
+
+.copy-terminal-btn-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #a6adc8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.copy-terminal-btn-close:hover {
+  background: #1e1e2e;
+  color: #cdd6f4;
+}
+
+.copy-terminal-modal-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px;
+  background: #11111b;
+}
+
+.copy-terminal-loading-fs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: #a6adc8;
+}
+
+.copy-terminal-pre {
+  margin: 0;
+  font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #cdd6f4;
+  background: transparent;
+  white-space: pre;
+  -webkit-user-select: text;
+  user-select: text;
+  tab-size: 4;
+}
+
+/* Colors from ansi_up come as inline styles already; these rules just ensure
+   the <span> elements inherit the monospace font */
+.copy-terminal-pre span { font-family: inherit; }
+
+.copy-terminal-modal-footer {
+  padding: 10px 20px;
+  border-top: 1px solid #313244;
+  background: #181825;
+}
+
+.copy-terminal-hint-fs {
+  font-size: 12px;
+  color: #6c7086;
+}
+
 .speed-dial-label {
   font-size: 12px;
   font-weight: 500;

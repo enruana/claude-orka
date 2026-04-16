@@ -322,6 +322,114 @@ projectsRouter.delete('/tasks/:taskId', async (req, res) => {
 })
 
 // ============================================================
+// Document Review Comments
+// ============================================================
+
+/**
+ * GET /api/projects/comments?project=ENCODED
+ * List all comments for a project
+ */
+projectsRouter.get('/comments', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const stateManager = new StateManager(projectPath)
+    const comments = await stateManager.listComments()
+    res.json(comments)
+  } catch (error: any) {
+    logger.error('Failed to list comments:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/projects/comments?project=ENCODED
+ * Create a new comment
+ * Body: { filePath, startLine, endLine, selectedText, body }
+ */
+projectsRouter.post('/comments', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const { filePath, startLine, endLine, selectedText, body } = req.body
+
+    if (!filePath || !body || startLine === undefined || endLine === undefined) {
+      res.status(400).json({ error: 'filePath, startLine, endLine, and body are required' })
+      return
+    }
+
+    const comment = {
+      id: uuidv4(),
+      filePath,
+      startLine: Number(startLine),
+      endLine: Number(endLine),
+      selectedText: selectedText || '',
+      body,
+      resolved: false,
+      createdAt: new Date().toISOString(),
+    }
+
+    const stateManager = new StateManager(projectPath)
+    await stateManager.addComment(comment)
+    res.status(201).json(comment)
+  } catch (error: any) {
+    logger.error('Failed to create comment:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * PATCH /api/projects/comments/:commentId?project=ENCODED
+ * Update a comment
+ */
+projectsRouter.patch('/comments/:commentId', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const { commentId } = req.params
+    const { body, resolved } = req.body
+
+    const stateManager = new StateManager(projectPath)
+    const updated = await stateManager.updateComment(commentId, { body, resolved })
+    res.json(updated)
+  } catch (error: any) {
+    if (error.message.includes('not found')) {
+      res.status(404).json({ error: error.message })
+      return
+    }
+    logger.error('Failed to update comment:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/projects/comments/:commentId?project=ENCODED
+ * Delete a comment
+ */
+projectsRouter.delete('/comments/:commentId', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const { commentId } = req.params
+
+    const stateManager = new StateManager(projectPath)
+    await stateManager.deleteComment(commentId)
+    res.json({ success: true })
+  } catch (error: any) {
+    if (error.message.includes('not found')) {
+      res.status(404).json({ error: error.message })
+      return
+    }
+    logger.error('Failed to delete comment:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// ============================================================
 // Less specific routes come AFTER the more specific ones
 // ============================================================
 

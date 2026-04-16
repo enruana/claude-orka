@@ -23,7 +23,7 @@ export class ClaudeOrka {
    * Creates the .claude-orka/ structure if it doesn't exist
    */
   async initialize(): Promise<void> {
-    logger.info('Initializing ClaudeOrka')
+    logger.debug('Initializing ClaudeOrka')
     await this.sessionManager.initialize()
   }
 

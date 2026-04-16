@@ -2,6 +2,8 @@ import express from 'express'
 import cors from 'cors'
 import path from 'path'
 import http from 'http'
+import https from 'https'
+import fs from 'fs'
 import { fileURLToPath } from 'url'
 import { getGlobalStateManager } from '../core/GlobalStateManager'
 import { projectsRouter } from './api/projects'
@@ -20,6 +22,8 @@ const __dirname = path.dirname(__filename)
 
 export interface ServerOptions {
   port?: number
+  certPath?: string
+  keyPath?: string
 }
 
 export async function createServer(options: ServerOptions = {}) {
@@ -200,17 +204,37 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
   }
 
   return new Promise((resolve) => {
-    const server = app.listen(port, () => {
-      logger.info(`Orka server running at http://localhost:${port}`)
+    // Determine if HTTPS should be used
+    const useHttps = !!(options.certPath && options.keyPath)
+    let server: http.Server | https.Server
+
+    if (useHttps) {
+      try {
+        const cert = fs.readFileSync(options.certPath!)
+        const key = fs.readFileSync(options.keyPath!)
+        server = https.createServer({ cert, key }, app)
+        logger.info(`HTTPS enabled with cert=${options.certPath} key=${options.keyPath}`)
+      } catch (err: any) {
+        logger.error(`Failed to load SSL certificates: ${err.message}`)
+        logger.warn('Falling back to HTTP')
+        server = http.createServer(app)
+      }
+    } else {
+      server = http.createServer(app)
+    }
+
+    const protocol = (server instanceof https.Server) ? 'https' : 'http'
+    server.listen(port, () => {
+      logger.info(`Orka server running at ${protocol}://localhost:${port}`)
       console.log(`
 ┌─────────────────────────────────────────┐
 │                                         │
 │   🎭 Claude Orka Server                 │
 │                                         │
-│   Running at: http://localhost:${port}     │
+│   Running at: ${protocol}://localhost:${port}    │
 │                                         │
-│   API:  http://localhost:${port}/api       │
-│   UI:   http://localhost:${port}           │
+│   API:  ${protocol}://localhost:${port}/api       │
+│   UI:   ${protocol}://localhost:${port}           │
 │   Hooks: http://localhost:9999          │
 │                                         │
 └─────────────────────────────────────────┘

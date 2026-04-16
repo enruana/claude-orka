@@ -24,7 +24,9 @@
       display: flex;
       flex-direction: column;
       height: 100%;
+      height: 100dvh;
       width: 100%;
+      transition: height 0.15s ease;
     }
 
     #terminal-container {
@@ -384,6 +386,18 @@
       background: linear-gradient(135deg, #89b4fa 0%, #6366f1 100%);
     }
 
+    .quick-action-item .action-icon.comments {
+      background: linear-gradient(135deg, #f5c2e7 0%, #cba6f7 100%);
+    }
+
+    .quick-action-item .action-icon.all-actions {
+      background: linear-gradient(135deg, #94e2d5 0%, #74c7ec 100%);
+    }
+
+    .quick-action-item .action-icon.copy-terminal {
+      background: linear-gradient(135deg, #f9e2af 0%, #fab387 100%);
+    }
+
     .quick-action-item .action-icon svg {
       stroke: #1e1e2e;
     }
@@ -407,7 +421,7 @@
     }
 
     /* Tasks Modal */
-    #tasks-modal {
+    #tasks-modal, #comments-modal, #all-actions-modal {
       display: none;
       position: fixed;
       top: 0;
@@ -421,9 +435,187 @@
       padding: 0;
     }
 
-    #tasks-modal.visible {
+    #tasks-modal.visible,
+    #comments-modal.visible,
+    #all-actions-modal.visible {
       display: flex;
     }
+
+    /* All Actions Modal */
+    .all-actions-modal-content {
+      max-height: 70vh;
+    }
+
+    .all-actions-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      padding: 16px;
+      overflow-y: auto;
+    }
+
+    .all-actions-grid .quick-action-item {
+      background: #181825;
+      border: 1px solid #313244;
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      color: #cdd6f4;
+      font-family: inherit;
+    }
+
+    .all-actions-grid .quick-action-item:active {
+      background: #313244;
+      transform: scale(0.97);
+    }
+
+    .all-actions-grid .quick-action-item .action-text {
+      font-size: 12px;
+      text-align: center;
+    }
+
+    /* Comments Modal */
+    .comments-header-actions {
+      padding: 12px 16px;
+      border-bottom: 1px solid #313244;
+    }
+
+    .comments-apply-all-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: linear-gradient(135deg, #cba6f7 0%, #89b4fa 100%);
+      color: #11111b;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .comments-apply-all-btn:active { opacity: 0.8; }
+    .comments-apply-all-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .comments-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .comment-file-group {
+      margin-bottom: 8px;
+    }
+
+    .comment-file-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: #181825;
+      font-size: 12px;
+      color: #a6adc8;
+      font-weight: 600;
+      border-top: 1px solid #313244;
+      border-bottom: 1px solid #313244;
+    }
+
+    .comment-file-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .comment-file-count {
+      font-size: 11px;
+      color: #6c7086;
+      font-weight: 500;
+    }
+
+    .comment-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid #242438;
+    }
+
+    .comment-row.resolved {
+      opacity: 0.5;
+    }
+
+    .comment-check {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid #585b70;
+      background: transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 2px;
+    }
+
+    .comment-check.checked {
+      background: #a6e3a1;
+      border-color: #a6e3a1;
+      color: #11111b;
+    }
+
+    .comment-body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .comment-line-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: #313244;
+      color: #a6adc8;
+      margin-bottom: 4px;
+    }
+
+    .comment-text {
+      font-size: 13px;
+      color: #cdd6f4;
+      line-height: 1.4;
+      word-wrap: break-word;
+    }
+
+    .comment-row-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .comment-action-btn {
+      background: transparent;
+      border: none;
+      color: #585b70;
+      padding: 4px;
+      cursor: pointer;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .comment-action-btn:active { background: #313244; }
+    .comment-action-btn.apply { color: #a6e3a1; }
+    .comment-action-btn.delete { color: #f38ba8; }
 
     .tasks-modal-content {
       background: #1e1e2e;
@@ -1009,6 +1201,107 @@
     #copy-toast.fade-out {
       opacity: 0;
     }
+
+    /* Copy from Terminal Modal */
+    #copy-terminal-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(17, 17, 27, 0.95);
+      z-index: 1100;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    #copy-terminal-modal.visible { display: flex; }
+
+    .copy-terminal-content {
+      background: #1e1e2e;
+      border: 1px solid #313244;
+      border-radius: 14px;
+      width: 100%;
+      max-width: 560px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .copy-terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid #313244;
+    }
+
+    .copy-terminal-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #cdd6f4;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .copy-terminal-textarea {
+      flex: 1;
+      background: #11111b;
+      border: none;
+      color: #cdd6f4;
+      padding: 12px;
+      font-family: Menlo, Monaco, monospace;
+      font-size: 9px;
+      line-height: 1.35;
+      resize: none;
+      outline: none;
+      min-height: 280px;
+      max-height: 55vh;
+      -webkit-user-select: text;
+      user-select: text;
+      white-space: pre;
+    }
+
+    .copy-terminal-hint {
+      padding: 10px 16px;
+      background: #181825;
+      color: #a6adc8;
+      font-size: 12px;
+      text-align: center;
+      border-top: 1px solid #313244;
+      border-bottom: 1px solid #313244;
+    }
+
+    .copy-terminal-actions {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+    }
+
+    .copy-terminal-btn {
+      flex: 1;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .copy-terminal-btn.primary {
+      background: linear-gradient(135deg, #fab387 0%, #f9e2af 100%);
+      color: #1e1e2e;
+    }
+
+    .copy-terminal-btn.primary.success {
+      background: linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%);
+    }
+
+    .copy-terminal-btn.secondary {
+      background: #313244;
+      color: #cdd6f4;
+    }
   </style>
 </head>
 <body>
@@ -1054,38 +1347,23 @@
               </span>
               <span class="action-text">Open Keyboard</span>
             </button>
-            <button class="quick-action-item" data-action="scroll-top">
-              <span class="action-icon scroll-top">
+            <button class="quick-action-item" data-action="tasks" id="tasks-action-item">
+              <span class="action-icon tasks">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 19V5M5 12l7-7 7 7"/>
+                  <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
                 </svg>
               </span>
-              <span class="action-text">Scroll to Top</span>
+              <span class="action-text">Tasks</span>
+              <span class="action-badge" id="tasks-badge" style="display:none">0</span>
             </button>
-            <button class="quick-action-item" data-action="scroll-bottom">
-              <span class="action-icon scroll-bottom">
+            <button class="quick-action-item" data-action="comments" id="comments-action-item">
+              <span class="action-icon comments">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 5v14M5 12l7 7 7-7"/>
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                 </svg>
               </span>
-              <span class="action-text">Scroll to Bottom</span>
-            </button>
-            <button class="quick-action-item" data-action="cancel">
-              <span class="action-icon cancel">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="10"/>
-                  <path d="M8 12h8"/>
-                </svg>
-              </span>
-              <span class="action-text">Cancel (Ctrl+C)</span>
-            </button>
-            <button class="quick-action-item" data-action="clear">
-              <span class="action-icon clear">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-                </svg>
-              </span>
-              <span class="action-text">Clear Terminal</span>
+              <span class="action-text">Comments</span>
+              <span class="action-badge" id="comments-badge" style="display:none">0</span>
             </button>
             <button class="quick-action-item" data-action="upload">
               <span class="action-icon upload">
@@ -1097,14 +1375,24 @@
               </span>
               <span class="action-text">Upload File</span>
             </button>
-            <button class="quick-action-item" data-action="tasks" id="tasks-action-item">
-              <span class="action-icon tasks">
+            <button class="quick-action-item" data-action="copy-terminal">
+              <span class="action-icon copy-terminal">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                 </svg>
               </span>
-              <span class="action-text">Tasks</span>
-              <span class="action-badge" id="tasks-badge" style="display:none">0</span>
+              <span class="action-text">Copy from Terminal</span>
+            </button>
+            <button class="quick-action-item" data-action="all-actions">
+              <span class="action-icon all-actions">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="5" cy="12" r="1.5"/>
+                  <circle cx="12" cy="12" r="1.5"/>
+                  <circle cx="19" cy="12" r="1.5"/>
+                </svg>
+              </span>
+              <span class="action-text">All Actions</span>
             </button>
           </div>
         </div>
@@ -1142,6 +1430,28 @@
 
   <!-- Copy Toast -->
   <div id="copy-toast">Copied!</div>
+
+  <!-- Copy from Terminal modal -->
+  <div id="copy-terminal-modal">
+    <div class="copy-terminal-content">
+      <div class="copy-terminal-header">
+        <span class="copy-terminal-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          Copy from Terminal
+        </span>
+        <button class="modal-close" id="copy-terminal-close">✕</button>
+      </div>
+      <textarea id="copy-terminal-textarea" class="copy-terminal-textarea"></textarea>
+      <div class="copy-terminal-hint">Long-press to select text, or tap Copy to copy everything</div>
+      <div class="copy-terminal-actions">
+        <button class="copy-terminal-btn secondary" id="copy-terminal-cancel">Close</button>
+        <button class="copy-terminal-btn primary" id="copy-terminal-copy">Copy All</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Input Modal (for voice/text input) -->
   <div id="input-modal">
@@ -1208,9 +1518,136 @@
     </div>
   </div>
 
+  <!-- Comments Modal -->
+  <div id="comments-modal">
+    <div class="tasks-modal-content">
+      <div class="tasks-modal-header">
+        <span class="tasks-modal-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          Comments
+        </span>
+        <button class="modal-close" id="comments-modal-close">✕</button>
+      </div>
+      <div class="comments-header-actions" id="comments-header-actions" style="display:none">
+        <button class="comments-apply-all-btn" id="comments-apply-all-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+          Apply All Unresolved
+        </button>
+      </div>
+      <div class="comments-list" id="comments-list">
+        <div class="tasks-empty" id="comments-empty">
+          <div class="tasks-empty-icon">💬</div>
+          No comments yet
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- All Actions Modal -->
+  <div id="all-actions-modal">
+    <div class="tasks-modal-content all-actions-modal-content">
+      <div class="tasks-modal-header">
+        <span class="tasks-modal-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="5" cy="12" r="1.5"/>
+            <circle cx="12" cy="12" r="1.5"/>
+            <circle cx="19" cy="12" r="1.5"/>
+          </svg>
+          All Actions
+        </span>
+        <button class="modal-close" id="all-actions-modal-close">✕</button>
+      </div>
+      <div class="all-actions-grid">
+        <button class="quick-action-item" data-action="keyboard">
+          <span class="action-icon keyboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M6 16h12"/>
+            </svg>
+          </span>
+          <span class="action-text">Open Keyboard</span>
+        </button>
+        <button class="quick-action-item" data-action="upload">
+          <span class="action-icon upload">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </span>
+          <span class="action-text">Upload File</span>
+        </button>
+        <button class="quick-action-item" data-action="tasks">
+          <span class="action-icon tasks">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+            </svg>
+          </span>
+          <span class="action-text">Tasks</span>
+        </button>
+        <button class="quick-action-item" data-action="comments">
+          <span class="action-icon comments">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+          </span>
+          <span class="action-text">Comments</span>
+        </button>
+        <button class="quick-action-item" data-action="copy-terminal">
+          <span class="action-icon copy-terminal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </span>
+          <span class="action-text">Copy from Terminal</span>
+        </button>
+        <button class="quick-action-item" data-action="scroll-top">
+          <span class="action-icon scroll-top">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+          </span>
+          <span class="action-text">Scroll to Top</span>
+        </button>
+        <button class="quick-action-item" data-action="scroll-bottom">
+          <span class="action-icon scroll-bottom">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+          </span>
+          <span class="action-text">Scroll to Bottom</span>
+        </button>
+        <button class="quick-action-item" data-action="cancel">
+          <span class="action-icon cancel">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M8 12h8"/>
+            </svg>
+          </span>
+          <span class="action-text">Cancel (Ctrl+C)</span>
+        </button>
+        <button class="quick-action-item" data-action="clear">
+          <span class="action-icon clear">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+            </svg>
+          </span>
+          <span class="action-text">Clear Terminal</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-canvas@0.7.0/lib/addon-canvas.min.js"></script>
   <script>
     // ttyd protocol commands
     const Command = {
@@ -1708,6 +2145,264 @@
       }
     }
 
+    class CommentsManager {
+      constructor(terminal) {
+        this.terminal = terminal;
+        this.comments = [];
+        this.projectPath = null;
+        this.modal = document.getElementById('comments-modal');
+        this.list = document.getElementById('comments-list');
+        this.emptyState = document.getElementById('comments-empty');
+        this.badge = document.getElementById('comments-badge');
+        this.headerActions = document.getElementById('comments-header-actions');
+        this.applyAllBtn = document.getElementById('comments-apply-all-btn');
+
+        this.detectProject();
+        this.setupHandlers();
+        this.fetchComments();
+      }
+
+      detectProject() {
+        const params = new URLSearchParams(window.location.search);
+        const encoded = params.get('project');
+        if (encoded) {
+          try {
+            this.projectPath = atob(encoded);
+          } catch { /* ignore */ }
+        }
+      }
+
+      getEncodedPath() {
+        if (!this.projectPath) return null;
+        return btoa(this.projectPath);
+      }
+
+      setupHandlers() {
+        document.getElementById('comments-modal-close').addEventListener('click', () => this.close());
+        this.modal.addEventListener('click', (e) => {
+          if (e.target === this.modal) this.close();
+        });
+        this.applyAllBtn.addEventListener('click', () => this.applyAll());
+      }
+
+      open() {
+        this.fetchComments();
+        this.modal.classList.add('visible');
+      }
+
+      close() {
+        this.modal.classList.remove('visible');
+      }
+
+      updateBadge() {
+        const pending = this.comments.filter(c => !c.resolved).length;
+        if (pending > 0) {
+          this.badge.textContent = pending;
+          this.badge.style.display = 'flex';
+          this.headerActions.style.display = 'block';
+        } else {
+          this.badge.style.display = 'none';
+          this.headerActions.style.display = 'none';
+        }
+      }
+
+      escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      renderComments() {
+        // Clear existing
+        this.list.querySelectorAll('.comment-file-group').forEach(el => el.remove());
+
+        if (this.comments.length === 0) {
+          this.emptyState.style.display = 'block';
+          return;
+        }
+        this.emptyState.style.display = 'none';
+
+        // Group by file
+        const byFile = new Map();
+        for (const c of this.comments) {
+          if (!byFile.has(c.filePath)) byFile.set(c.filePath, []);
+          byFile.get(c.filePath).push(c);
+        }
+
+        for (const [filePath, fileComments] of byFile) {
+          const fileName = filePath.split('/').pop() || filePath;
+          const unresolved = fileComments.filter(c => !c.resolved).length;
+
+          const group = document.createElement('div');
+          group.className = 'comment-file-group';
+          group.innerHTML = `
+            <div class="comment-file-header">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <span class="comment-file-name" title="${this.escapeHtml(filePath)}">${this.escapeHtml(fileName)}</span>
+              <span class="comment-file-count">${unresolved}/${fileComments.length}</span>
+            </div>
+          `;
+
+          for (const comment of fileComments) {
+            const row = document.createElement('div');
+            row.className = `comment-row ${comment.resolved ? 'resolved' : ''}`;
+            const lineRange = comment.endLine !== comment.startLine
+              ? `L${comment.startLine}-${comment.endLine}`
+              : `L${comment.startLine}`;
+
+            row.innerHTML = `
+              <button class="comment-check ${comment.resolved ? 'checked' : ''}">
+                ${comment.resolved ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+              </button>
+              <div class="comment-body">
+                <span class="comment-line-badge">${lineRange}</span>
+                <div class="comment-text">${this.escapeHtml(comment.body)}</div>
+              </div>
+              <div class="comment-row-actions">
+                ${!comment.resolved ? `
+                  <button class="comment-action-btn apply" title="Apply this">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                ` : ''}
+                <button class="comment-action-btn delete" title="Delete">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                </button>
+              </div>
+            `;
+
+            row.querySelector('.comment-check').addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.toggleResolve(comment.id, !comment.resolved);
+            });
+
+            const applyBtn = row.querySelector('.comment-action-btn.apply');
+            if (applyBtn) {
+              applyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.applyOne(comment);
+              });
+            }
+
+            row.querySelector('.comment-action-btn.delete').addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.deleteComment(comment.id);
+            });
+
+            group.appendChild(row);
+          }
+
+          this.list.appendChild(group);
+        }
+      }
+
+      async fetchComments() {
+        const encoded = this.getEncodedPath();
+        if (!encoded) return;
+
+        try {
+          const res = await fetch(`${window.location.origin}/api/projects/comments?project=${encoded}`);
+          if (res.ok) {
+            this.comments = await res.json();
+            this.renderComments();
+            this.updateBadge();
+          }
+        } catch { /* ignore */ }
+      }
+
+      async toggleResolve(commentId, resolved) {
+        const encoded = this.getEncodedPath();
+        if (!encoded) return;
+
+        const comment = this.comments.find(c => c.id === commentId);
+        if (!comment) return;
+
+        // Optimistic update
+        comment.resolved = resolved;
+        this.renderComments();
+        this.updateBadge();
+
+        try {
+          await fetch(`${window.location.origin}/api/projects/comments/${commentId}?project=${encoded}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ resolved }),
+          });
+        } catch {
+          // Revert
+          comment.resolved = !resolved;
+          this.renderComments();
+          this.updateBadge();
+        }
+      }
+
+      async deleteComment(commentId) {
+        const encoded = this.getEncodedPath();
+        if (!encoded) return;
+
+        const prev = [...this.comments];
+        this.comments = this.comments.filter(c => c.id !== commentId);
+        this.renderComments();
+        this.updateBadge();
+
+        try {
+          const res = await fetch(`${window.location.origin}/api/projects/comments/${commentId}?project=${encoded}`, {
+            method: 'DELETE',
+          });
+          if (!res.ok) {
+            this.comments = prev;
+            this.renderComments();
+            this.updateBadge();
+          }
+        } catch {
+          this.comments = prev;
+          this.renderComments();
+          this.updateBadge();
+        }
+      }
+
+      buildPrompt(commentsToApply) {
+        const byFile = new Map();
+        for (const c of commentsToApply) {
+          if (!byFile.has(c.filePath)) byFile.set(c.filePath, []);
+          byFile.get(c.filePath).push(c);
+        }
+
+        let prompt = 'Please review and apply the following document review comments to the codebase. For each comment, read the referenced section, understand the feedback, and make the appropriate changes:\n\n';
+
+        for (const [file, fileComments] of byFile) {
+          prompt += `## File: ${file}\n`;
+          for (const c of fileComments) {
+            prompt += `### Lines ${c.startLine}-${c.endLine}\n`;
+            if (c.selectedText) {
+              const snippet = c.selectedText.length > 200 ? c.selectedText.slice(0, 200) + '...' : c.selectedText;
+              prompt += `Selected text: "${snippet}"\n`;
+            }
+            prompt += `Comment: ${c.body}\n\n`;
+          }
+        }
+
+        prompt += 'After applying each comment, briefly explain what you changed.';
+        return prompt;
+      }
+
+      applyAll() {
+        const unresolved = this.comments.filter(c => !c.resolved);
+        if (unresolved.length === 0) return;
+        const prompt = this.buildPrompt(unresolved);
+        this.terminal.sendInput(prompt);
+        this.close();
+      }
+
+      applyOne(comment) {
+        const prompt = this.buildPrompt([comment]);
+        this.terminal.sendInput(prompt);
+        this.close();
+      }
+    }
+
     class OrkaTerminal {
       constructor() {
         this.term = null;
@@ -1724,6 +2419,59 @@
         this.copyToastTimeout = null;
 
         this.init();
+      }
+
+      // Synchronous copy fallback for non-secure contexts (HTTP over LAN).
+      // Must be called inside a user gesture handler.
+      execCommandCopy(text) {
+        let ta = null;
+        try {
+          ta = document.createElement('textarea');
+          ta.value = text;
+          // Avoid scroll jump and visual flash, but keep textarea actually visible
+          // (some browsers — notably Safari — refuse copy from off-screen elements)
+          ta.style.position = 'fixed';
+          ta.style.top = '0';
+          ta.style.left = '0';
+          ta.style.width = '2em';
+          ta.style.height = '2em';
+          ta.style.padding = '0';
+          ta.style.border = 'none';
+          ta.style.outline = 'none';
+          ta.style.boxShadow = 'none';
+          ta.style.background = 'transparent';
+          ta.style.opacity = '0';
+          ta.style.pointerEvents = 'none';
+          ta.style.zIndex = '-1';
+          ta.setAttribute('readonly', '');
+          document.body.appendChild(ta);
+
+          // Save current selection so we can restore it
+          const sel = window.getSelection();
+          const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+
+          ta.focus({ preventScroll: true });
+          ta.select();
+          ta.setSelectionRange(0, text.length);
+
+          let ok = false;
+          try { ok = document.execCommand('copy'); } catch { ok = false; }
+
+          // Restore selection
+          if (range) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+
+          return ok;
+        } catch (e) {
+          console.warn('execCommandCopy failed:', e);
+          return false;
+        } finally {
+          if (ta && ta.parentNode) {
+            ta.parentNode.removeChild(ta);
+          }
+        }
       }
 
       showCopyToast(charCount) {
@@ -1783,7 +2531,9 @@
         this.setupStatusBar();
         this.setupVoiceRecorder();
         this.setupQuickActions();
+        this.setupCopyTerminalModal();
         this.tasksManager = new TasksManager();
+        this.commentsManager = new CommentsManager(this);
       }
 
       setupVoiceRecorder() {
@@ -2080,8 +2830,8 @@
           document.getElementById('virtual-keyboard').style.display = 'none';
         }
 
-        // Font sizes: mobile=6, desktop embedded=11, standalone=14
-        const fontSize = isMobile ? 6 : (isDesktopMode ? 11 : 14);
+        // Font sizes: mobile=8, desktop embedded=11, standalone=14
+        const fontSize = isMobile ? 8 : (isDesktopMode ? 11 : 14);
 
         this.term = new Terminal({
           cursorBlink: true,
@@ -2118,12 +2868,116 @@
         this.fitAddon = new FitAddon.FitAddon();
         this.term.loadAddon(this.fitAddon);
 
-        // Try WebGL renderer
+        // Custom OSC 52 handler with multi-strategy clipboard write:
+        //  1. Tell the PARENT window to write (bypasses iframe focus restrictions
+        //     on Mac/Safari). The parent has document focus, iframe often doesn't.
+        //  2. Try Clipboard API from inside iframe (works on Linux Chrome/localhost).
+        //  3. Stash as pending; on next user gesture inside iframe, flush via execCommand.
+        this._pendingClipboard = null;
+
+        const tellParentToCopy = (text) => {
+          try {
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: 'orka-clipboard-write', text }, '*');
+            }
+          } catch { /* same-origin only, ignore */ }
+        };
+
+        const writeToClipboard = (text) => {
+          const focused = document.hasFocus();
+          console.log('[Orka-OSC52] received', text.length, 'chars | iframe focused:', focused);
+
+          // 1. Tell parent (may have focus even if iframe doesn't)
+          tellParentToCopy(text);
+
+          // 2. Try synchronous execCommand first (no focus requirement in some browsers)
+          const execOk = this.execCommandCopy(text);
+          console.log('[Orka-OSC52] execCommand result:', execOk);
+          if (execOk) {
+            this._pendingClipboard = null;
+          }
+
+          // 3. Try async Clipboard API
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+              console.log('[Orka-OSC52] Clipboard API succeeded');
+              this._pendingClipboard = null;
+            }).catch((err) => {
+              console.warn('[Orka-OSC52] Clipboard API failed:', err && err.message);
+            });
+          }
+
+          this.showCopyToast(text.length);
+        };
+
+        const flushPendingClipboard = () => {
+          if (!this._pendingClipboard) return;
+          const text = this._pendingClipboard;
+          tellParentToCopy(text);
+          if (this.execCommandCopy(text)) {
+            this._pendingClipboard = null;
+          } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+              this._pendingClipboard = null;
+            }).catch(() => {});
+          }
+        };
+
+        // Register our OSC 52 handler (runs BEFORE xterm.js would display the sequence)
         try {
-          const webglAddon = new WebglAddon.WebglAddon();
-          this.term.loadAddon(webglAddon);
+          this.term.parser.registerOscHandler(52, (data) => {
+            // Format: "c;<base64>" or "p;<base64>" (primary)
+            const idx = data.indexOf(';');
+            if (idx < 0) return false;
+            const target = data.slice(0, idx);
+            if (target !== 'c' && target !== 'p' && target !== '') return false;
+            const b64 = data.slice(idx + 1);
+            if (b64 === '?') return true; // "read" query — ignore
+            let text;
+            try { text = atob(b64); } catch { return false; }
+            this._pendingClipboard = text;
+            writeToClipboard(text);
+            return true; // consumed — don't display the escape sequence
+          });
+          console.log('[Orka] Clipboard addon loaded (OSC 52 enabled)');
+
+          const gestureHandler = () => flushPendingClipboard();
+          document.addEventListener('click', gestureHandler, true);
+          document.addEventListener('keydown', gestureHandler, true);
+          document.addEventListener('touchend', gestureHandler, true);
         } catch (e) {
-          console.log('WebGL not available, using canvas renderer');
+          console.warn('[Orka] Failed to register OSC 52 handler:', e);
+        }
+
+        // Renderer selection: WebGL (fastest) > Canvas (fast) > DOM (slow, default)
+        // iOS has WebGL glitches on recent Safari versions, so use Canvas there
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        if (!isIOS) {
+          try {
+            const webglAddon = new WebglAddon.WebglAddon();
+            this.term.loadAddon(webglAddon);
+            console.log('Using WebGL renderer');
+          } catch (e) {
+            console.log('WebGL failed, trying Canvas renderer');
+            try {
+              const canvasAddon = new CanvasAddon.CanvasAddon();
+              this.term.loadAddon(canvasAddon);
+              console.log('Using Canvas renderer');
+            } catch (e2) {
+              console.log('Canvas failed, using DOM renderer');
+            }
+          }
+        } else {
+          // iOS: use Canvas renderer (fast, no WebGL glitches)
+          try {
+            const canvasAddon = new CanvasAddon.CanvasAddon();
+            this.term.loadAddon(canvasAddon);
+            console.log('iOS detected, using Canvas renderer');
+          } catch (e) {
+            console.log('Canvas renderer failed on iOS, falling back to DOM');
+          }
         }
 
         this.term.open(container);
@@ -2156,16 +3010,37 @@
           });
         }
 
-        // Auto-copy selection to clipboard when user finishes selecting
-        // This gives a native-like "select to copy" experience
+        // Desktop: auto-copy on selection. Mobile uses "Copy from Terminal" quick action.
+        // Strategy: try execCommand SYNCHRONOUSLY first (works in non-secure contexts
+        // and inside user gesture); also try Clipboard API as fire-and-forget backup.
+        let lastSelectionToast = 0;
         this.term.onSelectionChange(() => {
           const selection = this.term.getSelection();
-          if (selection && selection.length > 0) {
+          console.log('[Orka] onSelectionChange fired. Length:', (selection || '').length, 'hasSelection:', this.term.hasSelection());
+          if (!selection || selection.length === 0) return;
+
+          console.log('[Orka] Selection changed:', selection.length, 'chars; secure:', window.isSecureContext);
+
+          // Sync execCommand path — must run before any async work to keep user gesture
+          const execOk = this.execCommandCopy(selection);
+          console.log('[Orka] execCommand copy:', execOk);
+
+          // Async Clipboard API as backup
+          if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(selection).then(() => {
-              this.showCopyToast(selection.length);
-            }).catch(() => {
-              // Clipboard API may fail in iframes without focus — ignore silently
+              console.log('[Orka] Clipboard API copy succeeded');
+              if (Date.now() - lastSelectionToast > 800) {
+                lastSelectionToast = Date.now();
+                this.showCopyToast(selection.length);
+              }
+            }).catch((err) => {
+              console.warn('[Orka] Clipboard API failed:', err && err.message);
             });
+          }
+
+          if (execOk) {
+            lastSelectionToast = Date.now();
+            this.showCopyToast(selection.length);
           }
         });
 
@@ -2200,6 +3075,39 @@
             this.sendInput(event.data.text);
             this.term.focus();
             console.log('Received input via postMessage:', event.data.text);
+          }
+          // Parent asks us to capture recent terminal buffer content
+          if (event.data && event.data.type === 'orka-capture-buffer') {
+            const requestId = event.data.requestId;
+            const maxChars = event.data.maxChars || 5000;
+            const maxLines = event.data.maxLines || 300;
+            let text = '';
+            try {
+              const buffer = this.term.buffer.active;
+              const totalLines = buffer.length;
+              const lines = [];
+              const startLine = Math.max(0, totalLines - maxLines);
+              for (let i = startLine; i < totalLines; i++) {
+                const line = buffer.getLine(i);
+                if (line) lines.push(line.translateToString(true));
+              }
+              text = lines.join('\n').replace(/\n+$/, '');
+              if (text.length > maxChars) {
+                text = '…' + text.slice(-maxChars);
+              }
+            } catch (err) {
+              text = '(Could not capture terminal content)';
+            }
+            // Reply to parent
+            try {
+              if (window.parent && window.parent !== window) {
+                window.parent.postMessage({
+                  type: 'orka-capture-buffer-result',
+                  requestId,
+                  text,
+                }, '*');
+              }
+            } catch {}
           }
         });
 
@@ -2257,17 +3165,15 @@
           // Check for Cmd+C / Ctrl+C for copy
           if ((event.metaKey || event.ctrlKey) && event.key === 'c' && event.type === 'keydown') {
             const selection = this.term.getSelection();
-            // If there is any selection, copy it
             if (selection && selection.length > 0) {
-              navigator.clipboard.writeText(selection).then(() => {
-                console.log('Copied:', selection.length, 'characters');
-                this.showCopyToast(selection.length);
-              }).catch(err => {
-                console.error('Failed to copy:', err);
-              });
+              // Sync execCommand first (works in user gesture, secure or not)
+              const execOk = this.execCommandCopy(selection);
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(selection).catch(() => {});
+              }
+              if (execOk) this.showCopyToast(selection.length);
               return false;
             }
-            // If no selection, send Ctrl+C to terminal (interrupt)
             return true;
           }
 
@@ -2735,6 +3641,22 @@
             this.sendResize();
           }, 300);
         });
+
+        // Handle virtual keyboard open/close on mobile via visualViewport
+        if (window.visualViewport) {
+          const app = document.getElementById('app');
+          const onViewportResize = () => {
+            const vv = window.visualViewport;
+            // Set app height to visible viewport height (excludes keyboard)
+            app.style.height = vv.height + 'px';
+            // Scroll to keep content visible above keyboard
+            window.scrollTo(0, vv.offsetTop);
+            // Refit terminal to new size
+            throttledResize();
+          };
+          window.visualViewport.addEventListener('resize', onViewportResize);
+          window.visualViewport.addEventListener('scroll', onViewportResize);
+        }
       }
 
       setupSwipeScroll() {
@@ -2977,6 +3899,8 @@
         const quickActionsBtn = document.getElementById('quick-actions-btn');
         const quickActionsPopup = document.getElementById('quick-actions-popup');
         const backdrop = document.getElementById('quick-actions-backdrop');
+        const allActionsModal = document.getElementById('all-actions-modal');
+        const allActionsClose = document.getElementById('all-actions-modal-close');
 
         // Toggle popup
         const togglePopup = (show) => {
@@ -3004,15 +3928,36 @@
           togglePopup(false);
         });
 
-        // Handle action items
+        // Handle action items in main popup
         quickActionsPopup.querySelectorAll('.quick-action-item').forEach(item => {
           item.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             const action = item.dataset.action;
-            this.executeQuickAction(action);
             togglePopup(false);
+            this.executeQuickAction(action);
           });
+        });
+
+        // Handle action items in "All Actions" modal
+        allActionsModal.querySelectorAll('.quick-action-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const action = item.dataset.action;
+            allActionsModal.classList.remove('visible');
+            this.executeQuickAction(action);
+          });
+        });
+
+        // Close all-actions modal
+        allActionsClose.addEventListener('click', () => {
+          allActionsModal.classList.remove('visible');
+        });
+        allActionsModal.addEventListener('click', (e) => {
+          if (e.target === allActionsModal) {
+            allActionsModal.classList.remove('visible');
+          }
         });
       }
 
@@ -3043,7 +3988,111 @@
           case 'tasks':
             this.tasksManager.open();
             break;
+          case 'comments':
+            this.commentsManager.open();
+            break;
+          case 'copy-terminal':
+            this.openCopyFromTerminal();
+            break;
+          case 'all-actions':
+            document.getElementById('all-actions-modal').classList.add('visible');
+            break;
         }
+      }
+
+      openCopyFromTerminal() {
+        const modal = document.getElementById('copy-terminal-modal');
+        const textarea = document.getElementById('copy-terminal-textarea');
+
+        // Capture recent terminal content from xterm buffer
+        let text = '';
+        try {
+          const buffer = this.term.buffer.active;
+          const totalLines = buffer.length;
+          const lines = [];
+          // Grab up to last 200 lines
+          const startLine = Math.max(0, totalLines - 200);
+          for (let i = startLine; i < totalLines; i++) {
+            const line = buffer.getLine(i);
+            if (line) {
+              lines.push(line.translateToString(true));
+            }
+          }
+          text = lines.join('\n').replace(/\n+$/, '');
+          // Limit to ~3000 chars from the end (most recent content)
+          if (text.length > 3000) {
+            text = '…' + text.slice(-3000);
+          }
+        } catch (err) {
+          console.error('Failed to capture terminal content:', err);
+          text = '(Could not capture terminal content)';
+        }
+
+        textarea.value = text;
+        modal.classList.add('visible');
+
+        // Focus and select all so iOS shows its native menu easily
+        setTimeout(() => {
+          textarea.focus();
+          textarea.setSelectionRange(0, 0); // Start at top, user can select what they want
+          // Scroll to bottom to see the most recent content
+          textarea.scrollTop = textarea.scrollHeight;
+        }, 100);
+      }
+
+      setupCopyTerminalModal() {
+        const modal = document.getElementById('copy-terminal-modal');
+        const textarea = document.getElementById('copy-terminal-textarea');
+        const copyBtn = document.getElementById('copy-terminal-copy');
+        const closeBtn = document.getElementById('copy-terminal-close');
+        const cancelBtn = document.getElementById('copy-terminal-cancel');
+
+        const close = () => {
+          modal.classList.remove('visible');
+          copyBtn.classList.remove('success');
+          copyBtn.textContent = 'Copy All';
+        };
+
+        const doCopyAll = (e) => {
+          if (e) { e.preventDefault(); e.stopPropagation(); }
+          // If user has a selection, copy that; otherwise copy all
+          let text = '';
+          const selStart = textarea.selectionStart;
+          const selEnd = textarea.selectionEnd;
+          if (selEnd > selStart) {
+            text = textarea.value.substring(selStart, selEnd);
+          } else {
+            text = textarea.value;
+          }
+          if (!text) return;
+
+          let copied = false;
+          try {
+            textarea.focus();
+            textarea.setSelectionRange(0, textarea.value.length);
+            copied = document.execCommand('copy');
+            // Restore user's selection if they had one
+            if (selEnd > selStart) {
+              textarea.setSelectionRange(selStart, selEnd);
+            }
+          } catch {}
+
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => { copied = true; }).catch(() => {});
+          }
+
+          copyBtn.classList.add('success');
+          copyBtn.textContent = copied ? `✓ Copied ${text.length} chars` : '✓ Copied';
+          setTimeout(close, 900);
+        };
+
+        copyBtn.addEventListener('click', doCopyAll);
+        copyBtn.addEventListener('touchend', doCopyAll, { passive: false });
+        closeBtn.addEventListener('click', close);
+        cancelBtn.addEventListener('click', close);
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) close();
+        });
       }
 
       triggerFileUpload() {

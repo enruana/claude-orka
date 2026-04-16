@@ -582,3 +582,31 @@
     display: none;
   }
 }
+
+/* Floating comment button (reused from code-editor) */
+.file-viewer-body .editor-selection-comment-btn {
+  position: absolute;
+  z-index: 10;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent-blue);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  transition: transform 0.1s ease, background 0.15s ease;
+  touch-action: manipulation;
+}
+
+.file-viewer-body .editor-selection-comment-btn:hover {
+  background: var(--accent-blue-hover);
+  transform: scale(1.1);
+}
+
+.file-viewer-body .editor-selection-comment-btn:active {
+  transform: scale(0.95);
+}

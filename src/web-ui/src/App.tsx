@@ -184,6 +184,56 @@ function QuickAIDialogWrapper({
       if (e.data?.type === 'orka-cmd-k') {
         setOpen(true)
       }
+      // Clipboard write forwarded from terminal iframe (OSC 52).
+      if (e.data?.type === 'orka-clipboard-write' && typeof e.data.text === 'string') {
+        const text = e.data.text as string
+
+        // execCommand fallback — works even without document focus on some browsers
+        const tryExecCommand = (): boolean => {
+          try {
+            const ta = document.createElement('textarea')
+            ta.value = text
+            ta.style.position = 'fixed'
+            ta.style.top = '0'
+            ta.style.left = '0'
+            ta.style.width = '2em'
+            ta.style.height = '2em'
+            ta.style.opacity = '0'
+            ta.style.pointerEvents = 'none'
+            ta.setAttribute('readonly', '')
+            document.body.appendChild(ta)
+            ta.focus()
+            ta.select()
+            ta.setSelectionRange(0, text.length)
+            const ok = document.execCommand('copy')
+            document.body.removeChild(ta)
+            return ok
+          } catch {
+            return false
+          }
+        }
+
+        // Try execCommand first (more reliable across focus states)
+        if (tryExecCommand()) {
+          return
+        }
+
+        // Fallback: Clipboard API (requires document focus)
+        if (document.hasFocus() && navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).catch(() => {})
+        } else {
+          // Wait for next focus event, then write
+          const onFocus = () => {
+            window.removeEventListener('focus', onFocus)
+            if (navigator.clipboard?.writeText) {
+              navigator.clipboard.writeText(text).catch(() => tryExecCommand())
+            } else {
+              tryExecCommand()
+            }
+          }
+          window.addEventListener('focus', onFocus)
+        }
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('message', handleMessage)

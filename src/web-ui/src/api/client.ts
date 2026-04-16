@@ -77,6 +77,19 @@ export interface ProjectTask {
   completedAt?: string
 }
 
+// Comment types
+export interface ProjectComment {
+  id: string
+  filePath: string
+  startLine: number
+  endLine: number
+  selectedText: string
+  body: string
+  resolved: boolean
+  createdAt: string
+  resolvedAt?: string
+}
+
 // Search types
 export interface SearchMatch {
   line: number
@@ -314,6 +327,16 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
   },
 
+  async captureTerminalPane(projectPath: string, sessionId: string, opts: { branch?: string; lines?: number; ansi?: boolean } = {}): Promise<{ text: string; paneId: string; branch: string; ansi: boolean }> {
+    const params = new URLSearchParams({ project: encodeProjectPath(projectPath) })
+    if (opts.branch) params.set('branch', opts.branch)
+    if (opts.lines) params.set('lines', String(opts.lines))
+    if (opts.ansi) params.set('ansi', '1')
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/capture?${params.toString()}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   async getActiveBranch(projectPath: string, sessionId: string): Promise<string | null> {
     const res = await fetch(`${API_BASE}/sessions/${sessionId}/active-branch?project=${encodeProjectPath(projectPath)}`)
     if (!res.ok) throw new Error(await res.text())
@@ -506,6 +529,40 @@ export const api = {
 
   async deleteTask(projectPath: string, taskId: string): Promise<void> {
     const res = await fetch(`${API_BASE}/projects/tasks/${taskId}?project=${encodeProjectPath(projectPath)}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  // Comments
+  async listComments(projectPath: string): Promise<ProjectComment[]> {
+    const res = await fetch(`${API_BASE}/projects/comments?project=${encodeProjectPath(projectPath)}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async createComment(projectPath: string, data: { filePath: string; startLine: number; endLine: number; selectedText: string; body: string }): Promise<ProjectComment> {
+    const res = await fetch(`${API_BASE}/projects/comments?project=${encodeProjectPath(projectPath)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async updateComment(projectPath: string, commentId: string, updates: { body?: string; resolved?: boolean }): Promise<ProjectComment> {
+    const res = await fetch(`${API_BASE}/projects/comments/${commentId}?project=${encodeProjectPath(projectPath)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async deleteComment(projectPath: string, commentId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/projects/comments/${commentId}?project=${encodeProjectPath(projectPath)}`, {
       method: 'DELETE',
     })
     if (!res.ok) throw new Error(await res.text())

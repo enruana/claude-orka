@@ -44,6 +44,23 @@ export interface Session {
 
   /** ttyd process ID (for cleanup) */
   ttydPid?: number
+
+  /** Manually-created tmux panes (e.g. via Ctrl-B "). Persisted so the layout
+   *  is recreated on session resume. Content/shell state is not preserved —
+   *  recreated panes just re-cd into the saved path. */
+  untrackedPanes?: UntrackedPane[]
+}
+
+/** A tmux pane the user created manually (not a Claude fork) */
+export interface UntrackedPane {
+  /** tmux pane id (e.g. %3) — may change across restarts */
+  tmuxPaneId: string
+  /** Current working directory of the pane, used to re-cd on recovery */
+  currentPath?: string
+  /** Last command running in the pane (informational only) */
+  currentCommand?: string
+  /** When this pane was first detected */
+  createdAt: string
 }
 
 /**

@@ -12,6 +12,21 @@ export interface ProjectTask {
 }
 
 /**
+ * A review comment anchored to a file location
+ */
+export interface ProjectComment {
+  id: string
+  filePath: string
+  startLine: number
+  endLine: number
+  selectedText: string
+  body: string
+  resolved: boolean
+  createdAt: string
+  resolvedAt?: string
+}
+
+/**
  * Estado global del proyecto almacenado en .claude-orka/state.json
  */
 export interface ProjectState {
@@ -26,6 +41,9 @@ export interface ProjectState {
 
   /** Project tasks/todos */
   tasks?: ProjectTask[]
+
+  /** Document review comments */
+  comments?: ProjectComment[]
 
   /** Last state update (ISO timestamp) */
   lastUpdated: string

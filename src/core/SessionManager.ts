@@ -318,9 +318,44 @@ export class SessionManager {
       }
     }
 
+    // 6. Recreate manually-created panes. Content is NOT preserved — we only
+    //    restore the pane layout so the user's workspace looks familiar.
+    await this.recreateUntrackedPanes(sessionId)
+
     logger.info(`Session resumed: ${session.name}`)
 
     return session
+  }
+
+  /**
+   * Recreate manually-created panes (saved via syncUntrackedPanes on close).
+   * Just splits the window for each saved pane and cd's to the saved path.
+   * Pane IDs change on recovery — we update the state with new IDs.
+   */
+  private async recreateUntrackedPanes(sessionId: string): Promise<void> {
+    const session = await this.getSession(sessionId)
+    if (!session || !session.untrackedPanes?.length) return
+
+    logger.info(`Recreating ${session.untrackedPanes.length} untracked pane(s)...`)
+
+    const updated: typeof session.untrackedPanes = []
+    for (const pane of session.untrackedPanes) {
+      try {
+        const cwd = pane.currentPath || this.projectPath
+        const newPaneId = await TmuxCommands.splitPaneWithCwd(session.tmuxSessionId, cwd, false)
+        updated.push({
+          tmuxPaneId: newPaneId,
+          currentPath: pane.currentPath,
+          currentCommand: pane.currentCommand,
+          createdAt: pane.createdAt,
+        })
+      } catch (err: any) {
+        logger.warn(`Failed to recreate untracked pane: ${err.message}`)
+      }
+    }
+
+    session.untrackedPanes = updated
+    await this.stateManager.replaceSession(session)
   }
 
   /**
@@ -334,6 +369,9 @@ export class SessionManager {
     }
 
     logger.info(`Detaching session: ${session.name}`)
+
+    // 0. Sync manually-created panes so the layout is restored on resume
+    await this.syncUntrackedPanes(sessionId)
 
     // 1. Stop ttyd web terminal
     if (session.ttydPid || session.ttydPort) {
@@ -398,6 +436,9 @@ export class SessionManager {
     }
 
     logger.info(`Closing session: ${session.name}`)
+
+    // 0. Sync manually-created panes so the layout is restored on resume
+    await this.syncUntrackedPanes(sessionId)
 
     // 1. Stop ttyd web terminal
     if (session.ttydPid || session.ttydPort) {
@@ -1177,6 +1218,48 @@ Analyze the content and help me integrate the changes and learnings from the for
   }
 
   /**
+   * Sync manually-created tmux panes into session state.
+   * Scans all panes in tmux, filters out known main + forks, and saves any
+   * leftover panes into session.untrackedPanes so the layout is recreated on
+   * next resume. Safe to call any time; no-op if tmux session is gone.
+   */
+  async syncUntrackedPanes(sessionId: string): Promise<void> {
+    const session = await this.getSession(sessionId)
+    if (!session) return
+
+    try {
+      const panes = await TmuxCommands.listPanesDetailed(session.tmuxSessionId)
+      const knownPaneIds = new Set<string>()
+      if (session.main.tmuxPaneId) knownPaneIds.add(session.main.tmuxPaneId)
+      for (const fork of session.forks) {
+        if (fork.tmuxPaneId) knownPaneIds.add(fork.tmuxPaneId)
+      }
+
+      const untracked = panes
+        .filter((p) => !knownPaneIds.has(p.paneId))
+        .map((p) => {
+          // Preserve createdAt if we had this pane before
+          const existing = (session.untrackedPanes || []).find(
+            (u) => u.tmuxPaneId === p.paneId
+          )
+          return {
+            tmuxPaneId: p.paneId,
+            currentPath: p.currentPath,
+            currentCommand: p.currentCommand,
+            createdAt: existing?.createdAt || new Date().toISOString(),
+          }
+        })
+
+      session.untrackedPanes = untracked
+      await this.stateManager.replaceSession(session)
+      logger.debug(`Synced ${untracked.length} untracked pane(s) for session ${sessionId}`)
+    } catch (error: any) {
+      // tmux session probably gone — leave any previously-saved untrackedPanes intact
+      logger.debug(`syncUntrackedPanes skipped: ${error.message}`)
+    }
+  }
+
+  /**
    * Get the currently active branch in the tmux session
    * @param sessionId Session ID
    * @returns Branch ID ('main' or fork id) or null if not found
@@ -1204,7 +1287,9 @@ Analyze the content and help me integrate the changes and learnings from the for
       return fork.id
     }
 
-    return null
+    // Manual pane not yet synced — return the raw pane id prefixed so the
+    // capture API can still fetch its content. Format: 'untracked:<paneId>'.
+    return `untracked:${activePaneId}`
   }
 
   // ==========================================

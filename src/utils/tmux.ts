@@ -264,6 +264,34 @@ export class TmuxCommands {
   }
 
   /**
+   * Split pane in a specific starting directory. Used to recreate manually-created
+   * panes on session resume.
+   */
+  static async splitPaneWithCwd(
+    sessionName: string,
+    cwd: string,
+    vertical: boolean = false
+  ): Promise<string> {
+    try {
+      const direction = vertical ? '-h' : '-v'
+      const args = ['split-window', '-t', sessionName, direction]
+      if (cwd) args.push('-c', cwd)
+      await execa('tmux', args)
+      const { stdout } = await execa('tmux', [
+        'list-panes', '-t', sessionName, '-F', '#{pane_id}',
+      ])
+      const panes = stdout.split('\n')
+      return panes[panes.length - 1]
+    } catch (error: any) {
+      throw new TmuxError(
+        `Failed to split pane (cwd=${cwd}) in session: ${sessionName}`,
+        `tmux split-window -t ${sessionName} ${vertical ? '-h' : '-v'} -c ${cwd}`,
+        error
+      )
+    }
+  }
+
+  /**
    * Listar todos los panes de una sesión
    * @param sessionName Nombre de la sesión
    * @returns Array de IDs de panes
@@ -281,6 +309,42 @@ export class TmuxCommands {
     } catch (error: any) {
       throw new TmuxError(
         `Failed to list panes for session: ${sessionName}`,
+        `tmux list-panes -t ${sessionName}`,
+        error
+      )
+    }
+  }
+
+  /**
+   * List panes with metadata: id, current working directory, current command, active flag.
+   * Separator is a unit separator (0x1F) to avoid collisions with path/command content.
+   */
+  static async listPanesDetailed(sessionName: string): Promise<
+    Array<{ paneId: string; currentPath: string; currentCommand: string; active: boolean }>
+  > {
+    try {
+      const sep = '\x1f'
+      const { stdout } = await execa('tmux', [
+        'list-panes',
+        '-t', sessionName,
+        '-F', `#{pane_id}${sep}#{pane_current_path}${sep}#{pane_current_command}${sep}#{pane_active}`,
+      ])
+      return stdout
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const [paneId, currentPath, currentCommand, active] = line.split(sep)
+          return {
+            paneId: paneId || '',
+            currentPath: currentPath || '',
+            currentCommand: currentCommand || '',
+            active: active === '1',
+          }
+        })
+    } catch (error: any) {
+      throw new TmuxError(
+        `Failed to list panes (detailed) for session: ${sessionName}`,
         `tmux list-panes -t ${sessionName}`,
         error
       )

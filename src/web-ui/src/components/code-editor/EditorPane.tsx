@@ -1,10 +1,18 @@
 import Editor from '@monaco-editor/react'
 import { useRef, useCallback, useState, useEffect } from 'react'
 import type { editor } from 'monaco-editor'
+import type { ProjectComment } from '../../api/client'
+import { MessageSquarePlus } from 'lucide-react'
 
 interface GoToLine {
   line: number
   column?: number
+}
+
+interface AddCommentData {
+  startLine: number
+  endLine: number
+  selectedText: string
 }
 
 interface EditorPaneProps {
@@ -13,6 +21,8 @@ interface EditorPaneProps {
   onChange: (content: string) => void
   readOnly?: boolean
   goToLine?: GoToLine | null
+  comments?: ProjectComment[]
+  onAddComment?: (data: AddCommentData) => void
 }
 
 // Detect mobile device
@@ -110,19 +120,147 @@ function getLanguageFromPath(filePath: string): string {
   return languageMap[ext] || 'plaintext'
 }
 
-export function EditorPane({ content, filePath, onChange, readOnly = false, goToLine }: EditorPaneProps) {
+export function EditorPane({ content, filePath, onChange, readOnly = false, goToLine, comments, onAddComment }: EditorPaneProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const decorationsRef = useRef<string[]>([])
+  const commentDecorationsRef = useRef<string[]>([])
+  const onAddCommentRef = useRef(onAddComment)
   const isMobile = useIsMobile()
 
-  const handleEditorMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
-    editorRef.current = editor
+  // Floating comment button state (shows when text is selected)
+  const [selectionBtnPos, setSelectionBtnPos] = useState<{ top: number; left: number } | null>(null)
+
+  // Keep ref in sync to avoid stale closures in addAction
+  useEffect(() => {
+    onAddCommentRef.current = onAddComment
+  }, [onAddComment])
+
+  // Trigger add-comment from current selection (used by both context menu and floating button)
+  const triggerAddComment = useCallback(() => {
+    const ed = editorRef.current
+    if (!ed) return
+    const sel = ed.getSelection()
+    if (!sel || sel.isEmpty()) return
+    const text = ed.getModel()?.getValueInRange(sel) || ''
+    onAddCommentRef.current?.({
+      startLine: sel.startLineNumber,
+      endLine: sel.endLineNumber,
+      selectedText: text,
+    })
+    setSelectionBtnPos(null)
+  }, [])
+
+  // Show/hide floating button based on current editor selection
+  const updateSelectionButton = useCallback(() => {
+    const ed = editorRef.current
+    if (!ed) return
+
+    const sel = ed.getSelection()
+    if (!sel || sel.isEmpty()) {
+      setSelectionBtnPos(null)
+      return
+    }
+
+    const endPos = { lineNumber: sel.endLineNumber, column: sel.endColumn }
+    const coords = ed.getScrolledVisiblePosition(endPos)
+    if (!coords) {
+      setSelectionBtnPos(null)
+      return
+    }
+
+    const editorDom = ed.getDomNode()
+    if (!editorDom) return
+    const editorRect = editorDom.getBoundingClientRect()
+
+    setSelectionBtnPos({
+      top: coords.top + coords.height + 4,
+      left: Math.min(coords.left, editorRect.width - 44),
+    })
+  }, [])
+
+  const handleEditorMount = useCallback((ed: editor.IStandaloneCodeEditor) => {
+    editorRef.current = ed
+
+    // Register "Add Comment" context menu action (desktop)
+    ed.addAction({
+      id: 'orka-add-comment',
+      label: 'Add Review Comment',
+      contextMenuGroupId: '9_cutcopypaste',
+      contextMenuOrder: 10,
+      precondition: 'editorHasSelection',
+      run: () => triggerAddComment(),
+    })
+
+    // Show floating button when selection changes (works on desktop)
+    ed.onDidChangeCursorSelection(() => {
+      updateSelectionButton()
+    })
+
+    // Hide floating button on scroll
+    ed.onDidScrollChange(() => {
+      setSelectionBtnPos(null)
+    })
 
     // Focus editor when mounted (only on desktop)
     if (!isMobile) {
-      editor.focus()
+      ed.focus()
     }
-  }, [isMobile])
+  }, [isMobile, triggerAddComment, updateSelectionButton])
+
+  // Fallback for mobile: listen for touchend/mouseup on the editor DOM
+  // Monaco may not fire onDidChangeCursorSelection reliably on touch selection
+  useEffect(() => {
+    const ed = editorRef.current
+    if (!ed) return
+
+    const editorDom = ed.getDomNode()
+    if (!editorDom) return
+
+    const handleSelectionEnd = () => {
+      // Small delay to let Monaco finalize the selection
+      setTimeout(() => updateSelectionButton(), 150)
+    }
+
+    editorDom.addEventListener('touchend', handleSelectionEnd)
+    editorDom.addEventListener('mouseup', handleSelectionEnd)
+
+    // Also catch selection changes via the browser's selectionchange event
+    const handleSelectionChange = () => {
+      setTimeout(() => updateSelectionButton(), 100)
+    }
+    document.addEventListener('selectionchange', handleSelectionChange)
+
+    return () => {
+      editorDom.removeEventListener('touchend', handleSelectionEnd)
+      editorDom.removeEventListener('mouseup', handleSelectionEnd)
+      document.removeEventListener('selectionchange', handleSelectionChange)
+    }
+  }, [updateSelectionButton, content]) // re-attach when content changes (editor might remount)
+
+  // Apply comment decorations
+  useEffect(() => {
+    const ed = editorRef.current
+    if (!ed || !comments) return
+
+    const decorations = comments
+      .filter(c => !c.resolved)
+      .map(c => ({
+        range: {
+          startLineNumber: c.startLine,
+          startColumn: 1,
+          endLineNumber: c.endLine,
+          endColumn: 1,
+        },
+        options: {
+          isWholeLine: true,
+          className: 'comment-highlight-line',
+          glyphMarginClassName: 'comment-glyph',
+          glyphMarginHoverMessage: { value: c.body },
+        },
+      }))
+
+    commentDecorationsRef.current = ed.deltaDecorations(commentDecorationsRef.current, decorations)
+  }, [comments])
 
   // Listen for Quick AI context requests (Cmd+K)
   useEffect(() => {
@@ -229,6 +367,27 @@ export function EditorPane({ content, filePath, onChange, readOnly = false, goTo
           lineNumbersMinChars: isMobile ? 2 : 3,
         }}
       />
+
+      {/* Floating "Add Comment" button — appears on text selection */}
+      {selectionBtnPos && onAddComment && (
+        <button
+          className="editor-selection-comment-btn"
+          style={{ top: selectionBtnPos.top, left: selectionBtnPos.left }}
+          onPointerDown={(e) => {
+            // Prevent Monaco from losing the selection
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            triggerAddComment()
+          }}
+          title="Add Review Comment"
+        >
+          <MessageSquarePlus size={14} />
+        </button>
+      )}
     </div>
   )
 }

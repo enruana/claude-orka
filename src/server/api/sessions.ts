@@ -465,3 +465,67 @@ sessionsRouter.get('/:sessionId/active-branch', async (req, res) => {
     res.status(500).json({ error: error.message })
   }
 })
+
+/**
+ * GET /api/sessions/:sessionId/capture?project=<base64>&branch=<main|forkId>&lines=<n>
+ * Capture the content of the tmux pane for a given branch (main or fork).
+ * If branch omitted, captures whichever pane is currently active in tmux.
+ */
+sessionsRouter.get('/:sessionId/capture', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const encodedPath = req.query.project as string
+    const branch = (req.query.branch as string) || ''
+    const lines = parseInt((req.query.lines as string) || '300', 10)
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    const session = await orka.getSession(sessionId)
+    if (!session) {
+      res.status(404).json({ error: 'session not found' })
+      return
+    }
+
+    // Resolve branch → paneId
+    let paneId: string | undefined
+    const targetBranch = branch || (await orka.getActiveBranch(sessionId)) || 'main'
+
+    if (targetBranch === 'main') {
+      paneId = session.main?.tmuxPaneId
+    } else if (targetBranch.startsWith('untracked:')) {
+      // Manual pane — pane id embedded after the prefix
+      paneId = targetBranch.slice('untracked:'.length)
+    } else {
+      const fork = session.forks.find((f) => f.id === targetBranch)
+      paneId = fork?.tmuxPaneId
+      if (!paneId) {
+        // Maybe it's an untrackedPane id saved in state
+        const untracked = session.untrackedPanes?.find((u) => u.tmuxPaneId === targetBranch)
+        paneId = untracked?.tmuxPaneId
+      }
+    }
+
+    if (!paneId) {
+      res.status(404).json({ error: `No pane found for branch '${targetBranch}'` })
+      return
+    }
+
+    const wantAnsi = req.query.ansi === 'true' || req.query.ansi === '1'
+    const { TmuxCommands } = await import('../../utils/tmux')
+    const text = wantAnsi
+      ? await TmuxCommands.capturePaneAnsi(paneId, -lines)
+      : await TmuxCommands.capturePane(paneId, -lines)
+
+    res.json({ text, paneId, branch: targetBranch, ansi: wantAnsi })
+  } catch (error: any) {
+    logger.error('Failed to capture pane:', error)
+    res.status(500).json({ error: error.message })
+  }
+})

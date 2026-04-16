@@ -7,6 +7,7 @@ import fs from 'fs-extra'
 import { Output } from '../utils/output'
 import { handleError } from '../utils/errors'
 import { getPackageNodeModulesPath } from '../../utils/paths'
+import { CERTS_DIR, ensureCertsDir, findCertPair, getTailscaleHostname } from '../../utils/certs'
 
 interface SystemInfo {
   platform: string
@@ -41,7 +42,9 @@ export function prepareCommand(program: Command) {
         console.log('  • cmake (build tool for Whisper)')
         console.log('  • Whisper model (speech-to-text)')
         console.log('  • Puppeteer + Chromium (terminal screenshots)')
-        console.log('  • xclip (clipboard support for tmux on Linux)\n')
+        console.log('  • xclip (clipboard support for tmux on Linux)')
+        console.log('  • Tailscale (HTTPS for remote access)')
+        console.log('  • SSL certs directory (~/.orka/certs/)\n')
 
         if (!options.yes) {
           const rl = readline.createInterface({
@@ -91,6 +94,12 @@ export function prepareCommand(program: Command) {
 
         // Install xclip (clipboard support for tmux on Linux)
         await installXclip(system)
+
+        // Install Tailscale (for HTTPS remote access)
+        await installTailscale(system)
+
+        // Setup SSL certs (Tailscale-issued)
+        await setupTailscaleCerts()
 
         // Setup Puppeteer + Chromium (for terminal screenshots)
         await setupPuppeteer()
@@ -485,6 +494,86 @@ async function setupWhisper() {
   } else {
     Output.success('Whisper base model is already downloaded')
   }
+}
+
+async function installTailscale(system: SystemInfo) {
+  console.log(chalk.bold('\n🔗 Checking Tailscale (for HTTPS remote access)...\n'))
+
+  // Check if already installed
+  try {
+    await execa('which', ['tailscale'])
+    const { stdout } = await execa('tailscale', ['version'])
+    const version = stdout.split('\n')[0]
+    Output.success(`Tailscale is already installed: ${version}`)
+    return
+  } catch {
+    // Not installed, continue
+  }
+
+  try {
+    if (system.platform === 'darwin') {
+      if (system.hasHomebrew) {
+        await runVisible('brew', ['install', '--cask', 'tailscale'])
+        Output.success('Tailscale installed via Homebrew')
+        console.log(chalk.yellow('Open the Tailscale app to log in.'))
+      } else {
+        Output.warn('Skipping Tailscale (Homebrew not available on macOS)')
+        console.log(chalk.cyan('  Install manually from: https://tailscale.com/download/mac'))
+      }
+    } else if (system.platform === 'linux') {
+      // Official install script handles all Linux distros + sudo prompts
+      await runVisible('bash', ['-c', 'curl -fsSL https://tailscale.com/install.sh | sh'], {
+        timeout: 600000,
+      })
+      Output.success('Tailscale installed')
+      console.log(chalk.yellow('\nIf you haven\'t logged in yet, run:'))
+      console.log(chalk.cyan('  sudo tailscale up'))
+      console.log(chalk.gray('To run tailscale cert without sudo:'))
+      console.log(chalk.cyan('  sudo tailscale set --operator=$USER'))
+    } else {
+      Output.error(`Unsupported platform: ${system.platform}`)
+    }
+  } catch (error: any) {
+    Output.error('Failed to install Tailscale')
+    console.log(chalk.red(`\nError: ${error.message}`))
+    console.log(chalk.yellow('\nInstall manually from: https://tailscale.com/download'))
+  }
+}
+
+async function setupTailscaleCerts() {
+  console.log(chalk.bold('\n🔐 Setting up SSL certs directory...\n'))
+
+  // Always create the certs dir so users have a place to drop manual certs
+  await ensureCertsDir()
+  Output.success(`Certs directory ready: ${CERTS_DIR}`)
+
+  // Check if a cert already exists
+  const existing = await findCertPair()
+  if (existing) {
+    Output.success(`Found existing cert for ${existing.hostname}`)
+    return
+  }
+
+  // Try to detect Tailscale hostname
+  const hostname = await getTailscaleHostname()
+
+  if (!hostname) {
+    Output.warn('No Tailscale hostname detected')
+    console.log(chalk.gray('Tailscale not installed, not logged in, or MagicDNS disabled.'))
+    console.log(chalk.gray('Orka will start in HTTP mode. To enable HTTPS later:'))
+    console.log(chalk.cyan('  1. sudo tailscale up'))
+    console.log(chalk.cyan('  2. Enable MagicDNS + HTTPS at https://login.tailscale.com/admin/dns'))
+    console.log(chalk.cyan('  3. Re-run: orka prepare'))
+    return
+  }
+
+  console.log(chalk.gray(`Tailscale hostname detected: ${hostname}`))
+  console.log(chalk.yellow('\nNo SSL cert found. To generate one for HTTPS, run:\n'))
+  console.log(chalk.cyan(`  cd ${CERTS_DIR}`))
+  console.log(chalk.cyan(`  sudo tailscale cert ${hostname}`))
+  console.log(chalk.cyan(`  sudo chown $USER:$USER ${CERTS_DIR}/*`))
+  console.log(chalk.cyan(`  chmod 600 ${CERTS_DIR}/*.key`))
+  console.log(chalk.gray('\nThen run "orka start" — it will auto-detect the cert and use HTTPS.'))
 }
 
 async function setupPuppeteer() {

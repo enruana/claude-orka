@@ -2,7 +2,7 @@ import path from 'path'
 import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
-import { ProjectState, ProjectTask, Session, Fork, SessionFilters } from '../models'
+import { ProjectState, ProjectTask, ProjectComment, Session, Fork, SessionFilters } from '../models'
 import { logger } from '../utils'
 
 // Get __dirname equivalent for ES modules
@@ -110,7 +110,7 @@ export class StateManager {
       await this.save(initialState)
     }
 
-    logger.info('StateManager initialized')
+    logger.debug('StateManager initialized')
   }
 
   /**
@@ -188,26 +188,17 @@ export class StateManager {
   private async copyThemeConfig(): Promise<void> {
     const destPath = path.join(this.orkaDir, '.tmux.orka.conf')
 
-    logger.info(`Copying tmux theme to project...`)
-
     // Look for source theme in package installation
     const possibleSources = [
-      // When running from dist/ (bundled CLI)
       path.join(__dirname, '../.tmux.orka.conf'),
-      // When running from src/core/ (development)
       path.join(__dirname, '../../.tmux.orka.conf'),
-      // Fallback: look in node_modules (when used as dependency)
       path.join(__dirname, '../../../.tmux.orka.conf'),
     ]
-
-    logger.info(`Looking for tmux theme source. __dirname: ${__dirname}`)
 
     let sourcePath: string | null = null
     for (const p of possibleSources) {
       const resolved = path.resolve(p)
-      const exists = await fs.pathExists(resolved)
-      logger.info(`  Checking: ${resolved} -> ${exists ? 'FOUND' : 'not found'}`)
-      if (exists) {
+      if (await fs.pathExists(resolved)) {
         sourcePath = resolved
         break
       }
@@ -218,10 +209,35 @@ export class StateManager {
       return
     }
 
+    // Skip copy if destination is already up-to-date (avoids race conditions
+    // when many parallel API calls each trigger initialize()).
+    try {
+      const [srcStat, destStat] = await Promise.all([
+        fs.stat(sourcePath),
+        fs.stat(destPath).catch(() => null),
+      ])
+      if (destStat && destStat.mtimeMs >= srcStat.mtimeMs && destStat.size === srcStat.size) {
+        return // Already up-to-date
+      }
+    } catch {
+      // If stat fails, fall through to copy
+    }
+
     try {
       await fs.copy(sourcePath, destPath, { overwrite: true })
-      logger.info(`Tmux theme copied successfully to ${destPath}`)
+      logger.info(`Tmux theme copied to ${destPath}`)
     } catch (error: any) {
+      // Race condition: another concurrent initialize() may have already copied/unlinked.
+      // Re-check destination — if it now matches, treat as success.
+      try {
+        const [srcStat, destStat] = await Promise.all([
+          fs.stat(sourcePath),
+          fs.stat(destPath),
+        ])
+        if (destStat.mtimeMs >= srcStat.mtimeMs && destStat.size === srcStat.size) {
+          return
+        }
+      } catch {}
       logger.warn(`Failed to copy tmux theme: ${error.message}`)
     }
   }
@@ -611,5 +627,47 @@ export class StateManager {
     state.tasks.splice(index, 1)
     await this.save(state)
     logger.info(`Task deleted: ${taskId}`)
+  }
+
+  // --- OPERACIONES DE COMMENTS ---
+
+  async listComments(): Promise<ProjectComment[]> {
+    const state = await this.read()
+    return state.comments || []
+  }
+
+  async addComment(comment: ProjectComment): Promise<void> {
+    const state = await this.read()
+    if (!state.comments) state.comments = []
+    state.comments.push(comment)
+    await this.save(state)
+    logger.info(`Comment added: ${comment.id}`)
+  }
+
+  async updateComment(commentId: string, updates: Partial<Pick<ProjectComment, 'body' | 'resolved'>>): Promise<ProjectComment> {
+    const state = await this.read()
+    if (!state.comments) state.comments = []
+    const comment = state.comments.find(c => c.id === commentId)
+    if (!comment) throw new Error(`Comment not found: ${commentId}`)
+
+    if (updates.body !== undefined) comment.body = updates.body
+    if (updates.resolved !== undefined) {
+      comment.resolved = updates.resolved
+      comment.resolvedAt = updates.resolved ? new Date().toISOString() : undefined
+    }
+
+    await this.save(state)
+    logger.info(`Comment updated: ${commentId}`)
+    return comment
+  }
+
+  async deleteComment(commentId: string): Promise<void> {
+    const state = await this.read()
+    if (!state.comments) state.comments = []
+    const index = state.comments.findIndex(c => c.id === commentId)
+    if (index === -1) throw new Error(`Comment not found: ${commentId}`)
+    state.comments.splice(index, 1)
+    await this.save(state)
+    logger.info(`Comment deleted: ${commentId}`)
   }
 }

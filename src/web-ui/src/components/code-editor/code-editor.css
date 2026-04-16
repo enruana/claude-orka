@@ -315,6 +315,8 @@
 
 .editor-pane {
   height: 100%;
+  position: relative;
+  overflow: hidden;
 }
 
 .editor-placeholder {
@@ -2439,6 +2441,49 @@
 .search-highlight-line {
   background: rgba(255, 214, 10, 0.15) !important;
   border-left: 3px solid var(--accent-yellow) !important;
+}
+
+/* Floating comment button on selection */
+.editor-selection-comment-btn {
+  position: absolute;
+  z-index: 10;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent-blue);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  transition: transform 0.1s ease, background 0.15s ease;
+  touch-action: manipulation;
+}
+
+.editor-selection-comment-btn:hover {
+  background: var(--accent-blue-hover);
+  transform: scale(1.1);
+}
+
+.editor-selection-comment-btn:active {
+  transform: scale(0.95);
+}
+
+/* Comment decorations */
+.comment-highlight-line {
+  background: rgba(10, 132, 255, 0.08) !important;
+  border-left: 3px solid var(--accent-blue) !important;
+}
+
+.comment-glyph {
+  background: var(--accent-blue);
+  border-radius: 50%;
+  width: 8px !important;
+  height: 8px !important;
+  margin-top: 6px;
+  margin-left: 4px;
 }
 
 /* Session code editor compact overrides */
