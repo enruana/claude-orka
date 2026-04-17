@@ -31,10 +31,33 @@ import { AgentLogsModal } from './AgentLogsModal'
 import { agentsApi, Agent, CreateAgentOptions } from '../../api/agents'
 import { api, RegisteredProject, Session } from '../../api/client'
 
+// Group label node — rendered as a zone header
+function GroupLabelNode({ data }: { data: { label: string; count: number; width: number; height: number } }) {
+  return (
+    <div
+      className="group-zone-node"
+      style={{
+        width: data.width,
+        height: data.height,
+        background: 'rgba(49, 50, 68, 0.25)',
+        border: '1px dashed rgba(88, 91, 112, 0.5)',
+        borderRadius: '16px',
+        pointerEvents: 'none',
+      }}
+    >
+      <div className="group-zone-label">
+        <span className="group-zone-name">{data.label}</span>
+        <span className="group-zone-count">{data.count} project{data.count !== 1 ? 's' : ''}</span>
+      </div>
+    </div>
+  )
+}
+
 // Custom node types
 const nodeTypes: NodeTypes = {
   agent: AgentNode as any,
   project: ProjectNode as any,
+  groupLabel: GroupLabelNode as any,
 }
 
 // Custom edge types
@@ -178,7 +201,7 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
     []
   )
 
-  // Build nodes from data - preserving positions
+  // Build nodes from data — groups projects by tag, creates zone backgrounds
   const buildNodes = useCallback(
     (
       agentsData: Agent[],
@@ -189,41 +212,120 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
       const newEdges: Edge[] = []
       const positions = nodePositionsRef.current
 
-      // Add project nodes on the left
-      projectsData.forEach((project, index) => {
-        const nodeId = `project-${project.path}`
-        const defaultPos = { x: 100, y: 100 + index * 300 }
-        const position = positions[nodeId] || defaultPos
+      // Layout constants
+      const NODE_WIDTH = 450
+      const NODE_HEIGHT = 280
+      const NODE_GAP_X = 40
+      const NODE_GAP_Y = 30
+      const GROUP_PAD = 30
+      const GROUP_LABEL_H = 50
+      const COLS_PER_GROUP = 2
 
-        // Save default position if not exists
-        if (!positions[nodeId]) {
-          positions[nodeId] = defaultPos
-        }
+      // Group projects by group field
+      const groups = new Map<string, RegisteredProject[]>()
+      for (const project of projectsData) {
+        const key = project.group || '__ungrouped__'
+        if (!groups.has(key)) groups.set(key, [])
+        groups.get(key)!.push(project)
+      }
 
-        newNodes.push({
-          id: nodeId,
-          type: 'project',
-          position,
-          data: {
-            data: {
-              project,
-              sessions: sessionsMap[project.path] || [],
-              onSelect: handleProjectSelect,
-            },
-          },
+      // Sort: named groups first (alphabetically), ungrouped last
+      const sortedGroups = [...groups.entries()]
+        .sort(([a], [b]) => {
+          if (a === '__ungrouped__') return 1
+          if (b === '__ungrouped__') return -1
+          return a.localeCompare(b)
         })
+
+      // Layout groups like regions on a map — spread across canvas with generous
+      // spacing. Uses a spiral-like placement pattern so groups radiate outward.
+      const ZONE_W = COLS_PER_GROUP * (NODE_WIDTH + NODE_GAP_X) - NODE_GAP_X + GROUP_PAD * 2
+      const H_GAP = 200  // horizontal gap between zones
+      const V_GAP = 150  // vertical gap between zones
+
+      // Spiral/region positions: center, then outward alternating sides.
+      // Pre-defined placement slots for up to 9 groups (3×3 grid with offsets).
+      // Each slot: [colMultiplier, rowMultiplier, xOffset, yOffset]
+      const SLOTS: [number, number, number, number][] = [
+        [0, 0, 0, 0],         // top-left
+        [1, 0, 60, 80],       // top-right (slightly offset for organic feel)
+        [0, 1, 40, 0],        // mid-left
+        [1, 1, 0, 60],        // mid-right
+        [2, 0, 20, 40],       // far-right top
+        [2, 1, 80, 0],        // far-right mid
+        [0, 2, 60, 30],       // bottom-left
+        [1, 2, 0, 50],        // bottom-center
+        [2, 2, 40, 0],        // bottom-right
+      ]
+
+      interface ZoneRect { x: number; y: number; w: number; h: number }
+      const zones: ZoneRect[] = []
+
+      sortedGroups.forEach(([_groupKey, groupProjects], gi) => {
+        const rows = Math.ceil(groupProjects.length / COLS_PER_GROUP)
+        const zoneHeight = GROUP_LABEL_H + rows * (NODE_HEIGHT + NODE_GAP_Y) - NODE_GAP_Y + GROUP_PAD * 2
+        const slot = SLOTS[gi % SLOTS.length]
+        const x = 80 + slot[0] * (ZONE_W + H_GAP) + slot[2]
+        const y = 60 + slot[1] * (zoneHeight + V_GAP) + slot[3]
+        zones.push({ x, y, w: ZONE_W, h: zoneHeight })
       })
 
-      // Add agent nodes on the right
+      let maxGroupRight = 0
+
+      zones.forEach((zone, gi) => {
+        const [groupKey, groupProjects] = sortedGroups[gi]
+        const groupLabel = groupKey === '__ungrouped__' ? 'Ungrouped' : groupKey
+
+        const groupNodeId = `group-${groupKey}`
+        const groupPos = positions[groupNodeId] || { x: Math.round(zone.x), y: Math.round(zone.y) }
+        if (!positions[groupNodeId]) positions[groupNodeId] = groupPos
+
+        maxGroupRight = Math.max(maxGroupRight, groupPos.x + zone.w)
+
+        newNodes.push({
+          id: groupNodeId,
+          type: 'groupLabel',
+          position: groupPos,
+          selectable: false,
+          draggable: false,
+          data: { label: groupLabel, count: groupProjects.length, width: zone.w, height: zone.h },
+          style: { zIndex: -1 },
+        })
+
+        groupProjects.forEach((project, index) => {
+          const col = index % COLS_PER_GROUP
+          const row = Math.floor(index / COLS_PER_GROUP)
+          const nodeId = `project-${project.path}`
+          const defaultX = groupPos.x + GROUP_PAD + col * (NODE_WIDTH + NODE_GAP_X)
+          const defaultY = groupPos.y + GROUP_LABEL_H + GROUP_PAD + row * (NODE_HEIGHT + NODE_GAP_Y)
+          const defaultPos = { x: defaultX, y: defaultY }
+          const position = positions[nodeId] || defaultPos
+
+          if (!positions[nodeId]) positions[nodeId] = defaultPos
+
+          newNodes.push({
+            id: nodeId,
+            type: 'project',
+            position,
+            data: {
+              data: {
+                project,
+                sessions: sessionsMap[project.path] || [],
+                onSelect: handleProjectSelect,
+              },
+            },
+          })
+        })
+      })  // end zones.forEach
+
+      // Agent nodes — positioned to the right, spread vertically
+      const agentX = maxGroupRight + 200
       agentsData.forEach((agent, index) => {
         const nodeId = `agent-${agent.id}`
-        const defaultPos = { x: 550, y: 100 + index * 350 }
+        const defaultPos = { x: agentX, y: 100 + index * 350 }
         const position = positions[nodeId] || defaultPos
 
-        // Save default position if not exists
-        if (!positions[nodeId]) {
-          positions[nodeId] = defaultPos
-        }
+        if (!positions[nodeId]) positions[nodeId] = defaultPos
 
         newNodes.push({
           id: nodeId,
@@ -241,7 +343,6 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
           },
         })
 
-        // Add edge if agent is connected to a project
         if (agent.connection) {
           const branchId = agent.connection.branchId || 'main'
           const connSessionId = agent.connection.sessionId
@@ -266,9 +367,7 @@ function AgentCanvasInner({ className }: AgentCanvasProps) {
         }
       })
 
-      // Save positions
       savePositions(positions)
-
       setNodes(newNodes)
       setEdges(newEdges)
     },

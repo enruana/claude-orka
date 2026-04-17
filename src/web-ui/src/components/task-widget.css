@@ -291,6 +291,48 @@
    the <span> elements inherit the monospace font */
 .copy-terminal-pre span { font-family: inherit; }
 
+/* Syntax-like highlighting on top of ANSI colors */
+.copy-terminal-pre .hl-url {
+  color: #89b4fa;
+  text-decoration: underline;
+  text-decoration-color: rgba(137, 180, 250, 0.4);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.copy-terminal-pre .hl-url:hover {
+  color: #b4d0ff;
+  text-decoration-color: #b4d0ff;
+}
+
+.copy-terminal-pre .hl-path {
+  color: #94e2d5;
+}
+
+.copy-terminal-pre .hl-number {
+  color: #cba6f7;
+  font-weight: 500;
+}
+
+.copy-terminal-pre .hl-string {
+  color: #a6e3a1;
+}
+
+.copy-terminal-pre .hl-keyword-ok {
+  color: #a6e3a1;
+  font-weight: 600;
+  background: rgba(166, 227, 161, 0.1);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.copy-terminal-pre .hl-keyword-error {
+  color: #f38ba8;
+  font-weight: 600;
+  background: rgba(243, 139, 168, 0.1);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
 .copy-terminal-modal-footer {
   padding: 10px 20px;
   border-top: 1px solid #313244;

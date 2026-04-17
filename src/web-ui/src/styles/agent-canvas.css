@@ -614,3 +614,44 @@
   color: var(--text-secondary, #a6adc8);
   margin-top: 4px;
 }
+
+/* ============================================ */
+/* Group Zone Nodes                             */
+/* ============================================ */
+
+.group-zone-node {
+  position: relative;
+}
+
+.group-zone-label {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.group-zone-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(166, 173, 200, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.group-zone-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(108, 112, 134, 0.7);
+  background: rgba(49, 50, 68, 0.5);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+/* Ensure group zone nodes render behind project nodes */
+.react-flow__node-groupLabel {
+  z-index: -1 !important;
+  pointer-events: none;
+}

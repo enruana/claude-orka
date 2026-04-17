@@ -67,6 +67,85 @@ function getSessionIdFromUrl(): string | null {
   return match ? match[1] : null
 }
 
+/**
+ * Walk a DOM tree and apply regex-based highlighting to text nodes only.
+ * Modifies the tree in place — won't double-wrap text already inside an
+ * existing colored span from ansi_up, because we skip element node children
+ * that already contain inline style colors (they're already visually distinct).
+ */
+function highlightTerminalDom(root: HTMLElement): void {
+  const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/g
+  const PATH_RE = /(?<![\w./])(\/[\w.\-/]+(?:\.[a-z0-9]+)?)(?=[\s:,;)\]"'`]|$)/gi
+  const NUM_RE = /\b\d+(?:\.\d+)*\b/g
+  const KEYWORD_ERR_RE = /\b(ERROR|ERR|FAIL|FAILED|WARN|WARNING|DENIED|REJECTED)\b/g
+  const KEYWORD_OK_RE = /\b(SUCCESS|OK|PASS|PASSED|INFO|DEBUG|DONE|READY)\b/g
+  const QUOTED_RE = /(["'`])(?:(?=(\\?))\2.)*?\1/g
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const textNodes: Text[] = []
+  let node: Node | null
+  // Collect first to avoid mutating during iteration
+  while ((node = walker.nextNode())) {
+    textNodes.push(node as Text)
+  }
+
+  for (const textNode of textNodes) {
+    const text = textNode.nodeValue || ''
+    if (!text.trim()) continue
+
+    // Build a list of (start, end, className, href?) replacements, prioritized
+    type Hit = { start: number; end: number; className: string; href?: string }
+    const hits: Hit[] = []
+    const addHits = (re: RegExp, className: string, hrefFn?: (m: string) => string) => {
+      re.lastIndex = 0
+      let m: RegExpExecArray | null
+      while ((m = re.exec(text))) {
+        hits.push({ start: m.index, end: m.index + m[0].length, className, href: hrefFn?.(m[0]) })
+      }
+    }
+    addHits(URL_RE, 'hl-url', (u) => u)
+    addHits(PATH_RE, 'hl-path')
+    addHits(QUOTED_RE, 'hl-string')
+    addHits(KEYWORD_ERR_RE, 'hl-keyword-error')
+    addHits(KEYWORD_OK_RE, 'hl-keyword-ok')
+    addHits(NUM_RE, 'hl-number')
+
+    if (hits.length === 0) continue
+
+    // Resolve overlaps — keep the earliest, longest match
+    hits.sort((a, b) => a.start - b.start || b.end - a.end)
+    const merged: Hit[] = []
+    for (const h of hits) {
+      const last = merged[merged.length - 1]
+      if (!last || h.start >= last.end) merged.push(h)
+    }
+
+    // Replace the text node with a fragment containing highlighted spans
+    const frag = document.createDocumentFragment()
+    let cursor = 0
+    for (const h of merged) {
+      if (h.start > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, h.start)))
+      let el: HTMLElement
+      if (h.href) {
+        const a = document.createElement('a')
+        a.href = h.href
+        a.target = '_blank'
+        a.rel = 'noopener noreferrer'
+        a.className = h.className
+        el = a
+      } else {
+        el = document.createElement('span')
+        el.className = h.className
+      }
+      el.textContent = text.slice(h.start, h.end)
+      frag.appendChild(el)
+      cursor = h.end
+    }
+    if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)))
+    textNode.parentNode?.replaceChild(frag, textNode)
+  }
+}
+
 export function TaskWidget({ projectPath }: TaskWidgetProps) {
   const [active, setActive] = useState<ActivePanel>('none')
   const [tasks, setTasks] = useState<ProjectTask[]>([])
@@ -82,6 +161,7 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const copyTerminalBodyRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef({
     active: false,
     startX: 0,
@@ -205,9 +285,30 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
     }
   }, [active, fetchTasks])
 
-  // Click outside to close
+  // Auto-scroll the copy-terminal modal to the bottom when content loads
+  // and apply syntax-like highlighting (URLs, paths, numbers, keywords, strings)
+  // (terminal prompt / most recent output is at the end — user wants to see that first)
   useEffect(() => {
-    if (active === 'none') return
+    if (active === 'copy-terminal' && !capturing) {
+      const body = copyTerminalBodyRef.current
+      if (body) {
+        requestAnimationFrame(() => {
+          // Apply extra highlighting on top of ansi_up's colors
+          const pre = body.querySelector('pre.copy-terminal-pre') as HTMLElement | null
+          if (pre) {
+            try { highlightTerminalDom(pre) } catch {}
+          }
+          body.scrollTop = body.scrollHeight
+        })
+      }
+    }
+  }, [active, capturing, terminalCapture, terminalCaptureHtml])
+
+  // Click outside to close — skipped for copy-terminal which renders via portal
+  // and has its own click-outside handler on the overlay. Without this skip,
+  // any mousedown inside the portalled modal would close it mid-selection.
+  useEffect(() => {
+    if (active === 'none' || active === 'copy-terminal') return
 
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -228,6 +329,48 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
   const openPanel = (panel: ActivePanel) => {
     setActive(prev => prev === panel ? 'none' : panel)
   }
+
+  // Keyboard shortcut: Cmd+Shift+C / Ctrl+Shift+C opens the Copy Terminal modal.
+  // Also listens for 'orka-copy-from-terminal' postMessage events forwarded
+  // from inside the terminal iframe (where the parent's keydown doesn't fire).
+  useEffect(() => {
+    if (!terminalAvailable) return
+
+    const toggleCopyTerminal = () => {
+      if (active === 'copy-terminal') {
+        setActive('none')
+        return
+      }
+      if (active !== 'none' && active !== 'menu') return
+      openCopyTerminal()
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Cmd+L / Ctrl+L — open Copy from Terminal modal
+      const isShortcut = (e.metaKey || e.ctrlKey) && (e.key === 'l' || e.key === 'L')
+      if (!isShortcut) return
+
+      const ae = document.activeElement as HTMLElement | null
+      if (ae) {
+        const tag = ae.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || ae.isContentEditable) return
+      }
+
+      e.preventDefault()
+      toggleCopyTerminal()
+    }
+
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'orka-copy-from-terminal') toggleCopyTerminal()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('message', onMessage)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('message', onMessage)
+    }
+  }, [terminalAvailable, active]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const openCopyTerminal = async () => {
     setActive('copy-terminal')
@@ -530,7 +673,15 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
           ancestor stacking contexts (the FAB container has position:fixed which
           creates its own context, trapping child z-indexes). */}
       {active === 'copy-terminal' && createPortal(
-        <div className="copy-terminal-overlay" onClick={() => setActive('none')}>
+        <div
+          className="copy-terminal-overlay"
+          onMouseDown={(e) => {
+            // Only close when the mousedown (not just mouseup) happened on the overlay.
+            // This prevents closing when the user drags-to-select text starting inside
+            // the modal and releases the mouse over the overlay.
+            if (e.target === e.currentTarget) setActive('none')
+          }}
+        >
           <div className="copy-terminal-modal" onClick={e => e.stopPropagation()}>
             <div className="copy-terminal-modal-header">
               <span className="copy-terminal-modal-title">
@@ -551,7 +702,7 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
                 </button>
               </div>
             </div>
-            <div className="copy-terminal-modal-body">
+            <div className="copy-terminal-modal-body" ref={copyTerminalBodyRef}>
               {capturing ? (
                 <div className="copy-terminal-loading-fs">
                   <div className="spinner" />

@@ -3060,11 +3060,20 @@
         this.setupDragAndDrop();
 
         // Forward Cmd+K / Ctrl+K to parent window for Quick AI dialog
+        // Forward Cmd+Shift+C / Ctrl+Shift+C for "Copy from Terminal" modal
         window.addEventListener('keydown', (e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
             e.preventDefault();
             if (window.parent && window.parent !== window) {
               window.parent.postMessage({ type: 'orka-cmd-k' }, '*');
+            }
+            return;
+          }
+          // Cmd/Ctrl+L — open Copy from Terminal modal
+          if ((e.metaKey || e.ctrlKey) && (e.key === 'l' || e.key === 'L')) {
+            e.preventDefault();
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: 'orka-copy-from-terminal' }, '*');
             }
           }
         });
