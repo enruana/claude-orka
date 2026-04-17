@@ -12,6 +12,7 @@ import {
   createRenameItem,
   createPreviewHtmlItem,
   createOpenInCodeItem,
+  createDownloadItem,
 } from '../code-editor/ContextMenu'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, Check, Upload } from 'lucide-react'
@@ -376,10 +377,11 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
         })
       )
     }
+    items.push(createDownloadItem(encodedPath, path, isDirectory))
     items.push(createRenameItem(() => openRenameModal(path, isDirectory)))
     items.push(createDeleteItem(() => handleDelete(path, isDirectory)))
     return items
-  }, [projectPath, showToast])
+  }, [projectPath, encodedPath, showToast])
 
   // Keyboard shortcuts
   useEffect(() => {

@@ -544,6 +544,82 @@ filesRouter.get('/raw', async (req, res) => {
 })
 
 /**
+ * GET /api/files/download?project=<base64>&path=<relative>
+ * Downloads a file or directory as a zip archive (directories) or raw file (single files)
+ */
+filesRouter.get('/download', async (req, res) => {
+  try {
+    const projectEncoded = req.query.project as string
+    const relativePath = (req.query.path as string) || ''
+
+    if (!projectEncoded) {
+      res.status(400).json({ error: 'Project path required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(projectEncoded)
+
+    if (!isPathSafe(projectPath, relativePath)) {
+      res.status(403).json({ error: 'Access denied' })
+      return
+    }
+
+    const targetPath = relativePath ? path.join(projectPath, relativePath) : projectPath
+
+    if (!await fs.pathExists(targetPath)) {
+      res.status(404).json({ error: 'Path not found' })
+      return
+    }
+
+    const stat = await fs.stat(targetPath)
+    const name = path.basename(targetPath) || 'project'
+
+    if (stat.isDirectory()) {
+      // Stream a tar.gz archive of the directory using system tar
+      const archiveName = `${name}.tar.gz`
+      res.setHeader('Content-Type', 'application/gzip')
+      res.setHeader('Content-Disposition', `attachment; filename="${archiveName}"`)
+
+      const parentDir = path.dirname(targetPath)
+      const dirName = path.basename(targetPath)
+
+      const tar = execa('tar', ['czf', '-', dirName], {
+        cwd: parentDir,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        buffer: false,
+      })
+
+      tar.stdout!.pipe(res)
+
+      tar.stderr!.on('data', (chunk: Buffer) => {
+        console.error('tar stderr:', chunk.toString())
+      })
+
+      res.on('close', () => {
+        tar.kill()
+      })
+
+      await tar.catch((err) => {
+        if (!res.headersSent) {
+          res.status(500).json({ error: err.message })
+        }
+      })
+    } else {
+      // Single file download
+      res.setHeader('Content-Type', 'application/octet-stream')
+      res.setHeader('Content-Disposition', `attachment; filename="${name}"`)
+      res.setHeader('Content-Length', stat.size.toString())
+      fs.createReadStream(targetPath).pipe(res)
+    }
+  } catch (error: any) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message })
+    }
+  }
+})
+
+/**
  * GET /api/files/search?project=<base64>&query=<string>&caseSensitive=<bool>&regex=<bool>
  * Search for text across project files using grep
  */

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe, Pencil, Code, FolderOpen, Eye } from 'lucide-react'
+import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe, Pencil, Code, FolderOpen, Eye, Download } from 'lucide-react'
 
 export interface ContextMenuItem {
   label: string
@@ -391,6 +391,22 @@ export function createPreviewHtmlItem(projectPath: string, relativePath: string)
       const encodedProject = btoa(projectPath).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
       const url = `/api/files/raw?project=${encodedProject}&path=${encodeURIComponent(relativePath)}`
       window.open(url, '_blank')
+    }
+  }
+}
+
+export function createDownloadItem(encodedProject: string, relativePath: string, isDirectory: boolean): ContextMenuItem {
+  return {
+    label: 'Download',
+    icon: <Download size={14} />,
+    onClick: () => {
+      const url = `/api/files/download?project=${encodedProject}&path=${encodeURIComponent(relativePath)}`
+      const a = document.createElement('a')
+      a.href = url
+      a.download = ''
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
     }
   }
 }
