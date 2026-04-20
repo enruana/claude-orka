@@ -44,7 +44,8 @@ export function prepareCommand(program: Command) {
         console.log('  • Puppeteer + Chromium (terminal screenshots)')
         console.log('  • xclip (clipboard support for tmux on Linux)')
         console.log('  • Tailscale (HTTPS for remote access)')
-        console.log('  • SSL certs directory (~/.orka/certs/)\n')
+        console.log('  • SSL certs directory (~/.orka/certs/)')
+        console.log('  • AWS profile shell integration\n')
 
         if (!options.yes) {
           const rl = readline.createInterface({
@@ -103,6 +104,9 @@ export function prepareCommand(program: Command) {
 
         // Setup Puppeteer + Chromium (for terminal screenshots)
         await setupPuppeteer()
+
+        // Setup AWS profile shell integration
+        await setupAwsShellIntegration()
 
         // Final verification
         console.log(chalk.bold.green('\n✓ Preparation complete!\n'))
@@ -620,4 +624,34 @@ async function setupPuppeteer() {
       console.log(chalk.cyan('  npx puppeteer browsers install chrome@stable'))
     }
   }
+}
+
+async function setupAwsShellIntegration() {
+  console.log(chalk.bold('\n☁️  Setting up AWS profile shell integration...\n'))
+
+  const homeDir = process.env.HOME || process.env.USERPROFILE || ''
+  const shell = process.env.SHELL || '/bin/bash'
+  const rcFile = shell.includes('zsh')
+    ? path.join(homeDir, '.zshrc')
+    : path.join(homeDir, '.bashrc')
+
+  if (!await fs.pathExists(rcFile)) {
+    Output.warn(`Shell config not found: ${rcFile}`)
+    console.log(chalk.gray('You can run "orka aws-account --setup" manually later.'))
+    return
+  }
+
+  const content = await fs.readFile(rcFile, 'utf-8')
+  const hookLine = '# orka aws-account integration'
+
+  if (content.includes(hookLine)) {
+    Output.success('AWS profile shell integration already installed')
+    return
+  }
+
+  const integration = `\n${hookLine}\nexport AWS_PROFILE=$(cat ~/.aws/.active_profile 2>/dev/null || echo "default")\norka() {\n  command orka "$@"\n  if [[ "$1" == "aws-account" && $? -eq 0 ]]; then\n    export AWS_PROFILE=$(cat ~/.aws/.active_profile 2>/dev/null || echo "default")\n  fi\n}\n`
+  await fs.appendFile(rcFile, integration)
+  Output.success('AWS profile shell integration installed')
+  console.log(chalk.gray(`  Added to ${rcFile}`))
+  console.log(chalk.gray('  Use "orka aws-account" to switch profiles automatically'))
 }

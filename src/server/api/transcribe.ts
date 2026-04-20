@@ -51,6 +51,10 @@ transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> =>
   let tempFilePath: string | null = null
   let wavFilePath: string | null = null
 
+  // Increase timeout for long transcriptions (10 minutes)
+  req.setTimeout(600000)
+  res.setTimeout(600000)
+
   try {
     // Read raw body as audio
     const chunks: Buffer[] = []
@@ -113,6 +117,10 @@ transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> =>
     // Transcribe with Whisper CLI directly
     // Using --no-timestamps for clean dictation output
     logger.info(`Starting transcription with model: ${WHISPER_MODEL}, language: ${lang}`)
+
+    // Start keep-alive: set headers that prevent connection close during processing
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('Keep-Alive', 'timeout=600')
 
     const { stdout, stderr } = await execa(whisperBin, [
       '-m', modelPath,

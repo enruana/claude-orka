@@ -195,18 +195,30 @@ async function transcribeSelected() {
   renderList()
 
   try {
-    const res = await fetch(`${SERVER}/api/transcribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'audio/webm' },
-      body: rec.blob,
+    // Use XMLHttpRequest instead of fetch to avoid ERR_NETWORK_IO_SUSPENDED
+    // XHR keeps the connection alive better during long uploads + processing
+    const data = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `${SERVER}/api/transcribe`)
+      xhr.setRequestHeader('Content-Type', 'audio/webm')
+      xhr.timeout = 600000 // 10 minutes - match server timeout
+      xhr.responseType = 'json'
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(xhr.response)
+        } else {
+          const err = xhr.response || {}
+          reject(new Error(err.message || `Server error: ${xhr.status}`))
+        }
+      }
+
+      xhr.onerror = () => reject(new Error('Network error - connection lost'))
+      xhr.ontimeout = () => reject(new Error('Transcription timed out (10 min limit)'))
+
+      xhr.send(rec.blob)
     })
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.message || 'Transcription failed')
-    }
-
-    const data = await res.json()
     rec.transcription = data.text
     rec.transcriptionStatus = 'completed'
     await updateRecording(rec.id, { transcription: data.text, transcriptionStatus: 'completed' })

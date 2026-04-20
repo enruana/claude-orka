@@ -14,6 +14,7 @@ import { prepareCommand } from './commands/prepare'
 import { startCommand } from './commands/start'
 import { telegramCommand } from './commands/telegram'
 import { gitAccountCommand } from './commands/git-account'
+import { awsAccountCommand } from './commands/aws-account'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -49,6 +50,7 @@ forkCommand(program)
 mergeCommand(program)
 telegramCommand(program)
 gitAccountCommand(program)
+awsAccountCommand(program)
 
 // Parse arguments
 program.parse()
