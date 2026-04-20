@@ -79,3 +79,23 @@ body {
   font-size: 11px;
   color: #585b70;
 }
+
+.menu-divider {
+  height: 1px;
+  background: #313244;
+  margin: 4px 12px;
+}
+
+.menu-item-small {
+  padding: 7px 12px;
+}
+
+.menu-item-small svg {
+  width: 16px; height: 16px;
+}
+
+.menu-item-small .item-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #a6adc8;
+}

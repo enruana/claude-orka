@@ -3,7 +3,7 @@
   "name": "Orka",
   "description": "Chrome extension for Claude Orka - Writer & Audio Recorder",
   "version": "1.1.0",
-  "permissions": ["tabs", "tabCapture", "activeTab"],
+  "permissions": ["tabs", "tabCapture", "activeTab", "storage"],
   "background": {
     "service_worker": "background.js"
   },
@@ -17,7 +17,11 @@
   },
   "host_permissions": [
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "https://localhost/*",
+    "http://127.0.0.1/*",
+    "https://127.0.0.1/*",
+    "http://*/*",
+    "https://*/*"
   ],
   "icons": {
     "16": "icons/icon16.png",

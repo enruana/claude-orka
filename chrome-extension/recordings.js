@@ -1,4 +1,4 @@
-const SERVER = 'http://localhost:3456'
+let SERVER = ''
 
 let recordings = []
 let selectedId = null
@@ -21,9 +21,12 @@ const processingLabelEl = document.getElementById('processing-label')
 const statusDotEl = document.getElementById('status-dot')
 const statusTextEl = document.getElementById('status-text')
 
-// Init
-loadRecordings()
-checkServerStatus()
+// Init: load server URL, then recordings and status
+;(async () => {
+  SERVER = await getServerUrl()
+  loadRecordings()
+  checkServerStatus()
+})()
 
 document.getElementById('link-writer').href = chrome.runtime.getURL('writer.html')
 document.getElementById('btn-import').addEventListener('click', () => document.getElementById('file-input').click())
@@ -139,7 +142,7 @@ function selectRecording(id) {
     el.classList.toggle('selected', el.dataset.id === id)
   })
 
-  noSelectionEl.classList.add('hidden')
+  noSelectionEl.classList.remove('hidden')
   detailContentEl.classList.remove('hidden')
 
   detailNameEl.textContent = rec.name

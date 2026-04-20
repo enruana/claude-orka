@@ -1,3 +1,20 @@
+// Server URL config (chrome.storage.local)
+const DEFAULT_SERVER_URL = 'https://localhost:3456'
+
+function getServerUrl() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get('serverUrl', (result) => {
+      resolve(result.serverUrl || DEFAULT_SERVER_URL)
+    })
+  })
+}
+
+function setServerUrl(url) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ serverUrl: url }, resolve)
+  })
+}
+
 // IndexedDB storage for audio recordings
 const DB_NAME = 'orka-recordings'
 const DB_VERSION = 1

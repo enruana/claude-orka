@@ -25,6 +25,12 @@ export function SessionPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // Reset state when URL params change (e.g. navigating between sessions via dock)
+    setLoading(true)
+    setError(null)
+    setProject(null)
+    setSession(null)
+
     const loadData = async () => {
       if (!encodedPath || !sessionId) {
         navigate('/dashboard', { replace: true })

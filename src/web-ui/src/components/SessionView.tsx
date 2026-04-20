@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { SessionCodeEditor } from './code-editor'
 import { FinderExplorer } from './finder'
+import { ProjectDock } from './ProjectDock'
 import { encodeProjectPath } from './ProjectDashboard'
 import { usePageTitle } from '../hooks/usePageTitle'
 
@@ -820,6 +821,14 @@ export function SessionView({
           </div>
         </div>
       )}
+
+      {/* Project Dock - macOS-style navigation bar */}
+      <div className="desktop-only">
+        <ProjectDock
+          currentProjectPath={project.path}
+          currentSessionId={session.id}
+        />
+      </div>
 
     </div>
   )

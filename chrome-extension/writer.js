@@ -1,4 +1,4 @@
-const SERVER = 'http://localhost:3456'
+let SERVER = ''
 let debounceTimer = null
 let lastSource = null
 
@@ -14,6 +14,12 @@ const els = {
   statusDot: document.querySelector('.status-dot'),
   statusText: document.querySelector('.status-text'),
 }
+
+// Init: load server URL then check status
+;(async () => {
+  SERVER = await getServerUrl()
+  checkServer()
+})()
 
 // Check server status
 async function checkServer() {
@@ -32,8 +38,6 @@ async function checkServer() {
     els.statusText.textContent = 'Server offline'
   }
 }
-
-checkServer()
 
 // Debounced translate
 function scheduleTranslate(sourceLang) {

@@ -1,7 +1,6 @@
-const SERVER = 'http://localhost:3456'
-
 // Server status check
 ;(async () => {
+  const SERVER = await getServerUrl()
   const dot = document.getElementById('status-dot')
   try {
     const res = await fetch(`${SERVER}/api/health`, { signal: AbortSignal.timeout(3000) })
@@ -56,5 +55,11 @@ document.getElementById('btn-recorder').addEventListener('click', async () => {
 // Recordings - open in new tab
 document.getElementById('btn-recordings').addEventListener('click', () => {
   chrome.tabs.create({ url: chrome.runtime.getURL('recordings.html') })
+  window.close()
+})
+
+// Settings - open in new tab
+document.getElementById('btn-settings').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') })
   window.close()
 })

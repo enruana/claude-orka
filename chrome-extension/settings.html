@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Orka Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div class="settings-container">
+    <header>
+      <h1>Settings</h1>
+    </header>
+
+    <section class="settings-section">
+      <h2>Server Connection</h2>
+      <p class="section-desc">Configure the Orka backend server URL. Change this if the server is running on a different machine.</p>
+
+      <div class="field">
+        <label for="server-url">Server URL</label>
+        <div class="input-row">
+          <input type="text" id="server-url" placeholder="https://localhost:3456" spellcheck="false" autocomplete="off" />
+          <button class="btn btn-primary" id="btn-save">Save</button>
+        </div>
+        <span class="field-hint">Default: <code>https://localhost:3456</code></span>
+      </div>
+
+      <div class="connection-test">
+        <button class="btn btn-secondary" id="btn-test">Test Connection</button>
+        <div class="test-result hidden" id="test-result">
+          <span class="test-dot" id="test-dot"></span>
+          <span class="test-text" id="test-text"></span>
+        </div>
+      </div>
+    </section>
+
+    <div class="toast hidden" id="toast">
+      <span id="toast-text"></span>
+    </div>
+  </div>
+
+  <script src="storage.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>
