@@ -1,6 +1,6 @@
 {
   "name": "@enruana/claude-orka",
-  "version": "0.9.7",
+  "version": "0.11.1",
   "description": "SDK for orchestrating Claude Code sessions with tmux - Branch management for conversations",
   "type": "module",
   "main": "dist/index.js",
@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "npm run build:sdk && npm run build:cli && npm run build:web-ui && npm run build:assets",
-    "build:assets": "cp src/server/terminal-mobile.html dist/ && cp -r chrome-extension dist/",
+    "build:assets": "cp src/server/terminal-mobile.html dist/ && cp -r chrome-extension dist/ && rm -rf dist/skills && cp -r src/assets/skills dist/skills",
     "build:sdk": "tsc",
     "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --outfile=dist/cli.js --external:@anthropic-ai/claude-agent-sdk --external:chalk --external:cli-table3 --external:commander --external:execa --external:fs-extra --external:nanoid --external:ora --external:uuid --external:react --external:react-dom --external:lucide-react --external:readline --external:express --external:cors --external:open --external:nodejs-whisper --external:grammy --external:multer --external:puppeteer --external:ansi_up",
     "build:web-ui": "cd src/web-ui && vite build",

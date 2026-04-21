@@ -15,6 +15,7 @@ import { startCommand } from './commands/start'
 import { telegramCommand } from './commands/telegram'
 import { gitAccountCommand } from './commands/git-account'
 import { awsAccountCommand } from './commands/aws-account'
+import { kbCommand } from './commands/kb'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -51,6 +52,15 @@ mergeCommand(program)
 telegramCommand(program)
 gitAccountCommand(program)
 awsAccountCommand(program)
+kbCommand(program)
 
 // Parse arguments
-program.parse()
+program.parseAsync().then(() => {
+  // Exit cleanly after short-lived commands complete
+  // Without this, open handles (execa, fs watchers) keep the process alive
+  // Skip exit for long-running commands like 'start' (the server)
+  const command = process.argv[2]
+  if (command !== 'start') {
+    process.exit(0)
+  }
+})

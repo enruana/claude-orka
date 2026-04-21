@@ -1,0 +1,6 @@
+digraph KB {
+  rankdir=LR;
+  node [shape=box, style=rounded];
+
+
+}

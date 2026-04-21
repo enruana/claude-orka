@@ -195,39 +195,57 @@ async function transcribeSelected() {
   renderList()
 
   try {
-    // Use XMLHttpRequest instead of fetch to avoid ERR_NETWORK_IO_SUSPENDED
-    // XHR keeps the connection alive better during long uploads + processing
-    const data = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest()
-      xhr.open('POST', `${SERVER}/api/transcribe`)
-      xhr.setRequestHeader('Content-Type', 'audio/webm')
-      xhr.timeout = 600000 // 10 minutes - match server timeout
-      xhr.responseType = 'json'
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(xhr.response)
-        } else {
-          const err = xhr.response || {}
-          reject(new Error(err.message || `Server error: ${xhr.status}`))
-        }
-      }
-
-      xhr.onerror = () => reject(new Error('Network error - connection lost'))
-      xhr.ontimeout = () => reject(new Error('Transcription timed out (10 min limit)'))
-
-      xhr.send(rec.blob)
+    // Step 1: Upload audio - server responds immediately with jobId
+    const uploadRes = await fetch(`${SERVER}/api/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'audio/webm' },
+      body: rec.blob,
     })
 
-    rec.transcription = data.text
-    rec.transcriptionStatus = 'completed'
-    await updateRecording(rec.id, { transcription: data.text, transcriptionStatus: 'completed' })
+    if (!uploadRes.ok) {
+      const err = await uploadRes.json().catch(() => ({}))
+      throw new Error(err.message || 'Upload failed')
+    }
 
-    renderList()
-    selectRecording(rec.id)
+    const { jobId } = await uploadRes.json()
+    if (!jobId) throw new Error('No job ID returned')
 
-    // Auto-generate report after successful transcription
-    generateReport()
+    // Step 2: Poll for result every 2 seconds (max 10 minutes)
+    const maxAttempts = 300 // 300 * 2s = 10 minutes
+    let attempts = 0
+
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      attempts++
+
+      const pollRes = await fetch(`${SERVER}/api/transcribe/job/${jobId}`, {
+        signal: AbortSignal.timeout(10000)
+      })
+
+      if (!pollRes.ok) {
+        throw new Error('Failed to check transcription status')
+      }
+
+      const result = await pollRes.json()
+
+      if (result.status === 'completed') {
+        rec.transcription = result.text
+        rec.transcriptionStatus = 'completed'
+        await updateRecording(rec.id, { transcription: result.text, transcriptionStatus: 'completed' })
+        renderList()
+        selectRecording(rec.id)
+        generateReport()
+        return
+      }
+
+      if (result.status === 'error') {
+        throw new Error(result.error || 'Transcription failed')
+      }
+
+      // Still processing - continue polling
+    }
+
+    throw new Error('Transcription timed out (10 min limit)')
   } catch (err) {
     console.error('Transcription error:', err)
     rec.transcriptionStatus = 'error'

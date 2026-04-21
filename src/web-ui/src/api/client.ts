@@ -90,6 +90,43 @@ export interface ProjectComment {
   resolvedAt?: string
 }
 
+// Knowledge Base types
+export interface KBEdge {
+  relation: string
+  target: string
+  since: string
+  eventRef?: string
+}
+
+export interface KBEntityHistoryEntry {
+  ts: string
+  event: string
+  summary: string
+}
+
+export interface KBEntity {
+  id: string
+  type: string
+  title: string
+  status: string
+  created: string
+  updated: string
+  properties: Record<string, unknown>
+  edges: KBEdge[]
+  tags: string[]
+  history: KBEntityHistoryEntry[]
+}
+
+export interface KBEvent {
+  id: string
+  ts: string
+  type: string
+  entityId?: string
+  actor: string
+  data: Record<string, unknown>
+  refs?: string[]
+}
+
 // Search types
 export interface SearchMatch {
   line: number
@@ -566,6 +603,48 @@ export const api = {
       method: 'DELETE',
     })
     if (!res.ok) throw new Error(await res.text())
+  },
+
+  // Terminal interaction
+  async sendTextToSession(projectPath: string, sessionId: string, text: string, branch?: string): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/send-text?project=${encodeProjectPath(projectPath)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, branch }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  // Knowledge Base
+  async getKBStatus(projectPath: string): Promise<{ initialized: boolean; stats?: { entities: number; edges: number; events: number; byType: Record<string, number> } }> {
+    const res = await fetch(`${API_BASE}/kb/status?project=${encodeProjectPath(projectPath)}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async getKBEntities(projectPath: string, filter?: { type?: string; status?: string }): Promise<KBEntity[]> {
+    const params = new URLSearchParams({ project: encodeProjectPath(projectPath) })
+    if (filter?.type) params.set('type', filter.type)
+    if (filter?.status) params.set('status', filter.status)
+    const res = await fetch(`${API_BASE}/kb/entities?${params}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async getKBEntity(projectPath: string, id: string): Promise<KBEntity> {
+    const res = await fetch(`${API_BASE}/kb/entities/${id}?project=${encodeProjectPath(projectPath)}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async getKBTimeline(projectPath: string, since?: string, limit?: number): Promise<KBEvent[]> {
+    const params = new URLSearchParams({ project: encodeProjectPath(projectPath) })
+    if (since) params.set('since', since)
+    if (limit) params.set('limit', String(limit))
+    const res = await fetch(`${API_BASE}/kb/timeline?${params}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
   },
 
   // AI Query

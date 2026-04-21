@@ -39,21 +39,39 @@ async function convertToWav(inputPath: string, outputPath: string): Promise<void
   ])
 }
 
+// In-memory job store for transcription results
+interface TranscribeJob {
+  id: string
+  status: 'processing' | 'completed' | 'error'
+  text?: string
+  duration?: number
+  model?: string
+  language?: string
+  error?: string
+  createdAt: number
+}
+
+const jobs = new Map<string, TranscribeJob>()
+
+// Clean up old jobs after 30 minutes
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000
+  for (const [id, job] of jobs) {
+    if (job.createdAt < cutoff) jobs.delete(id)
+  }
+}, 60000)
+
 /**
  * POST /api/transcribe
- * Transcribe audio to text using Whisper
- *
- * Body: raw audio data with Content-Type header
- * Returns: { text: string, duration?: number }
+ * Upload audio and start transcription job.
+ * Returns immediately with { jobId } - poll GET /api/transcribe/job/:id for result.
  */
 transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> => {
-  const startTime = Date.now()
   let tempFilePath: string | null = null
   let wavFilePath: string | null = null
 
-  // Increase timeout for long transcriptions (10 minutes)
-  req.setTimeout(600000)
-  res.setTimeout(600000)
+  // Increase timeout for large uploads
+  req.setTimeout(300000)
 
   try {
     // Read raw body as audio
@@ -90,6 +108,55 @@ transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> =>
     await fs.writeFile(tempFilePath, audioBuffer)
     logger.info(`Saved audio file: ${tempFilePath} (${audioBuffer.length} bytes)`)
 
+    // Get language preference from query param (es, en, or auto)
+    const language = (req.query.language as string) || 'auto'
+    const validLanguages = ['es', 'en', 'auto']
+    const lang = validLanguages.includes(language) ? language : 'auto'
+
+    // Create job and respond immediately
+    const jobId = `job-${timestamp}-${Math.random().toString(36).slice(2, 8)}`
+    const job: TranscribeJob = { id: jobId, status: 'processing', createdAt: Date.now() }
+    jobs.set(jobId, job)
+
+    // Respond immediately with jobId
+    res.json({ jobId })
+
+    // Process transcription in background
+    processTranscription(jobId, tempFilePath, wavFilePath, lang).catch((err) => {
+      logger.error('Background transcription error:', err)
+    })
+
+  } catch (error: unknown) {
+    const err = error as Error
+    logger.error('Transcription upload error:', err)
+
+    // Clean up temp files on error
+    if (tempFilePath) await fs.remove(tempFilePath).catch(() => {})
+    if (wavFilePath) await fs.remove(wavFilePath).catch(() => {})
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Upload failed',
+        message: err.message
+      })
+    }
+  }
+})
+
+/**
+ * Background transcription processing
+ */
+async function processTranscription(
+  jobId: string,
+  tempFilePath: string,
+  wavFilePath: string,
+  lang: string
+): Promise<void> {
+  const startTime = Date.now()
+  const job = jobs.get(jobId)
+  if (!job) return
+
+  try {
     // Convert to WAV format
     logger.info('Converting to WAV format...')
     await convertToWav(tempFilePath, wavFilePath)
@@ -109,18 +176,8 @@ transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> =>
       throw new Error(`Whisper model not found at ${modelPath}. Run the model download script first.`)
     }
 
-    // Get language preference from query param (es, en, or auto)
-    const language = (req.query.language as string) || 'auto'
-    const validLanguages = ['es', 'en', 'auto']
-    const lang = validLanguages.includes(language) ? language : 'auto'
-
     // Transcribe with Whisper CLI directly
-    // Using --no-timestamps for clean dictation output
     logger.info(`Starting transcription with model: ${WHISPER_MODEL}, language: ${lang}`)
-
-    // Start keep-alive: set headers that prevent connection close during processing
-    res.setHeader('Connection', 'keep-alive')
-    res.setHeader('Keep-Alive', 'timeout=600')
 
     const { stdout, stderr } = await execa(whisperBin, [
       '-m', modelPath,
@@ -164,30 +221,58 @@ transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> =>
     const duration = Date.now() - startTime
     logger.info(`Transcription completed in ${duration}ms: "${text.substring(0, 50)}..."`)
 
-    // Clean up temp files
-    if (tempFilePath) await fs.remove(tempFilePath).catch(() => {})
-    if (wavFilePath) await fs.remove(wavFilePath).catch(() => {})
-
-    res.json({
-      text: text.trim(),
-      duration,
-      model: WHISPER_MODEL,
-      language: lang
-    })
+    // Update job with result
+    job.status = 'completed'
+    job.text = text.trim()
+    job.duration = duration
+    job.model = WHISPER_MODEL
+    job.language = lang
 
   } catch (error: unknown) {
     const err = error as Error
-    logger.error('Transcription error:', err)
-
-    // Clean up temp files on error
+    logger.error('Transcription processing error:', err)
+    job.status = 'error'
+    job.error = err.message
+  } finally {
+    // Clean up temp files
     if (tempFilePath) await fs.remove(tempFilePath).catch(() => {})
     if (wavFilePath) await fs.remove(wavFilePath).catch(() => {})
-
-    res.status(500).json({
-      error: 'Transcription failed',
-      message: err.message
-    })
   }
+}
+
+/**
+ * GET /api/transcribe/job/:id
+ * Poll for transcription job result
+ */
+transcribeRouter.get('/job/:id', async (req: Request, res: Response): Promise<void> => {
+  const job = jobs.get(req.params.id as string)
+
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' })
+    return
+  }
+
+  if (job.status === 'processing') {
+    res.json({ status: 'processing' })
+    return
+  }
+
+  if (job.status === 'error') {
+    // Clean up job after returning error
+    jobs.delete(job.id)
+    res.json({ status: 'error', error: job.error })
+    return
+  }
+
+  // Completed - return result and clean up
+  jobs.delete(job.id)
+  res.json({
+    status: 'completed',
+    text: job.text,
+    duration: job.duration,
+    model: job.model,
+    language: job.language
+  })
 })
 
 /**

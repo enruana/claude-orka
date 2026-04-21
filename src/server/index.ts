@@ -14,6 +14,7 @@ import { gitRouter } from './api/git'
 import { transcribeRouter } from './api/transcribe'
 import { agentsRouter } from './api/agents'
 import { aiRouter } from './api/ai'
+import { kbRouter } from './api/kb'
 import { getAgentManager } from '../agent/AgentManager'
 import { logger } from '../utils'
 
@@ -48,6 +49,7 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/transcribe', transcribeRouter)
   app.use('/api/agents', agentsRouter)
   app.use('/api/ai', aiRouter)
+  app.use('/api/kb', kbRouter)
 
   // Health check
   app.get('/api/health', (_req, res) => {

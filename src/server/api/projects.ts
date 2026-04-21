@@ -5,6 +5,8 @@ import { ClaudeOrka } from '../../core/ClaudeOrka'
 import { startSystemTerminal, stopSystemTerminal } from '../../core/SessionManager'
 import { StateManager, getOrkaVersion } from '../../core/StateManager'
 import { TmuxCommands } from '../../utils/tmux'
+import { KnowledgeBaseManager } from '../../core/KnowledgeBaseManager'
+import { getSkillsSourcePath } from '../../utils/paths'
 import { logger } from '../../utils'
 import fs from 'fs-extra'
 import path from 'path'
@@ -157,6 +159,24 @@ projectsRouter.post('/:encodedPath/reinitialize', async (req, res) => {
 
     const stateManager = new StateManager(projectPath)
     await stateManager.reinitialize()
+
+    // Initialize Knowledge Base if not already present
+    try {
+      const kbManager = new KnowledgeBaseManager(projectPath)
+      if (!kbManager.isInitialized()) {
+        await kbManager.initialize()
+        logger.info(`Knowledge Base initialized for project: ${projectPath}`)
+      }
+    } catch (err: any) {
+      logger.warn(`Failed to initialize KB for project: ${err.message}`)
+    }
+
+    // Install Claude Code skills if missing
+    try {
+      await installSkillsToProject(projectPath)
+    } catch (err: any) {
+      logger.warn(`Failed to install skills for project: ${err.message}`)
+    }
 
     // Apply updated tmux config to all active sessions
     try {
@@ -518,3 +538,32 @@ projectsRouter.delete('/:encodedPath', async (req, res) => {
     res.status(500).json({ error: error.message })
   }
 })
+
+/**
+ * Install Claude Code skills (kb-*.md) into a project's .claude/skills/
+ * Claude Code looks for custom skills in .claude/skills/ (per project) or ~/.claude/skills/ (global)
+ */
+async function installSkillsToProject(projectPath: string): Promise<void> {
+  const skillsDir = path.join(projectPath, '.claude', 'skills')
+  await fs.ensureDir(skillsDir)
+
+  const skillsSource = getSkillsSourcePath()
+  if (!skillsSource) {
+    logger.warn('Skills source not found — cannot install skills')
+    return
+  }
+
+  const files = await fs.readdir(skillsSource)
+  let installed = 0
+
+  for (const file of files) {
+    if (!file.endsWith('.md')) continue
+    const dest = path.join(skillsDir, file)
+    await fs.copy(path.join(skillsSource, file), dest)
+    installed++
+  }
+
+  if (installed > 0) {
+    logger.info(`Installed ${installed} skills in ${skillsDir} (source: ${skillsSource})`)
+  }
+}

@@ -4,7 +4,7 @@ import { api, RegisteredProject, Session } from '../api/client'
 import { SessionView } from './SessionView'
 import { decodeProjectPath, encodeProjectPath } from './ProjectDashboard'
 
-type RightPanelTab = 'terminal' | 'code' | 'files'
+type RightPanelTab = 'terminal' | 'code' | 'files' | 'kb'
 
 export function SessionPage() {
   const { encodedPath, sessionId } = useParams<{ encodedPath: string; sessionId: string }>()

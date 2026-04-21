@@ -26,3 +26,33 @@ export function getPackageNodeModulesPath(moduleName: string): string | null {
   }
   return null
 }
+
+/**
+ * Resolve the skills source directory.
+ * Handles both contexts:
+ *   - tsc compiled: dist/utils/paths.js → __dirname = dist/utils/ → ../skills = dist/skills/
+ *   - esbuild bundled: dist/cli.js → __dirname = dist/ → ./skills = dist/skills/
+ *   - dev (tsx): src/utils/paths.ts → __dirname = src/utils/ → ../assets/skills
+ */
+export function getSkillsSourcePath(): string | null {
+  const candidates = [
+    // esbuild bundle: dist/cli.js → __dirname = dist/ → dist/skills/
+    path.join(__dirname, 'skills'),
+    // tsc compiled: dist/utils/ → dist/skills/
+    path.join(__dirname, '..', 'skills'),
+    // Dev (tsx): src/utils/ → src/assets/skills/
+    path.join(__dirname, '..', 'assets', 'skills'),
+    // Dev fallback
+    path.join(__dirname, 'assets', 'skills'),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.pathExistsSync(candidate)) {
+      const files = fs.readdirSync(candidate)
+      if (files.some((f: string) => f.endsWith('.md'))) {
+        return candidate
+      }
+    }
+  }
+  return null
+}

@@ -17,14 +17,16 @@ import {
   ChevronUp,
   GitBranch,
   FolderOpen,
+  Share2,
 } from 'lucide-react'
 import { SessionCodeEditor } from './code-editor'
 import { FinderExplorer } from './finder'
+import { KBGraph } from './kb'
 import { ProjectDock } from './ProjectDock'
 import { encodeProjectPath } from './ProjectDashboard'
 import { usePageTitle } from '../hooks/usePageTitle'
 
-type RightPanelTab = 'terminal' | 'code' | 'files'
+type RightPanelTab = 'terminal' | 'code' | 'files' | 'kb'
 
 interface SessionViewProps {
   project: RegisteredProject
@@ -710,6 +712,13 @@ export function SessionView({
               <FolderOpen size={14} />
               <span>Files</span>
             </button>
+            <button
+              className={`panel-tab ${rightPanelTab === 'kb' ? 'active' : ''}`}
+              onClick={() => setRightPanelTab('kb')}
+            >
+              <Share2 size={14} />
+              <span>Knowledge</span>
+            </button>
             <div className="panel-tab-spacer" />
             {rightPanelTab === 'terminal' && session.ttydPort && (
               <button
@@ -786,6 +795,16 @@ export function SessionView({
                 embedded
               />
             </div>
+            {rightPanelTab === 'kb' && (
+              <div className="kb-graph-wrapper">
+                <KBGraph
+                  projectPath={project.path}
+                  encodedPath={encodedPath}
+                  sessionId={session.id}
+                  visible
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>

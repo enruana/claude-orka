@@ -529,3 +529,48 @@ sessionsRouter.get('/:sessionId/capture', async (req, res) => {
     res.status(500).json({ error: error.message })
   }
 })
+
+/**
+ * POST /api/sessions/:sessionId/send-text
+ * Send text to a session's tmux pane (types it + Enter)
+ */
+sessionsRouter.post('/:sessionId/send-text', async (req, res) => {
+  try {
+    const projectPath = decodeProjectPath(req.query.project as string)
+    const { sessionId } = req.params
+    const { text, branch } = req.body
+
+    if (!text) {
+      res.status(400).json({ error: 'text is required' })
+      return
+    }
+
+    const orka = new ClaudeOrka(projectPath)
+    const session = await orka.getSession(sessionId)
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' })
+      return
+    }
+
+    // Determine pane: main or fork
+    let paneId = session.main?.tmuxPaneId
+    if (branch && branch !== 'main') {
+      const fork = session.forks?.find((f: any) => f.id === branch)
+      if (fork?.tmuxPaneId) paneId = fork.tmuxPaneId
+    }
+
+    if (!paneId) {
+      res.status(400).json({ error: 'No active pane found' })
+      return
+    }
+
+    const { TmuxCommands } = await import('../../utils/tmux')
+    await TmuxCommands.sendKeys(paneId, text)
+    await TmuxCommands.sendEnter(paneId)
+
+    res.json({ success: true, paneId })
+  } catch (error: any) {
+    logger.error('Failed to send text:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
