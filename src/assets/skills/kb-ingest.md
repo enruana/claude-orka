@@ -79,5 +79,15 @@ orka kb project-doc <project-id>
 - EVERY entity created from a document MUST have `source_path` property pointing to the file
 - EVERY entity MUST have a `sourced-from` edge to the meeting/artifact it came from
 - If the source is a conversation (not a file), use `--property source="conversation with X, 2026-04-20"`
-- The `source_path` should be relative to the project root
-- This allows the Knowledge Graph UI to link directly to the source document
+
+## Path Convention
+
+**All paths MUST be relative to the project root.** Never use relative paths (`../`) or absolute system paths.
+
+- Correct: `source_path="01-journal/2026/04-april/meeting/notes.md"`
+- Correct: `path="03-projects/active/feature-slug/"`
+- Correct: `profile_path="02-people/felipe-mantilla/"`
+- Wrong: `source_path="../meeting/notes.md"`
+- Wrong: `source_path="/home/user/project/notes.md"`
+
+This ensures links in the Knowledge Graph UI and in generated INDEX.md files resolve correctly.

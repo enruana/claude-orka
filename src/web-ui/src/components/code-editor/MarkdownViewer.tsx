@@ -16,23 +16,13 @@ function isExternalLink(href: string): boolean {
   return /^(https?:|mailto:|#)/.test(href)
 }
 
-/** Resolve a relative path against a base directory */
-function resolvePath(href: string, currentDir: string): string {
-  // Already absolute from project root
-  if (href.startsWith('/')) return href.slice(1)
-
-  const parts = currentDir ? currentDir.split('/').filter(Boolean) : []
-  const hrefParts = href.split('/').filter(Boolean)
-
-  for (const part of hrefParts) {
-    if (part === '..') {
-      parts.pop()
-    } else if (part !== '.') {
-      parts.push(part)
-    }
-  }
-
-  return parts.join('/')
+/**
+ * Normalize a path from markdown links.
+ * All paths are treated as absolute from the project root.
+ * Leading slashes and trailing slashes are stripped.
+ */
+function normalizePath(href: string): string {
+  return href.replace(/^\/+/, '').replace(/\/+$/, '')
 }
 
 /** Check if a path looks like a file (has extension) vs directory */
@@ -51,22 +41,20 @@ function MarkdownViewerImpl({ content, fileName, currentDir, encodedProjectPath 
 
     e.preventDefault()
 
-    const resolved = resolvePath(href, currentDir || '')
+    const resolved = normalizePath(href)
 
     if (isFilePath(resolved)) {
-      // Open file in viewer
       window.open(
         `/projects/${encodedProjectPath}/files/view?path=${encodeURIComponent(resolved)}`,
         '_blank'
       )
     } else {
-      // Open directory in file browser
       window.open(
         `/projects/${encodedProjectPath}/files?path=${encodeURIComponent(resolved)}`,
         '_blank'
       )
     }
-  }, [currentDir, encodedProjectPath])
+  }, [encodedProjectPath])
 
   // Build components with link handler baked in
   const components = useMemo(() => ({

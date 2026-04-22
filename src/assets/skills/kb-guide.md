@@ -118,6 +118,22 @@ orka kb ingest <file>                     # Register a file as artifact
 
 Prefer ALL THREE when possible. The `source_path` enables direct navigation from the Knowledge Graph UI.
 
+## Path Convention
+
+**All paths in the KB and in generated documents MUST be relative to the project root.** Never use paths relative to the current file.
+
+Examples:
+- `01-journal/2026/04-april/meeting/notes.md` (from project root)
+- `02-people/felipe-mantilla/` (from project root)
+- `03-projects/active/feature-slug/` (from project root)
+
+This ensures that links in markdown documents (INDEX.md, meeting notes, etc.) resolve correctly in the Orka file viewer. The viewer treats all internal links as project-root paths.
+
+**Do NOT use:**
+- `../sibling/file.md` (relative paths)
+- `/absolute/system/path` (absolute system paths)
+- `./local-file.md` (current-directory relative)
+
 ---
 
 ## Project Management
@@ -181,6 +197,12 @@ Selecting a project in the guide panel:
 ---
 
 ## Version Changelog
+
+### v0.12.1
+- Internal markdown links resolve correctly to the Orka file viewer
+- All paths are treated as project-root relative (no relative path resolution)
+- Path convention enforced in all skills: always use paths from project root
+- Internal links styled in purple, external links in blue
 
 ### v0.12.0
 - Project master document: `orka kb project-doc <id>` generates `INDEX.md` inside the project folder

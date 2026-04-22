@@ -80,6 +80,12 @@ orka kb project-doc <project-id>
 - Prefer ALL THREE when possible — the file path enables direct navigation in the UI
 - If tracking from a live conversation, use `--property source="conversation, YYYY-MM-DD"`
 
+## Path Convention
+
+**All paths MUST be from the project root.** Never use relative (`../`) or absolute system paths.
+- Correct: `source_path="01-journal/2026/04-april/meeting/notes.md"`
+- Wrong: `source_path="../meeting/notes.md"`
+
 ## Tips
 - Keep titles concise but descriptive
 - Use tags for cross-cutting concerns (e.g., `architecture`, `security`, `ux`)
