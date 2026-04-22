@@ -197,7 +197,7 @@ export function FileViewerPage() {
       case 'markdown':
         return (
           <div ref={markdownRef} style={{ padding: 'var(--space-md)' }}>
-            <MarkdownViewer content={content || ''} fileName={fileName} />
+            <MarkdownViewer content={content || ''} fileName={fileName} currentDir={dirPath} encodedProjectPath={encodedPath} />
           </div>
         )
 

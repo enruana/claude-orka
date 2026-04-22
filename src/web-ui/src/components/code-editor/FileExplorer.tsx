@@ -482,6 +482,8 @@ export function FileExplorer({ projectPath, encodedPath }: FileExplorerProps) {
               <MarkdownViewer
                 content={fileContent || ''}
                 fileName={fileName}
+                currentDir={selectedFile?.includes('/') ? selectedFile.substring(0, selectedFile.lastIndexOf('/')) : ''}
+                encodedProjectPath={encodedPath}
               />
             </div>
           </div>
