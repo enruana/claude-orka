@@ -205,8 +205,9 @@ kbRouter.get('/context', async (req, res) => {
   try {
     const projectPath = decodeProject(req.query.project as string)
     const manager = getManager(projectPath)
+    const projectId = req.query.projectId as string | undefined
 
-    const context = await manager.generateContext()
+    const context = await manager.generateContext(projectId)
     res.type('text/markdown').send(context)
   } catch (error: any) {
     logger.error('KB context error:', error)

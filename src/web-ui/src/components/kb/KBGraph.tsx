@@ -17,7 +17,6 @@ import { KBEntityNode } from './KBEntityNode'
 import { KBDetailPanel } from './KBDetailPanel'
 import { KBGuidePanel } from './KBGuidePanel'
 import { KBTimeline } from './KBTimeline'
-import { KBProjectBar } from './KBProjectBar'
 
 const nodeTypes = { kbEntity: KBEntityNode }
 
@@ -127,7 +126,6 @@ function KBGraphInner({ projectPath, encodedPath, sessionId, visible }: KBGraphI
     return related
   }, [selectedProjectId, entities])
 
-  const projects = useMemo(() => entities.filter(e => e.type === 'project'), [entities])
   const guidePanelEntities = useMemo(() => {
     if (!projectRelatedIds) return entities
     return entities.filter(e => projectRelatedIds.has(e.id))
@@ -258,8 +256,11 @@ function KBGraphInner({ projectPath, encodedPath, sessionId, visible }: KBGraphI
     <div className="kb-layout">
       <KBGuidePanel
         entities={guidePanelEntities}
+        allEntities={entities}
         selectedId={selectedEntity?.id || null}
+        selectedProjectId={selectedProjectId}
         onSelect={handleSelectEntity}
+        onSelectProject={setSelectedProjectId}
       />
       <div className="kb-graph-container">
         <KBTimeline
@@ -267,11 +268,6 @@ function KBGraphInner({ projectPath, encodedPath, sessionId, visible }: KBGraphI
           entities={entities}
           selectedId={selectedEntity?.id || null}
           onSelectEntity={handleSelectEntity}
-        />
-        <KBProjectBar
-          projects={projects}
-          selectedProjectId={selectedProjectId}
-          onSelectProject={setSelectedProjectId}
         />
         <div className="kb-graph-canvas">
           <ReactFlow

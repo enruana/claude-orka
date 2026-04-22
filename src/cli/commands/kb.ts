@@ -327,12 +327,13 @@ export function kbCommand(program: Command) {
   // --- context ---
   kb.command('context')
     .description('Output AI-optimized project context')
-    .action(async () => {
+    .option('--project <id>', 'Filter context to a specific project entity')
+    .action(async (opts) => {
       try {
         const manager = getKB()
         if (!requireInit(manager)) return
 
-        const context = await manager.generateContext()
+        const context = await manager.generateContext(opts.project)
         console.log(context)
       } catch (error) {
         handleError(error)

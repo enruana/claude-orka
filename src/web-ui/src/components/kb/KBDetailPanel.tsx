@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check } from 'lucide-react'
+import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain } from 'lucide-react'
 import { api, type KBEntity } from '../../api/client'
 
 const TYPE_COLORS: Record<string, string> = {
@@ -10,7 +10,7 @@ const TYPE_COLORS: Record<string, string> = {
 }
 
 // Properties that are navigable file paths
-const PATH_PROPERTIES = new Set(['path', 'notes_path', 'profile_path', 'filePath', 'source_path'])
+const PATH_PROPERTIES = new Set(['path', 'notes_path', 'profile_path', 'filePath', 'source_path', 'repo_path'])
 // Properties that are external URLs
 const URL_PROPERTIES = new Set(['linkedin', 'url', 'website', 'link'])
 // Source relation types
@@ -62,6 +62,8 @@ function formatPropKey(key: string): string {
 export function KBDetailPanel({ entity, encodedPath, projectPath, sessionId, onClose, onSelectNode }: KBDetailPanelProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
+  const [loadingContext, setLoadingContext] = useState(false)
+  const [contextLoaded, setContextLoaded] = useState(false)
 
   if (!entity) return null
 
@@ -83,6 +85,30 @@ export function KBDetailPanel({ entity, encodedPath, projectPath, sessionId, onC
       console.error('Failed to send to terminal:', err)
     } finally {
       setSending(false)
+    }
+  }
+
+  const handleLoadProjectContext = async () => {
+    if (!sessionId || loadingContext) return
+    setLoadingContext(true)
+    setContextLoaded(false)
+
+    const prompt = `Run the following command and read all the source files listed in the output. Then summarize the current state of this project — what's been decided, what's open, what's blocked, and what the next steps are.
+
+\`\`\`bash
+orka kb context --project ${entity.id}
+\`\`\`
+
+After running the command, read each file listed in the "Source Files" section to build deep context. Then give me a clear summary.`
+
+    try {
+      await api.sendTextToSession(projectPath, sessionId, prompt)
+      setContextLoaded(true)
+      setTimeout(() => setContextLoaded(false), 3000)
+    } catch (err) {
+      console.error('Failed to load project context:', err)
+    } finally {
+      setLoadingContext(false)
     }
   }
 
@@ -251,6 +277,16 @@ export function KBDetailPanel({ entity, encodedPath, projectPath, sessionId, onC
 
       {sessionId && (
         <div className="kb-detail-actions">
+          {entity.type === 'project' && (
+            <button
+              className={`kb-detail-context-btn ${contextLoaded ? 'sent' : ''}`}
+              onClick={handleLoadProjectContext}
+              disabled={loadingContext}
+            >
+              {contextLoaded ? <Check size={14} /> : <Brain size={14} />}
+              {loadingContext ? 'Loading...' : contextLoaded ? 'Context loaded' : 'Load project context'}
+            </button>
+          )}
           <button
             className={`kb-detail-send-btn ${sent ? 'sent' : ''}`}
             onClick={handleSendToTerminal}

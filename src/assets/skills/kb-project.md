@@ -7,6 +7,7 @@ Manage projects (features, epics, tasks, workstreams) in the Knowledge Base. Pro
 ```bash
 orka kb add project "Feature Name" \
   --property path="03-projects/active/feature-slug/" \
+  --property repo_path="/absolute/path/to/repo" \
   --property description="Short description of what this project is about" \
   --property owner="person-name" \
   --property target_release="2026-06" \
@@ -41,6 +42,7 @@ orka kb update prj-xxx --status archived --property archived_reason="shipped in 
 
 Key properties:
 - `path` — folder path in the workspace (enables navigation from Knowledge Graph UI)
+- `repo_path` — (optional, highly recommended) absolute path to the project's git repository. Enables "Open Code" in the UI and links the project to its codebase. Example: `/home/user/repos/my-project`
 - `description` — what this project aims to achieve
 - `owner` — who is responsible
 - `target_release` — when it's expected to ship

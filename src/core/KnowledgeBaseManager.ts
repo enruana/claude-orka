@@ -404,85 +404,166 @@ export class KnowledgeBaseManager {
 
   // --- Context Generation ---
 
-  async generateContext(): Promise<string> {
-    const entities = await this.listEntities()
+  async generateContext(projectId?: string): Promise<string> {
+    const allEntities = await this.listEntities()
     const events = await this.readEvents()
 
+    // If project filter, compute related entities (2-hop BFS)
+    let entities = allEntities
+    let project: KBEntity | undefined
+
+    if (projectId) {
+      project = allEntities.find((e) => e.id === projectId)
+      if (!project) throw new Error(`Project not found: ${projectId}`)
+
+      const related = new Set<string>([projectId])
+      const adjacency = new Map<string, Set<string>>()
+      for (const e of allEntities) {
+        if (!adjacency.has(e.id)) adjacency.set(e.id, new Set())
+        for (const edge of e.edges) {
+          adjacency.get(e.id)!.add(edge.target)
+          if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set())
+          adjacency.get(edge.target)!.add(e.id)
+        }
+      }
+      const queue = [projectId]
+      const visited = new Set([projectId])
+      let depth = 0
+      while (queue.length > 0 && depth < 2) {
+        const size = queue.length
+        for (let i = 0; i < size; i++) {
+          const id = queue.shift()!
+          for (const n of adjacency.get(id) || []) {
+            if (!visited.has(n)) { visited.add(n); related.add(n); queue.push(n) }
+          }
+        }
+        depth++
+      }
+      entities = allEntities.filter((e) => related.has(e.id))
+    }
+
     const sections: string[] = []
-    sections.push('# Project Knowledge Base Context\n')
+
+    // Header
+    if (project) {
+      sections.push(`# Project Context: ${project.title}\n`)
+      sections.push(`**Status:** ${project.status}`)
+      if (project.properties.description) sections.push(`**Description:** ${project.properties.description}`)
+      if (project.properties.owner) sections.push(`**Owner:** ${project.properties.owner}`)
+      if (project.properties.target_release) sections.push(`**Target:** ${project.properties.target_release}`)
+      if (project.properties.repo_path) sections.push(`**Repo:** ${project.properties.repo_path}`)
+      if (project.properties.path) sections.push(`**Path:** ${project.properties.path}`)
+      sections.push('')
+    } else {
+      sections.push('# Project Knowledge Base Context\n')
+    }
 
     // Active decisions
-    const decisions = entities.filter((e) => e.type === 'decision' && e.status === 'active')
+    const decisions = entities.filter((e) => e.type === 'decision' && e.status !== 'archived')
     if (decisions.length > 0) {
-      sections.push('## Active Decisions\n')
-      for (const d of decisions.slice(0, 10)) {
+      sections.push('## Decisions\n')
+      for (const d of decisions.slice(0, 15)) {
         const edges = d.edges.map((e) => `${e.relation}: ${e.target}`).join(', ')
-        sections.push(`- **${d.title}** (${d.id})${edges ? ` [${edges}]` : ''}`)
-        if (d.properties.body) sections.push(`  ${String(d.properties.body).slice(0, 100)}`)
+        const props = this.formatEntityProps(d)
+        sections.push(`- **${d.title}** (${d.id}) [${d.status}]${edges ? ` → ${edges}` : ''}`)
+        if (props) sections.push(`  ${props}`)
       }
       sections.push('')
     }
 
     // Open questions
-    const questions = entities.filter((e) => e.type === 'question' && e.status === 'active')
+    const questions = entities.filter((e) => e.type === 'question' && e.status !== 'archived')
     if (questions.length > 0) {
-      sections.push('## Open Questions\n')
-      for (const q of questions.slice(0, 10)) {
-        sections.push(`- **${q.title}** (${q.id})`)
-      }
-      sections.push('')
-    }
-
-    // Current directions
-    const directions = entities.filter((e) => e.type === 'direction' && e.status === 'active')
-    if (directions.length > 0) {
-      sections.push('## Active Directions\n')
-      for (const d of directions.slice(0, 5)) {
-        sections.push(`- **${d.title}** (${d.id})`)
+      sections.push('## Questions\n')
+      for (const q of questions.slice(0, 15)) {
+        const props = this.formatEntityProps(q)
+        sections.push(`- **${q.title}** (${q.id}) [${q.status}]`)
+        if (props) sections.push(`  ${props}`)
       }
       sections.push('')
     }
 
     // Milestones
-    const milestones = entities.filter((e) => e.type === 'milestone' && e.status === 'active')
+    const milestones = entities.filter((e) => e.type === 'milestone' && e.status !== 'archived')
     if (milestones.length > 0) {
       sections.push('## Milestones\n')
-      for (const m of milestones.slice(0, 5)) {
-        sections.push(`- **${m.title}** (${m.id})`)
+      for (const m of milestones.slice(0, 10)) {
+        const deadline = m.properties.deadline || m.properties.target || ''
+        sections.push(`- **${m.title}** (${m.id}) [${m.status}]${deadline ? ` — ${deadline}` : ''}`)
       }
       sections.push('')
     }
 
-    // Key people
+    // Directions
+    const directions = entities.filter((e) => e.type === 'direction' && e.status !== 'archived')
+    if (directions.length > 0) {
+      sections.push('## Directions\n')
+      for (const d of directions.slice(0, 5)) {
+        sections.push(`- **${d.title}** (${d.id})`)
+        if (d.properties.rationale) sections.push(`  Rationale: ${d.properties.rationale}`)
+      }
+      sections.push('')
+    }
+
+    // People
     const people = entities.filter((e) => e.type === 'person' && e.status === 'active')
     if (people.length > 0) {
       sections.push('## People\n')
-      for (const p of people.slice(0, 10)) {
-        const role = p.properties.role ? ` - ${p.properties.role}` : ''
+      for (const p of people.slice(0, 15)) {
+        const role = p.properties.role ? ` — ${p.properties.role}` : ''
         sections.push(`- **${p.title}**${role} (${p.id})`)
       }
       sections.push('')
     }
 
-    // Recent activity (last 20 events)
-    const recentEvents = events.slice(-20)
-    if (recentEvents.length > 0) {
-      sections.push('## Recent Activity\n')
-      for (const evt of recentEvents.reverse()) {
-        const date = evt.ts.split('T')[0]
-        const entityRef = evt.entityId ? ` [${evt.entityId}]` : ''
-        sections.push(`- ${date} | ${evt.type}${entityRef}`)
+    // Repos
+    const repos = entities.filter((e) => e.type === 'repo')
+    if (repos.length > 0) {
+      sections.push('## Repositories\n')
+      for (const r of repos) {
+        const stack = r.properties.stack ? ` [${r.properties.stack}]` : ''
+        sections.push(`- **${r.title}** (${r.id})${stack}`)
+      }
+      sections.push('')
+    }
+
+    // Source files to read
+    const sourcePaths = new Set<string>()
+    for (const e of entities) {
+      for (const key of ['path', 'notes_path', 'profile_path', 'source_path', 'repo_path', 'filePath']) {
+        const val = e.properties[key]
+        if (val && typeof val === 'string') sourcePaths.add(val)
+      }
+    }
+
+    if (sourcePaths.size > 0) {
+      sections.push('## Source Files\n')
+      sections.push('These files contain detailed context. Read them for deeper understanding:\n')
+      for (const p of [...sourcePaths].sort()) {
+        sections.push(`- \`${p}\``)
       }
       sections.push('')
     }
 
     // Stats
     sections.push(`## Stats\n`)
-    sections.push(`- Total entities: ${entities.length}`)
+    if (project) {
+      sections.push(`- Project entities: ${entities.length} (of ${allEntities.length} total)`)
+    } else {
+      sections.push(`- Total entities: ${entities.length}`)
+    }
     sections.push(`- Total events: ${events.length}`)
     sections.push(`- Last updated: ${events.length > 0 ? events[events.length - 1].ts : 'never'}`)
 
     return sections.join('\n')
+  }
+
+  private formatEntityProps(entity: KBEntity): string {
+    const skip = new Set(['source', 'source_path', 'path', 'notes_path', 'profile_path', 'repo_path', 'filePath'])
+    const props = Object.entries(entity.properties)
+      .filter(([k]) => !skip.has(k))
+      .map(([k, v]) => `${k}: ${String(v).slice(0, 60)}`)
+    return props.length > 0 ? props.join(' | ') : ''
   }
 
   // --- Sync (rebuild from events) ---

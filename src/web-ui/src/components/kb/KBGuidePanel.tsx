@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import {
   ChevronDown, ChevronRight, HelpCircle, CheckCircle,
   Calendar, Flag, User, Compass, GitBranch, FileText,
-  BookOpen, Search, Circle, FolderKanban,
+  BookOpen, Search, Circle, FolderKanban, X, Archive,
 } from 'lucide-react'
 import type { KBEntity } from '../../api/client'
 
@@ -10,17 +10,26 @@ const TYPE_ICONS: Record<string, typeof CheckCircle> = {
   decision: CheckCircle, question: HelpCircle, meeting: Calendar,
   milestone: Flag, person: User, direction: Compass,
   repo: GitBranch, artifact: FileText, context: BookOpen,
+  project: FolderKanban,
 }
 
 const TYPE_COLORS: Record<string, string> = {
   decision: '#a6e3a1', question: '#f9e2af', meeting: '#cba6f7',
   milestone: '#f5c2e7', person: '#89b4fa', direction: '#fab387',
   repo: '#89dceb', artifact: '#a6adc8', context: '#6c7086',
+  project: '#f38ba8',
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  active: '#a6e3a1', resolved: '#89b4fa', superseded: '#6c7086',
-  archived: '#585b70', draft: '#f9e2af',
+  active: '#a6e3a1', 'in-progress': '#89b4fa', blocked: '#f38ba8',
+  pending: '#f9e2af', review: '#cba6f7', draft: '#6c7086',
+  resolved: '#585b70', superseded: '#585b70', archived: '#45475a',
+}
+
+const PROJECT_STATUS_LABELS: Record<string, string> = {
+  active: 'Active', 'in-progress': 'In Progress', blocked: 'Blocked',
+  pending: 'Pending', review: 'In Review', draft: 'Draft',
+  resolved: 'Done', archived: 'Archived',
 }
 
 interface Section {
@@ -32,7 +41,6 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
-  { key: 'projects', label: 'Projects', icon: FolderKanban, color: '#f38ba8', filter: (e) => e.type === 'project' },
   { key: 'questions', label: 'Open Questions', icon: HelpCircle, color: '#f9e2af', filter: (e) => e.type === 'question' && e.status === 'active' },
   { key: 'decisions', label: 'Decisions', icon: CheckCircle, color: '#a6e3a1', filter: (e) => e.type === 'decision' },
   { key: 'milestones', label: 'Milestones', icon: Flag, color: '#f5c2e7', filter: (e) => e.type === 'milestone' },
@@ -46,13 +54,25 @@ const SECTIONS: Section[] = [
 
 interface KBGuidePanelProps {
   entities: KBEntity[]
+  allEntities: KBEntity[]
   selectedId: string | null
+  selectedProjectId: string | null
   onSelect: (id: string) => void
+  onSelectProject: (id: string | null) => void
 }
 
-export function KBGuidePanel({ entities, selectedId, onSelect }: KBGuidePanelProps) {
+export function KBGuidePanel({ entities, allEntities, selectedId, selectedProjectId, onSelect, onSelectProject }: KBGuidePanelProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [search, setSearch] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+
+  const projects = useMemo(() => allEntities.filter(e => e.type === 'project'), [allEntities])
+  const activeProjects = useMemo(() => projects.filter(p => p.status !== 'archived'), [projects])
+  const archivedProjects = useMemo(() => projects.filter(p => p.status === 'archived'), [projects])
+
+  const selectedProject = useMemo(() =>
+    selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null
+  , [selectedProjectId, projects])
 
   const filteredEntities = useMemo(() => {
     if (!search) return entities
@@ -72,6 +92,66 @@ export function KBGuidePanel({ entities, selectedId, onSelect }: KBGuidePanelPro
         <h3>Knowledge Base</h3>
         <span className="kb-guide-count">{entities.length} entities</span>
       </div>
+
+      {/* Project selector */}
+      {projects.length > 0 && (
+        <div className="kb-guide-project-selector">
+          <div className="kb-guide-project-label">
+            <FolderKanban size={11} />
+            <span>Project</span>
+          </div>
+
+          {selectedProject ? (
+            <div className="kb-guide-project-active">
+              <button
+                className="kb-guide-project-current"
+                onClick={() => { onSelectProject(selectedProject.id); onSelect(selectedProject.id) }}
+              >
+                <Circle size={6} fill={STATUS_COLORS[selectedProject.status] || '#a6e3a1'} stroke="none" />
+                <span className="kb-guide-project-name">{selectedProject.title}</span>
+                <span className="kb-guide-project-status">{PROJECT_STATUS_LABELS[selectedProject.status] || selectedProject.status}</span>
+              </button>
+              <button className="kb-guide-project-clear" onClick={() => onSelectProject(null)} title="Show all">
+                <X size={12} />
+              </button>
+            </div>
+          ) : (
+            <div className="kb-guide-project-list">
+              {activeProjects.map(p => (
+                <button
+                  key={p.id}
+                  className="kb-guide-project-item"
+                  onClick={() => { onSelectProject(p.id); onSelect(p.id) }}
+                >
+                  <Circle size={6} fill={STATUS_COLORS[p.status] || '#a6e3a1'} stroke="none" />
+                  <span>{p.title}</span>
+                  <span className="kb-guide-project-status">{PROJECT_STATUS_LABELS[p.status] || p.status}</span>
+                </button>
+              ))}
+              {archivedProjects.length > 0 && (
+                <button
+                  className="kb-guide-project-archived-toggle"
+                  onClick={() => setShowArchived(!showArchived)}
+                >
+                  <Archive size={10} />
+                  <span>{archivedProjects.length} archived</span>
+                  {showArchived ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                </button>
+              )}
+              {showArchived && archivedProjects.map(p => (
+                <button
+                  key={p.id}
+                  className="kb-guide-project-item archived"
+                  onClick={() => { onSelectProject(p.id); onSelect(p.id) }}
+                >
+                  <Circle size={6} fill="#45475a" stroke="none" />
+                  <span>{p.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="kb-guide-search">
         <Search size={12} />
