@@ -29,6 +29,13 @@ function isExternalUrl(value: string): boolean {
   return value.startsWith('http://') || value.startsWith('https://') || value.includes('linkedin.com')
 }
 
+// Properties shown prominently (description, chips) — exclude from regular props
+const PROMINENT_PROPERTIES = new Set([
+  'description', 'rationale', 'resolution', 'notes', 'body', 'summary',
+  'role', 'owner', 'team', 'date', 'deadline', 'target', 'target_release',
+  'confidence', 'attendees', 'location', 'stack', 'language',
+])
+
 function getNavigableProps(entity: KBEntity): {
   fileLinks: Array<{ key: string; path: string }>
   urlLinks: Array<{ key: string; url: string }>
@@ -47,7 +54,7 @@ function getNavigableProps(entity: KBEntity): {
       urlLinks.push({ key, url: strValue.startsWith('http') ? strValue : `https://${strValue}` })
     } else if (isExternalUrl(strValue)) {
       urlLinks.push({ key, url: strValue.startsWith('http') ? strValue : `https://${strValue}` })
-    } else {
+    } else if (!PROMINENT_PROPERTIES.has(key)) {
       regularProps.push({ key, value: strValue })
     }
   }
@@ -185,7 +192,52 @@ After running the command, read each file listed in the "Source Files" section t
         </div>
       )}
 
-      {/* Quick actions — navigable links at the top */}
+      {/* Description / summary — show prominently if exists */}
+      {(() => {
+        const desc = entity.properties.description || entity.properties.rationale
+          || entity.properties.resolution || entity.properties.notes
+          || entity.properties.body || entity.properties.summary
+        if (!desc) return null
+        const label = entity.properties.resolution ? 'Resolution'
+          : entity.properties.rationale ? 'Rationale'
+          : entity.properties.notes ? 'Notes'
+          : 'Description'
+        return (
+          <div className="kb-detail-description">
+            <span className="kb-detail-description-label">{label}</span>
+            <p>{String(desc)}</p>
+          </div>
+        )
+      })()}
+
+      {/* Key info chips — role, owner, date, deadline, etc */}
+      {(() => {
+        const chips: Array<{ label: string; value: string; color?: string }> = []
+        if (entity.properties.role) chips.push({ label: 'Role', value: String(entity.properties.role) })
+        if (entity.properties.owner) chips.push({ label: 'Owner', value: String(entity.properties.owner) })
+        if (entity.properties.team) chips.push({ label: 'Team', value: String(entity.properties.team) })
+        if (entity.properties.date) chips.push({ label: 'Date', value: String(entity.properties.date) })
+        if (entity.properties.deadline) chips.push({ label: 'Deadline', value: String(entity.properties.deadline), color: '#f38ba8' })
+        if (entity.properties.target) chips.push({ label: 'Target', value: String(entity.properties.target) })
+        if (entity.properties.target_release) chips.push({ label: 'Release', value: String(entity.properties.target_release) })
+        if (entity.properties.confidence) chips.push({ label: 'Confidence', value: String(entity.properties.confidence) })
+        if (entity.properties.attendees) chips.push({ label: 'Attendees', value: String(entity.properties.attendees) })
+        if (entity.properties.location) chips.push({ label: 'Location', value: String(entity.properties.location) })
+        if (entity.properties.stack) chips.push({ label: 'Stack', value: String(entity.properties.stack) })
+        if (entity.properties.language) chips.push({ label: 'Language', value: String(entity.properties.language) })
+        if (chips.length === 0) return null
+        return (
+          <div className="kb-detail-chips">
+            {chips.map(c => (
+              <span key={c.label} className="kb-detail-chip" style={c.color ? { borderColor: `${c.color}33`, color: c.color } : undefined}>
+                <span className="kb-detail-chip-label">{c.label}</span> {c.value}
+              </span>
+            ))}
+          </div>
+        )
+      })()}
+
+      {/* Quick access — navigable links */}
       {(fileLinks.length > 0 || urlLinks.length > 0) && (
         <div className="kb-detail-section">
           <h4>Quick Access</h4>

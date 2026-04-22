@@ -198,6 +198,12 @@ Selecting a project in the guide panel:
 
 ## Version Changelog
 
+### v0.12.2
+- Detail panel now shows description/rationale/resolution prominently at the top
+- Key info shown as chips: role, owner, team, date, deadline, target, stack, location, etc.
+- Properties are de-duplicated — prominent fields don't repeat in the Properties section
+- Skills updated: always include `description` property for better UI display
+
 ### v0.12.1
 - Internal markdown links resolve correctly to the Orka file viewer
 - All paths are treated as project-root relative (no relative path resolution)

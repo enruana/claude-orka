@@ -906,6 +906,55 @@
   border-radius: 10px;
 }
 
+/* Description block */
+.kb-detail-description {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.kb-detail-description-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: #585b70;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.kb-detail-description p {
+  font-size: 12px;
+  color: #cdd6f4;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+/* Key info chips */
+.kb-detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.kb-detail-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #a6adc8;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+.kb-detail-chip-label {
+  font-weight: 600;
+  color: #6c7086;
+}
+
 .kb-detail-section {
   margin-bottom: 12px;
 }

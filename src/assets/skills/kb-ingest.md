@@ -25,7 +25,7 @@ orka kb add artifact "PRD - Feature Name" \
   --tag prd
 ```
 
-4. Extract entities from the document:
+4. Extract entities from the document. **Always include a `description` property** — this is shown prominently in the Knowledge Graph UI detail panel:
    - **Decisions** — explicit choices made ("we decided to...", "we'll go with...")
    - **Questions** — open items ("we need to figure out...", "TBD:", "?")
    - **People** — participants with their roles
