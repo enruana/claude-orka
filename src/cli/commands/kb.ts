@@ -340,6 +340,21 @@ export function kbCommand(program: Command) {
       }
     })
 
+  // --- project-doc ---
+  kb.command('project-doc <id>')
+    .description('Generate or update the master INDEX.md for a project')
+    .action(async (id) => {
+      try {
+        const manager = getKB()
+        if (!requireInit(manager)) return
+
+        const { filePath } = await manager.generateProjectDoc(id)
+        Output.success(`Project index updated: ${chalk.cyan(filePath)}`)
+      } catch (error) {
+        handleError(error)
+      }
+    })
+
   // --- sync ---
   kb.command('sync')
     .description('Rebuild entities and views from event log')

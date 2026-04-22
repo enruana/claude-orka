@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain } from 'lucide-react'
+import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain, BookMarked } from 'lucide-react'
 import { api, type KBEntity } from '../../api/client'
 
 const TYPE_COLORS: Record<string, string> = {
@@ -10,7 +10,7 @@ const TYPE_COLORS: Record<string, string> = {
 }
 
 // Properties that are navigable file paths
-const PATH_PROPERTIES = new Set(['path', 'notes_path', 'profile_path', 'filePath', 'source_path', 'repo_path'])
+const PATH_PROPERTIES = new Set(['master_doc', 'path', 'notes_path', 'profile_path', 'filePath', 'source_path', 'repo_path'])
 // Properties that are external URLs
 const URL_PROPERTIES = new Set(['linkedin', 'url', 'website', 'link'])
 // Source relation types
@@ -52,6 +52,13 @@ function getNavigableProps(entity: KBEntity): {
     }
   }
 
+  // Sort file links: master_doc first
+  fileLinks.sort((a, b) => {
+    if (a.key === 'master_doc') return -1
+    if (b.key === 'master_doc') return 1
+    return 0
+  })
+
   return { fileLinks, urlLinks, regularProps }
 }
 
@@ -64,6 +71,8 @@ export function KBDetailPanel({ entity, encodedPath, projectPath, sessionId, onC
   const [sent, setSent] = useState(false)
   const [loadingContext, setLoadingContext] = useState(false)
   const [contextLoaded, setContextLoaded] = useState(false)
+  const [generatingDoc, setGeneratingDoc] = useState(false)
+  const [docGenerated, setDocGenerated] = useState(false)
 
   if (!entity) return null
 
@@ -109,6 +118,25 @@ After running the command, read each file listed in the "Source Files" section t
       console.error('Failed to load project context:', err)
     } finally {
       setLoadingContext(false)
+    }
+  }
+
+  const handleGenerateDoc = async () => {
+    if (generatingDoc) return
+    setGeneratingDoc(true)
+    setDocGenerated(false)
+
+    try {
+      const encodedProject = btoa(projectPath)
+      const res = await fetch(`/api/kb/project-doc/${entity.id}?project=${encodedProject}`, { method: 'POST' })
+      if (res.ok) {
+        setDocGenerated(true)
+        setTimeout(() => { setDocGenerated(false); window.location.reload() }, 2000)
+      }
+    } catch (err) {
+      console.error('Failed to generate project doc:', err)
+    } finally {
+      setGeneratingDoc(false)
     }
   }
 
@@ -275,18 +303,28 @@ After running the command, read each file listed in the "Source Files" section t
         </div>
       )}
 
-      {sessionId && (
-        <div className="kb-detail-actions">
-          {entity.type === 'project' && (
-            <button
-              className={`kb-detail-context-btn ${contextLoaded ? 'sent' : ''}`}
-              onClick={handleLoadProjectContext}
-              disabled={loadingContext}
-            >
-              {contextLoaded ? <Check size={14} /> : <Brain size={14} />}
-              {loadingContext ? 'Loading...' : contextLoaded ? 'Context loaded' : 'Load project context'}
-            </button>
-          )}
+      <div className="kb-detail-actions">
+        {entity.type === 'project' && (
+          <button
+            className={`kb-detail-doc-btn ${docGenerated ? 'sent' : ''}`}
+            onClick={handleGenerateDoc}
+            disabled={generatingDoc}
+          >
+            {docGenerated ? <Check size={14} /> : <BookMarked size={14} />}
+            {generatingDoc ? 'Generating...' : docGenerated ? 'Index updated' : entity.properties.master_doc ? 'Update project index' : 'Generate project index'}
+          </button>
+        )}
+        {sessionId && entity.type === 'project' && (
+          <button
+            className={`kb-detail-context-btn ${contextLoaded ? 'sent' : ''}`}
+            onClick={handleLoadProjectContext}
+            disabled={loadingContext}
+          >
+            {contextLoaded ? <Check size={14} /> : <Brain size={14} />}
+            {loadingContext ? 'Loading...' : contextLoaded ? 'Context loaded' : 'Load project context'}
+          </button>
+        )}
+        {sessionId && (
           <button
             className={`kb-detail-send-btn ${sent ? 'sent' : ''}`}
             onClick={handleSendToTerminal}
@@ -295,8 +333,8 @@ After running the command, read each file listed in the "Source Files" section t
             {sent ? <Check size={14} /> : <Send size={14} />}
             {sending ? 'Sending...' : sent ? 'Sent to terminal' : 'Discuss in terminal'}
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

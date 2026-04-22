@@ -67,7 +67,12 @@ orka kb add person "Ana Garcia" \
    - `assigned-to` — work ownership
    - `part-of` — hierarchy
 
-7. Show the user a summary of what was extracted with source links.
+7. **Regenerate INDEX.md** for any affected projects:
+```bash
+orka kb project-doc <project-id>
+```
+
+8. Show the user a summary of what was extracted with source links.
 
 ## Source Traceability Rules
 

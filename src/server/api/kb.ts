@@ -216,6 +216,22 @@ kbRouter.get('/context', async (req, res) => {
 })
 
 /**
+ * POST /api/kb/project-doc/:id - Generate/update project master doc
+ */
+kbRouter.post('/project-doc/:id', async (req, res) => {
+  try {
+    const projectPath = decodeProject(req.query.project as string)
+    const manager = getManager(projectPath)
+
+    const result = await manager.generateProjectDoc(req.params.id)
+    res.json({ success: true, filePath: result.filePath })
+  } catch (error: any) {
+    logger.error('KB project-doc error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * POST /api/kb/sync - Rebuild from events
  */
 kbRouter.post('/sync', async (req, res) => {

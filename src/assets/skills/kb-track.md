@@ -64,7 +64,12 @@ orka kb update <id> --status resolved --property resolution="answer here"
 orka kb update <id> --status superseded
 ```
 
-8. After tracking, confirm what was captured to the user.
+8. After tracking, **regenerate the project INDEX.md** for any affected projects:
+```bash
+orka kb project-doc <project-id>
+```
+
+9. Confirm what was captured to the user.
 
 ## Source Traceability Rules
 

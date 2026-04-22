@@ -566,6 +566,209 @@ export class KnowledgeBaseManager {
     return props.length > 0 ? props.join(' | ') : ''
   }
 
+  // --- Project Master Document ---
+
+  async generateProjectDoc(projectId: string): Promise<{ content: string; filePath: string }> {
+    const allEntities = await this.listEntities()
+    const project = allEntities.find((e) => e.id === projectId)
+    if (!project) throw new Error(`Project not found: ${projectId}`)
+
+    // Compute related entities (2-hop BFS)
+    const related = new Set<string>([projectId])
+    const adjacency = new Map<string, Set<string>>()
+    for (const e of allEntities) {
+      if (!adjacency.has(e.id)) adjacency.set(e.id, new Set())
+      for (const edge of e.edges) {
+        adjacency.get(e.id)!.add(edge.target)
+        if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set())
+        adjacency.get(edge.target)!.add(e.id)
+      }
+    }
+    const queue = [projectId]
+    const visited = new Set([projectId])
+    let depth = 0
+    while (queue.length > 0 && depth < 2) {
+      const size = queue.length
+      for (let i = 0; i < size; i++) {
+        const id = queue.shift()!
+        for (const n of adjacency.get(id) || []) {
+          if (!visited.has(n)) { visited.add(n); related.add(n); queue.push(n) }
+        }
+      }
+      depth++
+    }
+
+    const entities = allEntities.filter((e) => related.has(e.id) && e.id !== projectId)
+    const now = new Date().toISOString()
+
+    const lines: string[] = []
+
+    // Header
+    lines.push(`# ${project.title}`)
+    lines.push('')
+    lines.push(`> Auto-generated project index by Orka KB — Last updated: ${now.split('T')[0]}`)
+    lines.push(`> Entity: \`${project.id}\` | Status: **${project.status}**`)
+    lines.push('')
+
+    // Project overview
+    if (project.properties.description) lines.push(`**Description:** ${project.properties.description}`)
+    if (project.properties.owner) lines.push(`**Owner:** ${project.properties.owner}`)
+    if (project.properties.target_release) lines.push(`**Target Release:** ${project.properties.target_release}`)
+    if (project.properties.repo_path) lines.push(`**Repository:** \`${project.properties.repo_path}\``)
+    if (project.properties.status_detail) lines.push(`**Status Detail:** ${project.properties.status_detail}`)
+    lines.push('')
+
+    lines.push('---')
+    lines.push('')
+
+    // Decisions
+    const decisions = entities.filter((e) => e.type === 'decision')
+    if (decisions.length > 0) {
+      lines.push('## Decisions')
+      lines.push('')
+      for (const d of decisions) {
+        const status = d.status !== 'active' ? ` _(${d.status})_` : ''
+        lines.push(`- **${d.title}**${status}`)
+        if (d.properties.source) lines.push(`  - Source: ${d.properties.source}`)
+        if (d.properties.source_path) lines.push(`  - Reference: [\`${d.properties.source_path}\`](${d.properties.source_path})`)
+        if (d.properties.confidence) lines.push(`  - Confidence: ${d.properties.confidence}`)
+      }
+      lines.push('')
+    }
+
+    // Open questions
+    const questions = entities.filter((e) => e.type === 'question' && e.status !== 'archived')
+    if (questions.length > 0) {
+      lines.push('## Open Questions')
+      lines.push('')
+      for (const q of questions) {
+        const status = q.status !== 'active' ? ` _(${q.status})_` : ''
+        lines.push(`- [ ] **${q.title}**${status}`)
+        if (q.properties.owner) lines.push(`  - Owner: ${q.properties.owner}`)
+        if (q.properties.source_path) lines.push(`  - Reference: [\`${q.properties.source_path}\`](${q.properties.source_path})`)
+      }
+      lines.push('')
+    }
+
+    // Resolved questions
+    const resolved = entities.filter((e) => e.type === 'question' && (e.status === 'resolved' || e.status === 'archived'))
+    if (resolved.length > 0) {
+      lines.push('## Resolved Questions')
+      lines.push('')
+      for (const q of resolved) {
+        lines.push(`- [x] **${q.title}**`)
+        if (q.properties.resolution) lines.push(`  - Resolution: ${q.properties.resolution}`)
+      }
+      lines.push('')
+    }
+
+    // Milestones
+    const milestones = entities.filter((e) => e.type === 'milestone')
+    if (milestones.length > 0) {
+      lines.push('## Milestones')
+      lines.push('')
+      for (const m of milestones) {
+        const deadline = m.properties.deadline || m.properties.target || ''
+        const check = m.status === 'resolved' ? '[x]' : '[ ]'
+        lines.push(`- ${check} **${m.title}**${deadline ? ` — ${deadline}` : ''}`)
+      }
+      lines.push('')
+    }
+
+    // People
+    const people = entities.filter((e) => e.type === 'person')
+    if (people.length > 0) {
+      lines.push('## People')
+      lines.push('')
+      for (const p of people) {
+        const role = p.properties.role ? ` — ${p.properties.role}` : ''
+        const profileLink = p.properties.profile_path ? ` → [\`${p.properties.profile_path}\`](${p.properties.profile_path})` : ''
+        lines.push(`- **${p.title}**${role}${profileLink}`)
+      }
+      lines.push('')
+    }
+
+    // Meetings
+    const meetings = entities.filter((e) => e.type === 'meeting')
+    if (meetings.length > 0) {
+      lines.push('## Meetings')
+      lines.push('')
+      for (const m of meetings) {
+        const date = m.properties.date || m.created.split('T')[0]
+        const notesLink = m.properties.notes_path ? ` → [\`${m.properties.notes_path}\`](${m.properties.notes_path})` : ''
+        lines.push(`- **${m.title}** (${date})${notesLink}`)
+      }
+      lines.push('')
+    }
+
+    // Repos
+    const repos = entities.filter((e) => e.type === 'repo')
+    if (repos.length > 0) {
+      lines.push('## Repositories')
+      lines.push('')
+      for (const r of repos) {
+        const stack = r.properties.stack ? ` [${r.properties.stack}]` : ''
+        lines.push(`- **${r.title}**${stack}`)
+      }
+      lines.push('')
+    }
+
+    // Artifacts
+    const artifacts = entities.filter((e) => e.type === 'artifact' && e.status !== 'archived')
+    if (artifacts.length > 0) {
+      lines.push('## Artifacts & Documents')
+      lines.push('')
+      for (const a of artifacts) {
+        const link = a.properties.path ? ` → [\`${a.properties.path}\`](${a.properties.path})` : ''
+        lines.push(`- **${a.title}**${link}`)
+      }
+      lines.push('')
+    }
+
+    // Directions
+    const directions = entities.filter((e) => e.type === 'direction')
+    if (directions.length > 0) {
+      lines.push('## Directions')
+      lines.push('')
+      for (const d of directions) {
+        lines.push(`- **${d.title}**`)
+        if (d.properties.rationale) lines.push(`  - ${d.properties.rationale}`)
+      }
+      lines.push('')
+    }
+
+    lines.push('---')
+    lines.push('')
+    lines.push(`_This document is auto-generated by \`orka kb project-doc ${projectId}\`. Do not edit manually — changes will be overwritten._`)
+
+    const content = lines.join('\n')
+
+    // Determine file path
+    const projectPath = project.properties.path ? String(project.properties.path) : null
+    let docPath: string
+
+    if (projectPath) {
+      // Write inside the project folder
+      const fullDir = path.join(this.projectPath, projectPath)
+      await fs.ensureDir(fullDir)
+      docPath = path.join(projectPath, 'INDEX.md')
+    } else {
+      // Fallback: write in .claude-orka/.orka-kb/views/
+      docPath = path.join('.claude-orka', '.orka-kb', 'views', `${projectId}-index.md`)
+    }
+
+    const fullPath = path.join(this.projectPath, docPath)
+    await fs.writeFile(fullPath, content, 'utf-8')
+
+    // Update project entity with master_doc property
+    await this.updateEntity(projectId, {
+      properties: { master_doc: docPath },
+      actor: 'cli',
+    })
+
+    return { content, filePath: docPath }
+  }
+
   // --- Sync (rebuild from events) ---
 
   async sync(): Promise<void> {

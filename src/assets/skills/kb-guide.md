@@ -74,6 +74,7 @@ orka kb show <id>                         # Show entity details
 orka kb list [--type] [--status] [--tag]  # List entities
 orka kb context                           # Full KB context (AI-optimized)
 orka kb context --project <id>            # Project-specific context with source files
+orka kb project-doc <id>                  # Generate/update project INDEX.md
 orka kb history <id>                      # Entity event history
 orka kb timeline [--since] [--limit]      # Chronological events
 orka kb graph [--format dot|json]         # Export graph
@@ -145,7 +146,20 @@ orka kb update prj-xxx --status resolved --property shipped_date="2026-06-15"
 orka kb update prj-xxx --status archived --property archived_reason="shipped"
 ```
 
-Key properties: `path`, `repo_path` (optional, highly recommended), `description`, `owner`, `target_release`, `status_detail`.
+Key properties: `path`, `repo_path` (optional, highly recommended), `description`, `owner`, `target_release`, `status_detail`, `master_doc` (auto-generated).
+
+### Project Master Document (INDEX.md)
+
+Each project can have an auto-generated `INDEX.md` file that serves as the living index — linking all decisions, questions, milestones, people, meetings, and artifacts related to the project.
+
+```bash
+# Generate or update the project index
+orka kb project-doc <project-id>
+```
+
+This creates `INDEX.md` inside the project's `path` folder (e.g., `03-projects/active/feature-slug/INDEX.md`) and sets the `master_doc` property on the project entity. The Knowledge Graph UI shows this as the top Quick Access link.
+
+**When to regenerate:** After any KB change related to the project — new decisions, resolved questions, status updates. The skills `/kb-track` and `/kb-ingest` should regenerate the doc after making changes.
 
 ---
 
@@ -167,6 +181,13 @@ Selecting a project in the guide panel:
 ---
 
 ## Version Changelog
+
+### v0.12.0
+- Project master document: `orka kb project-doc <id>` generates `INDEX.md` inside the project folder
+- `INDEX.md` is a living index linking all decisions, questions, milestones, people, meetings, artifacts
+- `master_doc` property auto-set on project entities — appears as top Quick Access link in UI
+- "Generate project index" / "Update project index" button in detail panel
+- Skills should regenerate INDEX.md after making project-related changes
 
 ### v0.11.4
 - `orka kb context --project <id>` — project-specific context with source files list
