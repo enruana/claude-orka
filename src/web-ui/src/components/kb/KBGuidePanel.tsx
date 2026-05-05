@@ -3,33 +3,59 @@ import {
   ChevronDown, ChevronRight, HelpCircle, CheckCircle,
   Calendar, Flag, User, Compass, GitBranch, FileText,
   BookOpen, Search, Circle, FolderKanban, X, Archive,
+  Target, Layers, ListChecks, Lightbulb, Bug, Activity,
 } from 'lucide-react'
 import type { KBEntity } from '../../api/client'
 
 const TYPE_ICONS: Record<string, typeof CheckCircle> = {
+  // Knowledge tier
   decision: CheckCircle, question: HelpCircle, meeting: Calendar,
-  milestone: Flag, person: User, direction: Compass,
-  repo: GitBranch, artifact: FileText, context: BookOpen,
-  project: FolderKanban,
+  milestone: Flag, direction: Compass,
+  // Work tier (v2)
+  goal: Target, initiative: Layers, project: FolderKanban,
+  task: ListChecks, spike: Lightbulb, bug: Bug,
+  // Reference tier
+  person: User, repo: GitBranch, artifact: FileText, context: BookOpen,
+  // Provenance
+  activity: Activity,
 }
 
 const TYPE_COLORS: Record<string, string> = {
+  // Knowledge tier
   decision: '#a6e3a1', question: '#f9e2af', meeting: '#cba6f7',
-  milestone: '#f5c2e7', person: '#89b4fa', direction: '#fab387',
-  repo: '#89dceb', artifact: '#a6adc8', context: '#6c7086',
-  project: '#f38ba8',
+  milestone: '#f5c2e7', direction: '#fab387',
+  // Work tier (v2)
+  goal: '#f38ba8', initiative: '#eba0ac', project: '#f38ba8',
+  task: '#94e2d5', spike: '#eed49f', bug: '#ed8796',
+  // Reference tier
+  person: '#89b4fa', repo: '#89dceb', artifact: '#a6adc8', context: '#6c7086',
+  // Provenance tier
+  activity: '#7f849c',
 }
 
 const STATUS_COLORS: Record<string, string> = {
+  // v1 + shared
   active: '#a6e3a1', 'in-progress': '#89b4fa', blocked: '#f38ba8',
   pending: '#f9e2af', review: '#cba6f7', draft: '#6c7086',
   resolved: '#585b70', superseded: '#585b70', archived: '#45475a',
+  // v2 — work tier
+  planning: '#f9e2af', todo: '#6c7086', done: '#585b70', cancelled: '#45475a',
+  // v2 — spike
+  open: '#a6e3a1', concluded: '#585b70',
+  // v2 — bug
+  investigating: '#89b4fa', fixed: '#a6e3a1', wontfix: '#45475a', duplicate: '#6c7086',
+  // v2 — question / meeting / milestone
+  answered: '#a6e3a1', closed: '#585b70',
+  scheduled: '#f9e2af', held: '#a6e3a1',
+  reached: '#a6e3a1',
+  // v2 — provenance
 }
 
 const PROJECT_STATUS_LABELS: Record<string, string> = {
-  active: 'Active', 'in-progress': 'In Progress', blocked: 'Blocked',
-  pending: 'Pending', review: 'In Review', draft: 'Draft',
-  resolved: 'Done', archived: 'Archived',
+  // v1 + v2 unified labels
+  planning: 'Planning', active: 'Active', 'in-progress': 'In Progress',
+  blocked: 'Blocked', pending: 'Pending', review: 'In Review', draft: 'Draft',
+  done: 'Done', cancelled: 'Cancelled', resolved: 'Done', archived: 'Archived',
 }
 
 interface Section {
@@ -41,11 +67,24 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
-  { key: 'questions', label: 'Open Questions', icon: HelpCircle, color: '#f9e2af', filter: (e) => e.type === 'question' && e.status === 'active' },
+  // Active work — what needs attention now
+  { key: 'tasks-active', label: 'Tasks (open)', icon: ListChecks, color: '#94e2d5',
+    filter: (e) => e.type === 'task' && e.status !== 'done' && e.status !== 'cancelled' && e.status !== 'archived' },
+  { key: 'spikes-active', label: 'Spikes', icon: Lightbulb, color: '#eed49f',
+    filter: (e) => e.type === 'spike' && e.status !== 'concluded' && e.status !== 'cancelled' && e.status !== 'archived' },
+  { key: 'bugs-active', label: 'Bugs (open)', icon: Bug, color: '#ed8796',
+    filter: (e) => e.type === 'bug' && e.status !== 'fixed' && e.status !== 'wontfix' && e.status !== 'duplicate' },
+  // Knowledge
+  { key: 'questions', label: 'Open Questions', icon: HelpCircle, color: '#f9e2af',
+    filter: (e) => e.type === 'question' && e.status !== 'resolved' && e.status !== 'answered' && e.status !== 'closed' && e.status !== 'archived' },
   { key: 'decisions', label: 'Decisions', icon: CheckCircle, color: '#a6e3a1', filter: (e) => e.type === 'decision' },
   { key: 'milestones', label: 'Milestones', icon: Flag, color: '#f5c2e7', filter: (e) => e.type === 'milestone' },
   { key: 'meetings', label: 'Meetings', icon: Calendar, color: '#cba6f7', filter: (e) => e.type === 'meeting' },
+  // Strategic
+  { key: 'goals', label: 'Goals', icon: Target, color: '#f38ba8', filter: (e) => e.type === 'goal' },
+  { key: 'initiatives', label: 'Initiatives', icon: Layers, color: '#eba0ac', filter: (e) => e.type === 'initiative' },
   { key: 'directions', label: 'Directions', icon: Compass, color: '#fab387', filter: (e) => e.type === 'direction' },
+  // Reference
   { key: 'people', label: 'People', icon: User, color: '#89b4fa', filter: (e) => e.type === 'person' },
   { key: 'repos', label: 'Repositories', icon: GitBranch, color: '#89dceb', filter: (e) => e.type === 'repo' },
   { key: 'artifacts', label: 'Artifacts', icon: FileText, color: '#a6adc8', filter: (e) => e.type === 'artifact' },

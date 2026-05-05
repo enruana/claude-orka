@@ -930,6 +930,85 @@
   margin: 4px 0 0;
 }
 
+/* Provenance badge — small pill near top showing skill that generated entity */
+.kb-detail-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #7f849c;
+  background: rgba(127, 132, 156, 0.08);
+  border: 1px solid rgba(127, 132, 156, 0.15);
+  border-radius: 6px;
+  padding: 3px 8px;
+  margin-bottom: 8px;
+}
+
+.kb-detail-provenance svg {
+  opacity: 0.7;
+}
+
+.kb-detail-provenance-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #89b4fa;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.kb-detail-provenance-link:hover {
+  color: #cba6f7;
+  text-decoration: underline;
+}
+
+.kb-detail-provenance-conf {
+  color: #6c7086;
+}
+
+/* MADR section — structured rendering for decisions */
+.kb-detail-madr {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+  background: rgba(166, 227, 161, 0.04);
+  border-left: 2px solid #a6e3a1;
+  border-radius: 4px;
+}
+
+.kb-detail-madr-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kb-detail-madr-block.outcome {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(166, 227, 161, 0.15);
+}
+
+.kb-detail-madr-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #a6e3a1;
+}
+
+.kb-detail-madr-block.outcome .kb-detail-madr-label {
+  color: #f9e2af;
+}
+
+.kb-detail-madr-block p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cdd6f4;
+}
+
 /* Key info chips */
 .kb-detail-chips {
   display: flex;
@@ -1092,6 +1171,85 @@
 .kb-detail-edge.source:hover {
   background: rgba(249, 226, 175, 0.1);
   border-color: rgba(249, 226, 175, 0.2);
+}
+
+/* Backlinks — entities that point TO this one. Subtle distinction from
+   forward relationships: lighter background, italic relation prefix. */
+.kb-detail-edge.backlink {
+  background: rgba(137, 180, 250, 0.04);
+  border: 1px solid rgba(137, 180, 250, 0.08);
+}
+
+.kb-detail-edge.backlink:hover {
+  background: rgba(137, 180, 250, 0.10);
+  border-color: rgba(137, 180, 250, 0.20);
+}
+
+.kb-detail-edge.backlink .kb-detail-edge-rel {
+  color: #89b4fa;
+  font-style: italic;
+}
+
+.kb-detail-section-count {
+  color: #6c7086;
+  font-weight: 400;
+  font-size: 10px;
+}
+
+.kb-detail-edge-more {
+  color: #6c7086;
+  font-size: 10px;
+  padding: 4px 8px;
+}
+
+/* Health panel — coverage bars + summary line for projects/initiatives */
+.kb-detail-health {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kb-detail-health-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.kb-detail-health-label {
+  color: #a6adc8;
+  min-width: 130px;
+}
+
+.kb-detail-health-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.kb-detail-health-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s, background 0.3s;
+}
+
+.kb-detail-health-pct {
+  color: #cdd6f4;
+  font-weight: 600;
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.kb-detail-health-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  color: #6c7086;
+  padding-top: 4px;
 }
 
 .kb-detail-edge.source .kb-detail-edge-rel {

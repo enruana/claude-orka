@@ -1,127 +1,150 @@
-# KB Project
+# KB Project (v2)
 
-Manage projects (features, epics, tasks, workstreams) in the Knowledge Base. Projects are the top-level containers that group decisions, questions, milestones, and artifacts together.
+Manage entities in the work tier — `goal`, `initiative`, `project`, `task`, `spike`, `bug`. Pick the right tier; "project" in v2 is bounded outcome only, not a catch-all.
 
-## Register a new project
+For the full v2 model, see `/kb-guide`. For tier suggestions, use `/kb-classify`.
+
+## Decide the tier
+
+| Tier | When to use | Examples |
+|---|---|---|
+| `goal` | Ongoing area of responsibility, no end | "Improve onboarding for AI engineers" |
+| `initiative` | Strategic objective spanning multiple projects | "PRD #1 AI Routing", "June Release" |
+| `project` | Bounded outcome with target | "ENG-204193 — Register MCP gateway targets" |
+| `task` | Atomic work, single sitting/PR | "Setup GHA for chat-rag service" |
+| `spike` | Time-boxed exploration | "Investigate token rotation strategies" |
+| `bug` | Defect | "ENG-204264 trigger.type=api not implemented" |
+
+If unsure, run `/kb-classify` after creation to get a heuristic suggestion.
+
+## Create entities
 
 ```bash
-orka kb add project "Feature Name" \
-  --property path="03-projects/active/feature-slug/" \
-  --property repo_path="/absolute/path/to/repo" \
-  --property description="Short description of what this project is about" \
-  --property owner="person-name" \
+# Goal — no deadline
+orka kb add goal "Onboarding excellence for AI engineers" \
+  --strict \
+  --status active \
+  --property description="Continuous improvement of AI hire onboarding process" \
+  --property owner="alex-rogers" \
+  --property rationale="Reduce time-to-first-PR for new AI engineers"
+
+# Initiative — strategic, multi-project
+orka kb add initiative "PRD #1 - AI Routing" \
+  --strict \
+  --status active \
+  --property description="Multi-agent routing for Rise AI — replaces monolithic agent" \
+  --property owner="felipe-mantilla" \
+  --property target_release="2026-06"
+
+# Project — bounded outcome
+orka kb add project "ENG-204193 - Register 3 MCP gateway targets" \
+  --strict \
+  --status active \
+  --property description="Register rise-contacts, rise-campaigns, rise-campaign-resources MCP targets" \
+  --property path="03-projects/active/eng-204193-mcp-gateway-targets/" \
+  --property repo_path="/home/felipe-mantilla/Desktop/MoxiWorks/06-repos/rise-ai" \
+  --property owner="felipe-mantilla" \
   --property target_release="2026-06" \
-  --tag feature
+  --tag feature \
+  --link child-of:<initiative-id>
+
+# Task — atomic
+orka kb add task "Add rise-contacts target to Pulumi stack" \
+  --strict \
+  --status todo \
+  --property description="Extend dev-gateway/index.ts with new AgentcoreGatewayTarget" \
+  --property owner="felipe-mantilla" \
+  --property estimate="2h" \
+  --link scope-of:<project-id>
+
+# Spike — time-boxed exploration
+orka kb add spike "Investigate AgentCore Gateway tools/list pagination" \
+  --strict \
+  --status concluded \
+  --property description="Find empirical cap on tools per page" \
+  --property time_box="1 day" \
+  --property question="Does AgentCore paginate tools/list? What's the cap?" \
+  --link scope-of:<project-id>
+
+# Bug
+orka kb add bug "ENG-204264 trigger.type=api not implemented" \
+  --strict \
+  --status investigating \
+  --property description="3-layer contract mismatch in api.activepipe Trigger model" \
+  --property severity="medium" \
+  --property reporter="ashley" \
+  --property repro_steps="Send chat message → MCP creates campaign → 500 error" \
+  --link child-of:<project-id>
 ```
 
-## Project statuses
+## Hierarchy
 
-| Status | Meaning | Color in UI |
-|--------|---------|-------------|
-| `active` | Being worked on now | Green |
-| `in-progress` | Development underway | Blue |
-| `blocked` | Waiting on a blocker | Red |
-| `pending` | Queued, not started yet | Yellow |
-| `review` | In review/QA | Purple |
-| `draft` | Planning phase | Gray |
-| `resolved` | Done/shipped | Dark gray |
-| `archived` | Closed, historical | Dimmed |
+Use the right relation for the parent link:
 
-Set status when creating:
-```bash
-orka kb add project "Feature Name" --status in-progress ...
 ```
-
-Update status as it progresses:
-```bash
-orka kb update prj-xxx --status blocked --property blocked_by="waiting for AWS access"
-orka kb update prj-xxx --status review --property reviewer="Aerika"
-orka kb update prj-xxx --status resolved --property shipped_date="2026-06-15"
-orka kb update prj-xxx --status archived --property archived_reason="shipped in June release"
+child-of   : project → initiative,  initiative → goal,  bug → project
+scope-of   : task → project,  spike → project
+subtask-of : task → task | spike | bug
 ```
-
-Key properties:
-- `path` — folder path in the workspace (enables navigation from Knowledge Graph UI)
-- `repo_path` — (optional, highly recommended) absolute path to the project's git repository. Enables "Open Code" in the UI and links the project to its codebase. Example: `/home/user/repos/my-project`
-- `description` — what this project aims to achieve
-- `owner` — who is responsible
-- `target_release` — when it's expected to ship
-- `status_detail` — current status notes ("in design", "in review", "blocked by X")
-
-## Link everything to the project
-
-After creating the project, link all related entities to it:
-
-```bash
-# Link PRDs, specs, artifacts
-orka kb link art-xxx part-of prj-xxx
-
-# Link decisions made for this project
-orka kb link dec-xxx part-of prj-xxx
-
-# Link open questions
-orka kb link qst-xxx part-of prj-xxx
-
-# Link milestones
-orka kb link mil-xxx part-of prj-xxx
-
-# Link people working on it
-orka kb link per-xxx assigned-to prj-xxx
-
-# Link repos involved
-orka kb link rep-xxx part-of prj-xxx
-
-# Link directions this project implements
-orka kb link prj-xxx implements dir-xxx
-```
-
-## Archive a project
-
-When a project is done, shipped, or cancelled:
 
 ```bash
-orka kb update prj-xxx --status archived \
-  --property archived_reason="shipped in June release" \
-  --property archived_date="2026-06-15"
+# Tasks belong to a project via scope-of
+orka kb link tsk-xxx scope-of prj-yyy
+
+# Sub-tasks of another task
+orka kb link tsk-xxx subtask-of tsk-parent
+
+# Project under an initiative
+orka kb link prj-xxx child-of ini-yyy
+
+# Bug nested under a project
+orka kb link bug-xxx child-of prj-yyy
 ```
 
-Do NOT delete — archived projects remain in the KB for historical reference. They appear dimmed in the Knowledge Graph UI.
+## Status transitions
 
-## Migrate existing artifacts to projects
-
-Some entities currently stored as `artifact` are actually projects (features, epics). To migrate:
-
-1. Check existing artifacts:
-```bash
-orka kb list --type artifact
-```
-
-2. For each artifact that is actually a project/feature:
-```bash
-# Create the project entity
-orka kb add project "Feature Name" \
-  --property path="03-projects/active/slug/" \
-  --tag feature
-
-# Link related entities to it
-orka kb link dec-xxx part-of prj-xxx
-orka kb link qst-xxx part-of prj-xxx
-
-# Optionally archive the old artifact
-orka kb update art-xxx --status archived --property migrated_to="prj-xxx"
-```
-
-## View projects
+The validator enforces state machines. Use `orka kb update` and check the allowed transitions in `/kb-guide`.
 
 ```bash
-# List active projects
-orka kb list --type project --status active
-
-# List archived projects
-orka kb list --type project --status archived
-
-# Show project with all relationships
-orka kb show prj-xxx
+orka kb update prj-xxx --status active --strict        # planning → active
+orka kb update tsk-xxx --status in-progress --strict   # todo → in-progress
+orka kb update tsk-xxx --status done --strict          # in-progress → done
+orka kb update spk-xxx --status concluded --strict     # in-progress → concluded
+orka kb update bug-xxx --status fixed --strict         # investigating → fixed
+orka kb update prj-xxx --status done --strict
 ```
 
-In the Knowledge Graph UI, use the project selector bar to filter the graph by project — only related entities are highlighted.
+For decisions that have changed, **don't update — supersede**:
+```bash
+orka kb add decision "<new title>" --strict ... --link supersedes:dec-old
+orka kb update dec-old --status superseded --strict
+```
+
+## Archive vs cancel
+
+- `archived` — kept for history, dimmed in UI
+- `cancelled` — won't be done, no longer relevant
+
+```bash
+orka kb update prj-xxx --status archived --property archived_reason="shipped"
+orka kb update tsk-xxx --status cancelled --property cancelled_reason="duplicate"
+```
+
+## Generate INDEX.md
+
+After any structural change:
+
+```bash
+orka kb project-doc <project-id>            # default medium breadth
+orka kb project-doc <project-id> --breadth narrow  # only directly-linked
+orka kb project-doc <project-id> --breadth wide    # 3-hop sweep
+```
+
+The INDEX.md auto-generates with sections for: sub-work-items (tasks/spikes/bugs), decisions, questions, milestones, people, meetings, repos, artifacts, directions.
+
+## Tips
+
+- Run `/kb-classify <id>` if you're unsure about the tier.
+- For strategic work, prefer `initiative` → `project` → `task` chains over flat `project` lists.
+- Keep `goal` count small (single digits) — it's the highest-level abstraction.
+- Use tags for cross-cutting concerns (`feature`, `infra`, `security`).

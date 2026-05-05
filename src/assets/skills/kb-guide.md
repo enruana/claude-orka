@@ -1,256 +1,329 @@
-# Orka KB — Complete Guide
+# Orka KB v2 — Complete Guide
 
-This is the master reference for the Orka Knowledge Base system. Read this to understand how the KB works, what commands and skills are available, what changed in each version, and how to migrate between versions.
+Master reference for the Orka Knowledge Base v2. Read this to understand types, statuses, relations, validation, traversal, and the full CLI/skill surface.
 
----
-
-## What is Orka KB?
-
-Orka KB is a project knowledge tracking system built into the Orka CLI. It captures the full lifecycle of a project — meetings, decisions, questions, people, directions, milestones, repositories, and artifacts — as a structured graph of entities connected by typed relationships.
-
-**Architecture (3 layers):**
-1. **Event Log** (`.claude-orka/.orka-kb/events.jsonl`) — append-only source of truth
-2. **Entity Store** (`.claude-orka/.orka-kb/entities/`) — one JSON file per entity (current state)
-3. **Views** (`.claude-orka/.orka-kb/views/`) — generated index, context, graph, timeline
-
-Everything is file-based. No database, no server required for the KB itself.
+> Schema version: **v2** (2026-05). Workspaces created on v1 still work; run `orka kb upgrade` to migrate to v2 fully.
 
 ---
 
-## Entity Types
+## Architecture
 
-| Type | Prefix | What it is | Example |
-|------|--------|-----------|---------|
-| `project` | `prj-` | Feature, epic, workstream, task | "Top 5 Contacts Card" |
-| `decision` | `dec-` | Choice made | "Use PostgreSQL for DB" |
-| `question` | `qst-` | Open item needing answer | "How to handle auth?" |
-| `meeting` | `mtg-` | Meeting with notes | "Sprint Planning 2026-04-20" |
-| `milestone` | `mil-` | Deadline or target | "June release cycle" |
-| `direction` | `dir-` | Strategic direction or initiative | "Team Brain — AI/RISE" |
-| `person` | `per-` | Team member or stakeholder | "Felipe Mantilla" |
-| `repo` | `rep-` | Code repository | "rise", "api.activepipe.com" |
-| `artifact` | `art-` | Document, spec, reference material | "Real Estate Fundamentals doc" |
-| `context` | `ctx-` | Context note, learning, summary | Conversation summary |
+Three-layer file-based system, no DB:
 
-## Entity Statuses
-
-| Status | Meaning | Used for |
-|--------|---------|----------|
-| `active` | Currently relevant / being worked on | All types |
-| `in-progress` | Development underway | Projects |
-| `blocked` | Waiting on a dependency | Projects, questions |
-| `pending` | Queued, not started yet | Projects |
-| `review` | In review or QA | Projects |
-| `draft` | Planning/design phase | Projects, artifacts |
-| `resolved` | Done, answered, shipped | Projects, questions, milestones |
-| `superseded` | Replaced by a newer entity | Decisions |
-| `archived` | Closed, for historical reference | All types |
-
-## Relationships
-
-| Relation | Meaning | Common usage |
-|----------|---------|-------------|
-| `part-of` | Belongs to a project | `dec-xxx part-of prj-xxx` |
-| `assigned-to` | Person works on something | `per-xxx assigned-to prj-xxx` |
-| `implements` | Project implements direction | `prj-xxx implements dir-xxx` |
-| `sourced-from` | Info came from this source | `dec-xxx sourced-from mtg-xxx` |
-| `decided-at` | Decision made at meeting | `dec-xxx decided-at mtg-xxx` |
-| `raised-at` | Question raised at meeting | `qst-xxx raised-at mtg-xxx` |
-| `relates-to` | Generic connection | `per-xxx relates-to per-yyy` |
-| `supersedes` | Replaces previous entity | `dec-new supersedes dec-old` |
-| `blocks` | Blocks another entity | `qst-xxx blocks mil-xxx` |
-| `depends-on` | Depends on another entity | `prj-xxx depends-on prj-yyy` |
+1. **Event log** (`.claude-orka/.orka-kb/events.jsonl`) — append-only source of truth
+2. **Entity store** (`.claude-orka/.orka-kb/entities/`) — one JSON file per entity (current state, rebuildable from events)
+3. **Views** (`.claude-orka/.orka-kb/views/`) — generated index, context, graph, timeline (auto-refreshed on every mutation)
 
 ---
 
-## CLI Commands
+## Three Tiers of Entities
 
-```bash
-orka kb init                              # Initialize KB + install skills
-orka kb add <type> <title> [--opts]       # Add entity
-orka kb update <id> [--status] [--property] # Update entity
-orka kb link <source> <relation> <target> # Create relationship
-orka kb show <id>                         # Show entity details
-orka kb list [--type] [--status] [--tag]  # List entities
-orka kb context                           # Full KB context (AI-optimized)
-orka kb context --project <id>            # Project-specific context with source files
-orka kb project-doc <id>                  # Generate/update project INDEX.md
-orka kb history <id>                      # Entity event history
-orka kb timeline [--since] [--limit]      # Chronological events
-orka kb graph [--format dot|json]         # Export graph
-orka kb sync                              # Rebuild entities + views from event log
-orka kb migrate                           # Bootstrap KB from git history + docs
-orka kb ingest <file>                     # Register a file as artifact
+### Work tier — *what you do*
+| Type | Prefix | What | Default status |
+|---|---|---|---|
+| `goal` | `gol-` | Ongoing area of responsibility (PARA Area) — no deadline | `active` |
+| `initiative` | `ini-` | Strategic objective spanning multiple projects (PRD, Epic) | `active` |
+| `project` | `prj-` | Bounded outcome with target date (Linear-style) | `planning` |
+| `task` | `tsk-` | Atomic work item, can have sub-tasks | `todo` |
+| `spike` | `spk-` | Time-boxed exploration; outcome = answer/decision | `open` |
+| `bug` | `bug-` | Defect | `open` |
+
+**Rule of thumb (Linear)**: *"sub-issue when too big for one issue, too small for a project."*
+- Single PR / single sitting → `task`
+- Multi-PR, multi-week, has milestones → `project`
+- Multi-project under a strategic umbrella → `initiative`
+- Ongoing responsibility, no end date → `goal`
+
+### Knowledge tier — *what you know*
+| Type | Prefix | What | Default status |
+|---|---|---|---|
+| `decision` | `dec-` | ADR-style choice (MADR fields recommended) | `proposed` |
+| `question` | `qst-` | Open inquiry | `open` |
+| `meeting` | `mtg-` | Synchronous discussion | `scheduled` |
+| `milestone` | `mil-` | Achieved state — immutable, dated | `active` |
+| `direction` | `dir-` | Strategic intent / long-term horizon | `active` |
+
+### Reference tier — *what you reference*
+| Type | Prefix | What |
+|---|---|---|
+| `person` | `per-` | Stakeholder/contributor |
+| `repo` | `rep-` | Codebase |
+| `artifact` | `art-` | Document, spec, file reference |
+| `context` | `ctx-` | Pre-prepared LLM briefing |
+
+### Provenance tier
+| Type | Prefix | What |
+|---|---|---|
+| `activity` | `act-` | PROV-O — represents a skill/agent run that produced entities |
+
+---
+
+## Statuses (closed enum per type)
+
+State machines (terminal = no outgoing transitions):
+
+- **decision**: `proposed → accepted | rejected → superseded` (immutable after accepted; supersession is the only "edit" path)
+- **task**: `todo → in-progress → done | blocked | cancelled`
+- **spike**: `open → in-progress → concluded | cancelled`
+- **bug**: `open → investigating → fixed | wontfix | duplicate`
+- **question**: `open → active → answered → resolved → closed`
+- **project**: `planning → active → done | cancelled`
+- **milestone**: `active → reached → archived`
+- **goal/initiative/direction**: `active → archived`
+- **person/repo**: `active → archived`
+- **artifact**: `draft → active → archived`
+- **meeting**: `scheduled → held → archived`
+- **activity**: `active`
+
+**Off-spec statuses are rejected in `--strict` mode.** Run `orka kb types` to see the registry.
+
+---
+
+## Relations (with type constraints)
+
+### Hierarchy / decomposition
+```
+subtask-of    : task → task | spike | bug
+scope-of      : task | spike → project       (Shape Up "scope")
+child-of      : project → initiative
+                initiative → goal
+                bug → project
 ```
 
-### Common `add` options
-```bash
---status <status>          # Entity status (default: active)
---property <key=value>     # Repeatable — set properties
---tag <tag>                # Repeatable — add tags
---link <relation:target>   # Repeatable — create edges on creation
---json                     # Output as JSON
+### Knowledge → work
 ```
+addresses     : decision | project | task → question | direction
+answers       : decision | artifact | meeting → question
+implements    : project | task | initiative → direction | decision
+```
+
+### Knowledge ↔ meeting
+```
+decided-at    : decision → meeting
+raised-at     : question → meeting
+attended-by   : meeting → person
+```
+
+### Lifecycle
+```
+blocks        : work → work
+depends-on    : work → work
+supersedes    : decision | project | artifact → decision | project | artifact
+```
+
+### Provenance (PROV-O)
+```
+sourced-from  : * → meeting | artifact | context
+generated-by  : * → activity
+derived-from  : * → *
+attributed-to : * → person
+```
+
+### Categorical
+```
+relates-to    : * → *      (deliberately vague)
+assigned-to   : work → person
+references    : * → *
+owned-by      : work | repo | artifact → person
+```
+
+### Deprecated (will be migrated by `orka kb upgrade`)
+```
+part-of       : DEPRECATED — split into subtask-of / scope-of / child-of / sourced-from / owned-by
+contributes-to: DEPRECATED — use attributed-to or assigned-to
+```
+
+Run `orka kb relations` to see the full list with descriptions.
+
+---
+
+## Edge Qualifiers (Wikidata pattern)
+
+Every edge carries metadata in a `qualifiers` object:
+```json
+{
+  "relation": "assigned-to",
+  "target": "per-xxx",
+  "qualifiers": {
+    "at": "2026-05-05T10:00:00Z",
+    "by": "skill:kb-track",
+    "source": "evt-abc123",
+    "confidence": 0.95,
+    "role": "primary",
+    "note": "owns delivery"
+  }
+}
+```
+
+CLI:
+```bash
+orka kb link <src> <relation> <tgt> --role reviewer --confidence 0.8 --note "..."
+orka kb link <src> <relation> <tgt> --qualifier key=value
+```
+
+The traversal uses `confidence` to drop uncertain links; the UI displays `role`, `note`, etc. in the detail panel.
+
+---
+
+## CLI Commands (v2)
+
+```bash
+# Schema introspection
+orka kb types                           # show all types, prefixes, valid statuses
+orka kb relations                       # show relation vocabulary with constraints
+
+# Mutation (with validation modes)
+orka kb add <type> <title> [opts]       # --strict | --draft | --skill <name>
+orka kb update <id> [opts]              # validates status transitions
+orka kb link <src> <rel> <tgt> [opts]   # validates relation type constraints
+orka kb show <id>                       # entity details + qualifiers
+orka kb list [--type] [--status] [--tag]
+orka kb history <id>
+orka kb timeline [--since] [--limit]
+
+# Health & migration
+orka kb lint [--type <t>] [--json]      # audit: missing source, off-spec status, deprecated edges
+orka kb classify <id>                   # heuristic: suggest correct tier
+orka kb upgrade                         # migrate v1 → v2 (P9, coming)
+
+# Queries
+orka kb context [--project <id>] [--breadth narrow|medium|wide]
+orka kb project-doc <id> [--breadth ...]
+orka kb graph [--format dot|json]
+
+# Maintenance
+orka kb sync                            # rebuild entities + views from event log
+orka kb migrate                         # bootstrap from git/docs (initial setup)
+orka kb ingest <file>                   # register file as artifact
+orka kb skills-sync [--dry-run] [--diff] # update .claude/skills/ from current Orka package version
+orka kb reclassify <id> <type>          # change entity tier (e.g. project → bug)
+```
+
+### Validation modes
+- `--strict` — errors throw; new clean v2 KBs should default to this
+- `--draft` — errors logged as `entity.flagged` events; mutation proceeds; warning printed (default for backward-compat)
+
+### Skills mode
+When a skill creates entities, pass `--skill <name>`. This:
+- Auto-creates an `activity` entity for the skill (idempotent)
+- Auto-emits a `generated-by` edge satisfying the PROV-O provenance requirement
+- Lets you query "all entities generated by /kb-track" cleanly
+
+```bash
+orka kb add decision "Use JWT" --skill kb-track --property description="..." --property outcome="..."
+```
+
+---
+
+## Required vs Recommended Properties
+
+The validator enforces required properties in `--strict`. Recommended are surfaced by `kb lint`.
+
+### Required
+- All work-tier types: `description`
+- `decision`: `description`, `outcome` (the chosen option, MADR-style)
+- `direction`: `description`
+- `meeting`: `date`
+
+### Recommended (`kb lint` flags missing ones)
+- `goal`: `owner`, `rationale`
+- `initiative`: `owner`, `target_release`
+- `project`: `path`, `owner`, `target_release`, `repo_path`
+- `task`: `owner`, `estimate`, `priority`
+- `spike`: `question`, `time_box`, `owner`
+- `bug`: `repro_steps`, `severity`, `reporter`
+- `decision`: `drivers`, `options`, `consequences`, `decided_by`, `decided_at` (full MADR)
+- `meeting`: `attendees`, `notes_path`
+- `person`: `role`, `profile_path`
+- `repo`: `stack`, `url`
 
 ---
 
 ## Skills Reference
 
-| Skill | Purpose | When to use |
-|-------|---------|-------------|
-| `/kb-guide` | This skill — complete system reference | When you need to understand how Orka KB works |
-| `/kb-track` | Capture decisions, questions, directions from conversation | After meetings, discussions, or decisions |
-| `/kb-context` | Load full KB context | Start of session to get up to speed |
-| `/kb-project-context` | Load project-specific context + read source files | When diving deep into a specific project |
-| `/kb-ingest` | Extract entities from a document | After writing meeting notes or receiving a spec |
-| `/kb-status` | Quick pulse check | Quick standup or status check |
-| `/kb-project` | Register, archive, update projects | When starting/closing features or epics |
-| `/kb-migrate-sources` | Upgrade KB structure between versions | After Orka version upgrade |
+| Skill | Purpose |
+|---|---|
+| `/kb-guide` | This file |
+| `/kb-track` | Capture decisions, questions, directions from conversation (with --skill auto-provenance) |
+| `/kb-ingest` | Extract entities from a document |
+| `/kb-context` | Load full or project KB context (supports --breadth) |
+| `/kb-project-context` | Deep-dive on a project + read source files |
+| `/kb-status` | Quick pulse check |
+| `/kb-project` | CRUD projects, tier classification |
+| `/kb-lint` | Audit KB health |
+| `/kb-classify` | Suggest tier for an entity |
+| `/kb-migrate-sources` | Upgrade between Orka versions |
 
 ---
-
-## Source Traceability Rules
-
-**Every entity MUST have source info.** Use at minimum ONE of:
-- `--property source_path="path/to/file.md"` — link to a file in the project
-- `--property source="human-readable description"` — text reference
-- `--link sourced-from:<entity-id>` — link to meeting/artifact entity
-
-Prefer ALL THREE when possible. The `source_path` enables direct navigation from the Knowledge Graph UI.
 
 ## Path Convention
 
-**All paths in the KB and in generated documents MUST be relative to the project root.** Never use paths relative to the current file.
+**All paths in the KB and in generated documents MUST be relative to the project root.** Never use paths relative to the current file or absolute system paths.
 
-Examples:
-- `01-journal/2026/04-april/meeting/notes.md` (from project root)
-- `02-people/felipe-mantilla/` (from project root)
-- `03-projects/active/feature-slug/` (from project root)
+- ✅ `01-journal/2026/04-april/meeting/notes.md`
+- ✅ `02-people/felipe-mantilla/`
+- ✅ `03-projects/active/feature-slug/`
+- ❌ `../sibling/file.md`
+- ❌ `/absolute/system/path`
 
-This ensures that links in markdown documents (INDEX.md, meeting notes, etc.) resolve correctly in the Orka file viewer. The viewer treats all internal links as project-root paths.
-
-**Do NOT use:**
-- `../sibling/file.md` (relative paths)
-- `/absolute/system/path` (absolute system paths)
-- `./local-file.md` (current-directory relative)
+This ensures links in INDEX.md and the Knowledge Graph file viewer resolve correctly.
 
 ---
 
-## Project Management
+## Project Master Document (INDEX.md)
 
-Projects (`prj-` prefix) are the top-level containers. Everything links to them:
-
-```bash
-# Create a project
-orka kb add project "Feature Name" \
-  --status in-progress \
-  --property path="03-projects/active/slug/" \
-  --property repo_path="/absolute/path/to/repo" \
-  --property description="What this achieves" \
-  --property owner="person-name" \
-  --property target_release="2026-06" \
-  --tag feature
-
-# Link related entities
-orka kb link dec-xxx part-of prj-xxx
-orka kb link qst-xxx part-of prj-xxx
-orka kb link per-xxx assigned-to prj-xxx
-
-# Update status as it progresses
-orka kb update prj-xxx --status blocked --property blocked_by="waiting for X"
-orka kb update prj-xxx --status resolved --property shipped_date="2026-06-15"
-orka kb update prj-xxx --status archived --property archived_reason="shipped"
-```
-
-Key properties: `path`, `repo_path` (optional, highly recommended), `description`, `owner`, `target_release`, `status_detail`, `master_doc` (auto-generated).
-
-### Project Master Document (INDEX.md)
-
-Each project can have an auto-generated `INDEX.md` file that serves as the living index — linking all decisions, questions, milestones, people, meetings, and artifacts related to the project.
+Each project can have an auto-generated `INDEX.md` linking all related decisions, questions, milestones, people, meetings, artifacts, and sub-work-items.
 
 ```bash
-# Generate or update the project index
-orka kb project-doc <project-id>
+orka kb project-doc <id> [--breadth narrow|medium|wide]
 ```
 
-This creates `INDEX.md` inside the project's `path` folder (e.g., `03-projects/active/feature-slug/INDEX.md`) and sets the `master_doc` property on the project entity. The Knowledge Graph UI shows this as the top Quick Access link.
+The traversal is **scored** (not uniform BFS): edges are weighted by relation type, decayed by hop distance, and filtered by confidence. Off-topic entities that share a meeting with the project no longer pollute the index.
 
-**When to regenerate:** After any KB change related to the project — new decisions, resolved questions, status updates. The skills `/kb-track` and `/kb-ingest` should regenerate the doc after making changes.
+**When to regenerate:** after any change related to the project. Skills (`/kb-track`, `/kb-ingest`) regenerate it automatically.
+
+---
+
+## Validation Modes & Provenance Rules
+
+For LLM/skill actors (anything other than `cli`, `migration`, `system`):
+
+1. Required properties enforced (description, outcome, etc.)
+2. Status must be in the per-type allowed set
+3. Status transitions must follow the state machine
+4. Relations must match source/target type constraints
+5. **At least one `sourced-from`, `generated-by`, or `derived-from` edge** must be present at creation
+
+The `--skill <name>` flag handles the provenance edge automatically by creating/reusing an activity entity.
+
+---
+
+## Migration from v1
+
+v1 KBs work in `--draft` mode (the default). To upgrade fully:
+
+```bash
+orka kb lint                    # see what needs migration
+orka kb upgrade                 # apply migrations (P9 — coming soon)
+```
+
+Migration handles:
+- `type: "reference"` → `artifact` with tag
+- Statuses normalized (`completed` → `reached`, `answered` → `resolved`, etc.)
+- Deprecated relations (`part-of`, `contributes-to`) split into typed relations based on source/target types
+- Edge qualifiers backfilled from `since`/`eventRef`
+- Provenance heuristics (timestamps + nearby meetings)
 
 ---
 
 ## Knowledge Graph UI
 
-The Knowledge tab in the Orka web dashboard has:
+The Knowledge tab in the Orka web dashboard:
 
-- **Timeline bar** (top) — days grouped by week, click to see events for that day
-- **Guide panel** (left) — project selector + collapsible sections (questions, decisions, milestones, etc.)
-- **Graph canvas** (center) — force-directed graph with circular nodes colored by type
-- **Detail panel** (right) — entity details, Quick Access links, Sources, Relationships, History
-- **Actions** — "Load project context" (projects only) and "Discuss in terminal" buttons
+- **Timeline** (top) — events grouped by day
+- **Guide panel** (left) — project selector + collapsible sections by tier and type
+- **Graph canvas** (center) — force-directed, nodes colored by type, edges weighted
+- **Detail panel** (right) — type-aware (MADR rendering for decisions, etc.), Quick Access, Sources, Backlinks, History
+- **Health panel** (per project) — % with source, % with description, stale questions, ratio open/resolved
 
-Selecting a project in the guide panel:
-- Filters the guide panel to show only project-related entities
-- Dims unrelated nodes in the graph
-- Opens the project detail panel
-
----
-
-## Version Changelog
-
-### v0.12.2
-- Detail panel now shows description/rationale/resolution prominently at the top
-- Key info shown as chips: role, owner, team, date, deadline, target, stack, location, etc.
-- Properties are de-duplicated — prominent fields don't repeat in the Properties section
-- Skills updated: always include `description` property for better UI display
-
-### v0.12.1
-- Internal markdown links resolve correctly to the Orka file viewer
-- All paths are treated as project-root relative (no relative path resolution)
-- Path convention enforced in all skills: always use paths from project root
-- Internal links styled in purple, external links in blue
-
-### v0.12.0
-- Project master document: `orka kb project-doc <id>` generates `INDEX.md` inside the project folder
-- `INDEX.md` is a living index linking all decisions, questions, milestones, people, meetings, artifacts
-- `master_doc` property auto-set on project entities — appears as top Quick Access link in UI
-- "Generate project index" / "Update project index" button in detail panel
-- Skills should regenerate INDEX.md after making project-related changes
-
-### v0.11.4
-- `orka kb context --project <id>` — project-specific context with source files list
-- New skill `/kb-project-context`
-- Context output now includes entity properties and all navigable file paths
-
-### v0.11.2
-- `repo_path` property for projects (optional, recommended)
-- Project selector moved to left guide panel
-- Selecting a project opens detail panel automatically
-
-### v0.11.0
-- New entity type `project` (prefix `prj-`)
-- New statuses: `in-progress`, `blocked`, `pending`, `review`
-- Knowledge Graph UI project selector with colored status dots
-- Project filtering in graph + guide panel
-
-### v0.10.5
-- Source traceability: `source_path`, `sourced-from` edges
-- Detail panel "Sources" section + "Quick Access" links
-- Skills enforce source tracking
-
-### v0.10.0
-- Initial KB system: event log, entity store, views
-- Entity types: decision, question, meeting, milestone, direction, person, repo, artifact, context
-- Skills: `/kb-track`, `/kb-context`, `/kb-ingest`, `/kb-status`
-- CLI commands: `orka kb init/add/update/link/show/list/context/history/timeline/graph/sync/migrate/ingest`
-
----
-
-## Migration Between Versions
-
-When upgrading Orka, run `/kb-migrate-sources` to update the KB structure. That skill has step-by-step instructions for each version's changes. Key migrations:
-
-1. **v0.10.5**: Add `source_path` and `sourced-from` edges to existing entities
-2. **v0.11.0**: Convert feature/epic artifacts to `project` type, link everything with `part-of`
-3. **v0.11.2**: Add `repo_path` to projects that have associated repositories
-4. **v0.11.4**: No migration needed — new commands/skills only
+Selecting a project filters the graph by relevance score (using the same weighted traversal as `kb context --project`).

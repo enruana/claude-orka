@@ -2,6 +2,8 @@ import chalk from 'chalk'
 import fs from 'fs'
 import path from 'path'
 import { Output } from './output'
+import { ValidationError } from '../../core/KnowledgeBaseManager'
+import { formatResult } from '../../models'
 
 /**
  * CLI Error Handler
@@ -23,6 +25,12 @@ export function handleError(error: unknown): never {
   if (error instanceof CLIError) {
     Output.error(error.message)
     process.exit(error.exitCode)
+  }
+
+  if (error instanceof ValidationError) {
+    Output.error('Validation failed (use --draft to bypass):')
+    console.error(formatResult(error.result))
+    process.exit(1)
   }
 
   if (error instanceof Error) {

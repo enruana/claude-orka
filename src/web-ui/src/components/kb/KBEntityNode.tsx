@@ -2,20 +2,36 @@ import { memo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import type { KBEntity } from '../../api/client'
 
-// Timeline entities are prominent (colored + larger)
-const TIMELINE_TYPES = new Set(['meeting', 'milestone', 'decision', 'direction', 'project'])
+// Timeline entities are prominent (colored + larger).
+// v2 work-tier types (goal, initiative, project, task, spike, bug) get
+// timeline prominence — they're the structural backbone of the KB.
+const TIMELINE_TYPES = new Set([
+  'meeting', 'milestone', 'decision', 'direction',
+  'goal', 'initiative', 'project',
+  'task', 'spike', 'bug',
+])
 
 const TYPE_COLORS: Record<string, string> = {
+  // Knowledge tier
   decision:  '#a6e3a1',
   question:  '#f9e2af',
-  person:    '#89b4fa',
   meeting:   '#cba6f7',
+  milestone: '#f5c2e7',
   direction: '#fab387',
+  // Work tier — v2: gradient warm→cool from strategic to atomic
+  goal:       '#f38ba8',  // pink — strategic top-level
+  initiative: '#eba0ac',  // mauve — strategic
+  project:    '#f38ba8',  // pink (same as v1 for continuity)
+  task:       '#94e2d5',  // teal — atomic work
+  spike:      '#eed49f',  // amber — exploration
+  bug:        '#ed8796',  // red — defects
+  // Reference tier
+  person:    '#89b4fa',
   repo:      '#89dceb',
   artifact:  '#a6adc8',
-  milestone: '#f5c2e7',
   context:   '#6c7086',
-  project:   '#f38ba8',
+  // Provenance — neutral grey, less visually prominent
+  activity:  '#7f849c',
 }
 
 interface KBEntityNodeProps {

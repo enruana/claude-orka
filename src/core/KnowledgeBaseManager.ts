@@ -11,28 +11,24 @@ import {
   KBIndex,
   KBEntityFilter,
   KBTimelineFilter,
+  KB_TYPE_PREFIXES,
+  KBTypeStrict,
+  ValidationMode,
+  ValidationResult,
+  validateEntityCreation,
+  validateEntityUpdate,
+  validateEdge,
+  formatResult,
 } from '../models'
+import { BREADTH_PRESETS, relatedEntityIds } from './kb-traversal'
 
 const KB_DIR = path.join('.claude-orka', '.orka-kb')
 const EVENTS_FILE = 'events.jsonl'
 const ENTITIES_DIR = 'entities'
 const VIEWS_DIR = 'views'
 
-const TYPE_PREFIXES: Record<string, string> = {
-  decision: 'dec',
-  meeting: 'mtg',
-  question: 'qst',
-  person: 'per',
-  direction: 'dir',
-  repo: 'rep',
-  artifact: 'art',
-  milestone: 'mil',
-  context: 'ctx',
-  project: 'prj',
-}
-
 function generateId(type: string): string {
-  const prefix = TYPE_PREFIXES[type] || type.slice(0, 3)
+  const prefix = KB_TYPE_PREFIXES[type as KBTypeStrict] || type.slice(0, 3)
   return `${prefix}-${nanoid(8)}`
 }
 
@@ -42,6 +38,13 @@ export interface AddEntityOptions {
   tags?: string[]
   edges?: Array<{ relation: string; target: string }>
   actor?: string
+  /**
+   * Validation mode override. Defaults to the manager's instance mode.
+   * - 'strict' — errors throw, warnings printed
+   * - 'draft'  — errors logged as 'entity.flagged' events, mutation proceeds
+   * - 'off'    — no validation (legacy / migration use only)
+   */
+  validation?: ValidationMode
 }
 
 export interface UpdateEntityOptions {
@@ -51,6 +54,23 @@ export interface UpdateEntityOptions {
   addTags?: string[]
   removeTags?: string[]
   actor?: string
+  validation?: ValidationMode
+}
+
+export interface KnowledgeBaseManagerOptions {
+  /**
+   * Default validation mode for all mutations. Individual calls can override.
+   * Default: 'draft' — backward-compatible with v1 KBs (warns on issues but
+   * proceeds). Set to 'strict' for new KBs or after running 'orka kb upgrade'.
+   */
+  validation?: ValidationMode
+}
+
+export class ValidationError extends Error {
+  constructor(message: string, public result: ValidationResult) {
+    super(message)
+    this.name = 'ValidationError'
+  }
 }
 
 export class KnowledgeBaseManager {
@@ -59,13 +79,79 @@ export class KnowledgeBaseManager {
   private eventsPath: string
   private entitiesPath: string
   private viewsPath: string
+  private validationMode: ValidationMode
 
-  constructor(projectPath: string) {
+  constructor(projectPath: string, opts: KnowledgeBaseManagerOptions = {}) {
     this.projectPath = projectPath
     this.kbPath = path.join(projectPath, KB_DIR)
     this.eventsPath = path.join(this.kbPath, EVENTS_FILE)
     this.entitiesPath = path.join(this.kbPath, ENTITIES_DIR)
     this.viewsPath = path.join(this.kbPath, VIEWS_DIR)
+    this.validationMode = opts.validation ?? 'draft'
+  }
+
+  /** Change the default validation mode after construction. */
+  setValidationMode(mode: ValidationMode): void {
+    this.validationMode = mode
+  }
+
+  getValidationMode(): ValidationMode {
+    return this.validationMode
+  }
+
+  // --- Validation ---
+
+  /**
+   * Apply a validation result according to the active mode.
+   * - strict: errors throw a ValidationError; warnings are printed.
+   * - draft:  errors and warnings are recorded as 'entity.flagged' events,
+   *           but the mutation proceeds.
+   * - off:    nothing happens.
+   *
+   * Returns true if the mutation should proceed, false if it should abort.
+   * In strict mode with errors, this throws — so it never returns false.
+   */
+  private async applyValidation(
+    result: ValidationResult,
+    context: { entityId?: string; actor: string; operation: string },
+    mode: ValidationMode
+  ): Promise<boolean> {
+    if (mode === 'off') return true
+    if (result.ok && result.warnings.length === 0) return true
+
+    if (mode === 'strict' && !result.ok) {
+      const summary = `${result.errors.length} validation error(s) for ${context.operation}:\n${formatResult(result)}`
+      throw new ValidationError(summary, result)
+    }
+
+    // Draft mode (or strict with only warnings) — record as event for later linting
+    const issues = [...result.errors, ...result.warnings]
+    if (issues.length > 0) {
+      await this.appendEvent({
+        type: 'entity.flagged',
+        entityId: context.entityId,
+        actor: context.actor,
+        data: {
+          operation: context.operation,
+          issues: issues.map((i) => ({
+            code: i.code,
+            severity: i.severity,
+            message: i.message,
+            hint: i.hint,
+          })),
+        },
+      })
+
+      // In draft mode, also surface warnings to stderr so the user knows
+      // they're accumulating debt. Skipped under TEST/CI to keep test output
+      // clean — the events are still recorded and queryable.
+      if (process.env.ORKA_QUIET !== '1') {
+        const tag = result.errors.length > 0 ? 'flagged' : 'warned'
+        console.error(`⚠ ${context.operation} ${tag}: ${issues.length} issue(s) — see 'orka kb lint' or events.jsonl`)
+      }
+    }
+
+    return true
   }
 
   // --- Initialization ---
@@ -90,6 +176,59 @@ export class KnowledgeBaseManager {
     })
 
     await this.sync()
+  }
+
+  // --- Provenance / Activity (PROV-O) ---
+
+  /**
+   * Get or create an `activity` entity representing a skill/agent run.
+   *
+   * Strategy: one persistent activity per skill name (e.g. one for /kb-track,
+   * one for /kb-ingest). This keeps the activity count manageable and lets
+   * the UI group "all entities generated by /kb-track" cleanly. Sessions or
+   * specific runs can be tracked via the activity's history (each generation
+   * appends an event linked to the activity).
+   *
+   * If the activity already exists, returns it without creating duplicates.
+   */
+  async getOrCreateActivity(skillName: string, opts: {
+    sessionId?: string
+    description?: string
+  } = {}): Promise<KBEntity> {
+    // Look up by title — activity titles use a canonical "skill: <name>" form
+    const title = `skill: ${skillName}`
+    const existing = await this.findEntityByTitle(title, 'activity')
+    if (existing) return existing
+
+    return this.addEntity('activity', title, {
+      actor: 'system',
+      properties: {
+        skill: skillName,
+        session_id: opts.sessionId || 'persistent',
+        description: opts.description || `Provenance activity for the ${skillName} skill`,
+      },
+      // No edges required for activity creation (system actor bypasses provenance check)
+    })
+  }
+
+  /**
+   * High-level wrapper: when a skill creates entities, it should call this
+   * with the skill name. The wrapper adds `generated-by` to the entity's
+   * edges automatically, satisfying the PROV-O provenance requirement.
+   */
+  async addEntityFromSkill(
+    skillName: string,
+    type: KBEntityType,
+    title: string,
+    opts: AddEntityOptions = {}
+  ): Promise<KBEntity> {
+    const activity = await this.getOrCreateActivity(skillName)
+    const edges = [...(opts.edges || []), { relation: 'generated-by', target: activity.id }]
+    return this.addEntity(type, title, {
+      ...opts,
+      actor: opts.actor || `skill:${skillName}`,
+      edges,
+    })
   }
 
   // --- Event Log ---
@@ -139,12 +278,28 @@ export class KnowledgeBaseManager {
     const id = generateId(type)
     const now = new Date().toISOString()
     const actor = opts.actor || 'cli'
+    const mode = opts.validation ?? this.validationMode
+    const status = opts.status || 'active'
+
+    // Validate before mutating state
+    const validation = validateEntityCreation({
+      type: String(type),
+      status: String(status),
+      properties: opts.properties || {},
+      edges: opts.edges || [],
+      actor,
+    })
+    await this.applyValidation(
+      validation,
+      { entityId: id, actor, operation: `addEntity(${type})` },
+      mode
+    )
 
     const event = await this.appendEvent({
       type: 'entity.created',
       entityId: id,
       actor,
-      data: { type, title, status: opts.status || 'active', properties: opts.properties || {}, tags: opts.tags || [] },
+      data: { type, title, status, properties: opts.properties || {}, tags: opts.tags || [] },
       refs: opts.edges?.map((e) => e.target),
     })
 
@@ -152,7 +307,7 @@ export class KnowledgeBaseManager {
       id,
       type,
       title,
-      status: opts.status || 'active',
+      status,
       created: now,
       updated: now,
       properties: opts.properties || {},
@@ -166,13 +321,17 @@ export class KnowledgeBaseManager {
     // Create edges via separate events (so sync can replay them)
     if (opts.edges) {
       for (const edge of opts.edges) {
-        await this.addEdge(id, edge.relation, edge.target, actor)
+        await this.addEdge(id, edge.relation, edge.target, actor, { validation: mode })
       }
       // Re-read entity after edges were added
       const updated = await this.getEntity(id)
-      if (updated) return updated
+      if (updated) {
+        await this.refreshIndex()
+        return updated
+      }
     }
 
+    await this.refreshIndex()
     return entity
   }
 
@@ -184,9 +343,22 @@ export class KnowledgeBaseManager {
 
     const now = new Date().toISOString()
     const actor = opts.actor || 'cli'
+    const mode = opts.validation ?? this.validationMode
     const changes: Record<string, unknown> = {}
 
+    // Validate status transition (if changing status)
     if (opts.status && opts.status !== entity.status) {
+      const validation = validateEntityUpdate({
+        type: String(entity.type),
+        fromStatus: String(entity.status),
+        toStatus: String(opts.status),
+        newProperties: opts.properties,
+      })
+      await this.applyValidation(
+        validation,
+        { entityId: id, actor, operation: `updateEntity(${entity.type}, status)` },
+        mode
+      )
       changes.status = { from: entity.status, to: opts.status }
       entity.status = opts.status
     }
@@ -238,6 +410,7 @@ export class KnowledgeBaseManager {
     entity.history.push({ ts: now, event: event.id, summary: `Updated: ${summary}` })
 
     await this.writeEntity(entity)
+    await this.refreshIndex()
     return entity
   }
 
@@ -251,7 +424,11 @@ export class KnowledgeBaseManager {
     sourceId: string,
     relation: string,
     targetId: string,
-    actor = 'cli'
+    actor = 'cli',
+    opts: {
+      validation?: ValidationMode
+      qualifiers?: Partial<import('../models').KBEdgeQualifiers>
+    } = {}
   ): Promise<KBEdge> {
     const source = await this.getEntity(sourceId)
     if (!source) throw new Error(`Entity not found: ${sourceId}`)
@@ -259,21 +436,46 @@ export class KnowledgeBaseManager {
     const target = await this.getEntity(targetId)
     if (!target) throw new Error(`Entity not found: ${targetId}`)
 
+    const mode = opts.validation ?? this.validationMode
+
+    // Validate the edge against the relation registry
+    const validation = validateEdge({
+      sourceType: String(source.type),
+      relation,
+      targetType: String(target.type),
+    })
+    await this.applyValidation(
+      validation,
+      { entityId: sourceId, actor, operation: `addEdge(${relation})` },
+      mode
+    )
+
     const now = new Date().toISOString()
 
     const event = await this.appendEvent({
       type: 'edge.created',
       entityId: sourceId,
       actor,
-      data: { relation, target: targetId },
+      // Persist qualifiers in the event for full replay fidelity.
+      data: { relation, target: targetId, qualifiers: opts.qualifiers || null },
       refs: [targetId],
     })
+
+    // Build the qualifier metadata. Caller-supplied values win over defaults.
+    const qualifiers: import('../models').KBEdgeQualifiers = {
+      at: now,
+      by: actor,
+      source: event.id,
+      ...(opts.qualifiers || {}),
+    }
 
     const edge: KBEdge = {
       relation,
       target: targetId,
+      // Legacy fields kept for backward compat; mirror the qualifier values.
       since: now,
       eventRef: event.id,
+      qualifiers,
     }
 
     source.edges.push(edge)
@@ -293,6 +495,7 @@ export class KnowledgeBaseManager {
     })
     await this.writeEntity(target)
 
+    await this.refreshIndex()
     return edge
   }
 
@@ -322,14 +525,38 @@ export class KnowledgeBaseManager {
     })
 
     await this.writeEntity(source)
+    await this.refreshIndex()
   }
 
   // --- Queries ---
 
+  /**
+   * Back-fill missing qualifiers on legacy v1 edges that lack them.
+   * v1 stored only `since` and `eventRef`; v2 expects a `qualifiers` object.
+   * Called on every read so consumers always see a v2-shaped entity.
+   */
+  private hydrateEdgeQualifiers(entity: KBEntity): KBEntity {
+    let mutated = false
+    for (const edge of entity.edges) {
+      if (!edge.qualifiers) {
+        edge.qualifiers = {
+          at: edge.since,
+          by: 'unknown',
+          source: edge.eventRef,
+        }
+        mutated = true
+      }
+    }
+    // Mark the entity in-memory; we don't write back here (read-side only).
+    void mutated
+    return entity
+  }
+
   async getEntity(id: string): Promise<KBEntity | null> {
     const filePath = path.join(this.entitiesPath, `${id}.json`)
     if (!await fs.pathExists(filePath)) return null
-    return fs.readJson(filePath)
+    const entity: KBEntity = await fs.readJson(filePath)
+    return this.hydrateEdgeQualifiers(entity)
   }
 
   async listEntities(filter?: KBEntityFilter): Promise<KBEntity[]> {
@@ -348,7 +575,7 @@ export class KnowledgeBaseManager {
       if (filter?.status && entity.status !== filter.status) continue
       if (filter?.tag && !entity.tags.includes(filter.tag)) continue
 
-      entities.push(entity)
+      entities.push(this.hydrateEdgeQualifiers(entity))
     }
 
     return entities.sort(
@@ -404,11 +631,14 @@ export class KnowledgeBaseManager {
 
   // --- Context Generation ---
 
-  async generateContext(projectId?: string): Promise<string> {
+  async generateContext(
+    projectId?: string,
+    breadth: 'narrow' | 'medium' | 'wide' = 'medium'
+  ): Promise<string> {
     const allEntities = await this.listEntities()
     const events = await this.readEvents()
 
-    // If project filter, compute related entities (2-hop BFS)
+    // If project filter, use weighted traversal (replaces v1 uniform 2-hop BFS)
     let entities = allEntities
     let project: KBEntity | undefined
 
@@ -416,29 +646,8 @@ export class KnowledgeBaseManager {
       project = allEntities.find((e) => e.id === projectId)
       if (!project) throw new Error(`Project not found: ${projectId}`)
 
-      const related = new Set<string>([projectId])
-      const adjacency = new Map<string, Set<string>>()
-      for (const e of allEntities) {
-        if (!adjacency.has(e.id)) adjacency.set(e.id, new Set())
-        for (const edge of e.edges) {
-          adjacency.get(e.id)!.add(edge.target)
-          if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set())
-          adjacency.get(edge.target)!.add(e.id)
-        }
-      }
-      const queue = [projectId]
-      const visited = new Set([projectId])
-      let depth = 0
-      while (queue.length > 0 && depth < 2) {
-        const size = queue.length
-        for (let i = 0; i < size; i++) {
-          const id = queue.shift()!
-          for (const n of adjacency.get(id) || []) {
-            if (!visited.has(n)) { visited.add(n); related.add(n); queue.push(n) }
-          }
-        }
-        depth++
-      }
+      const config = BREADTH_PRESETS[breadth]
+      const related = relatedEntityIds(projectId, allEntities, config)
       entities = allEntities.filter((e) => related.has(e.id))
     }
 
@@ -456,6 +665,19 @@ export class KnowledgeBaseManager {
       sections.push('')
     } else {
       sections.push('# Project Knowledge Base Context\n')
+    }
+
+    // Active work items (tier types — tasks, spikes, bugs, sub-projects, initiatives)
+    const workItems = entities.filter(
+      (e) => ['task', 'spike', 'bug', 'initiative'].includes(String(e.type)) && e.status !== 'archived' && e.status !== 'cancelled' && e.status !== 'done' && e.status !== 'fixed'
+    )
+    if (workItems.length > 0) {
+      sections.push('## Active Work Items\n')
+      for (const w of workItems.slice(0, 20)) {
+        const owner = w.properties.owner ? ` — ${w.properties.owner}` : ''
+        sections.push(`- **[${w.type}]** ${w.title} (${w.id}) [${w.status}]${owner}`)
+      }
+      sections.push('')
     }
 
     // Active decisions
@@ -568,36 +790,19 @@ export class KnowledgeBaseManager {
 
   // --- Project Master Document ---
 
-  async generateProjectDoc(projectId: string): Promise<{ content: string; filePath: string }> {
+  async generateProjectDoc(
+    projectId: string,
+    breadth: 'narrow' | 'medium' | 'wide' = 'medium'
+  ): Promise<{ content: string; filePath: string }> {
     const allEntities = await this.listEntities()
     const project = allEntities.find((e) => e.id === projectId)
     if (!project) throw new Error(`Project not found: ${projectId}`)
 
-    // Compute related entities (2-hop BFS)
-    const related = new Set<string>([projectId])
-    const adjacency = new Map<string, Set<string>>()
-    for (const e of allEntities) {
-      if (!adjacency.has(e.id)) adjacency.set(e.id, new Set())
-      for (const edge of e.edges) {
-        adjacency.get(e.id)!.add(edge.target)
-        if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set())
-        adjacency.get(edge.target)!.add(e.id)
-      }
-    }
-    const queue = [projectId]
-    const visited = new Set([projectId])
-    let depth = 0
-    while (queue.length > 0 && depth < 2) {
-      const size = queue.length
-      for (let i = 0; i < size; i++) {
-        const id = queue.shift()!
-        for (const n of adjacency.get(id) || []) {
-          if (!visited.has(n)) { visited.add(n); related.add(n); queue.push(n) }
-        }
-      }
-      depth++
-    }
-
+    // Weighted traversal — replaces v1 uniform 2-hop BFS that pulled in too
+    // many off-topic entities through any shared meeting/person. Now edges
+    // are scored by relation type, hop count and confidence.
+    const config = BREADTH_PRESETS[breadth]
+    const related = relatedEntityIds(projectId, allEntities, config)
     const entities = allEntities.filter((e) => related.has(e.id) && e.id !== projectId)
     const now = new Date().toISOString()
 
@@ -621,6 +826,32 @@ export class KnowledgeBaseManager {
     lines.push('---')
     lines.push('')
 
+    // Sub-work items (v2 tier types) — tasks, spikes, bugs scoped to this project
+    const tasks = entities.filter((e) => e.type === 'task')
+    const spikes = entities.filter((e) => e.type === 'spike')
+    const bugs = entities.filter((e) => e.type === 'bug')
+    if (tasks.length + spikes.length + bugs.length > 0) {
+      lines.push('## Work Items')
+      lines.push('')
+      for (const t of tasks) {
+        const check = t.status === 'done' ? '[x]' : t.status === 'cancelled' ? '[~]' : '[ ]'
+        const status = t.status !== 'todo' && t.status !== 'done' ? ` _(${t.status})_` : ''
+        const owner = t.properties.owner ? ` — ${t.properties.owner}` : ''
+        lines.push(`- ${check} **[task]** ${t.title}${status}${owner}`)
+      }
+      for (const s of spikes) {
+        const check = s.status === 'concluded' ? '[x]' : s.status === 'cancelled' ? '[~]' : '[ ]'
+        const status = ` _(${s.status})_`
+        lines.push(`- ${check} **[spike]** ${s.title}${status}`)
+      }
+      for (const b of bugs) {
+        const check = b.status === 'fixed' ? '[x]' : b.status === 'wontfix' || b.status === 'duplicate' ? '[~]' : '[ ]'
+        const status = ` _(${b.status})_`
+        lines.push(`- ${check} **[bug]** ${b.title}${status}`)
+      }
+      lines.push('')
+    }
+
     // Decisions
     const decisions = entities.filter((e) => e.type === 'decision')
     if (decisions.length > 0) {
@@ -636,8 +867,10 @@ export class KnowledgeBaseManager {
       lines.push('')
     }
 
-    // Open questions
-    const questions = entities.filter((e) => e.type === 'question' && e.status !== 'archived')
+    // Open questions — only truly active/open ones, never resolved/archived
+    const questions = entities.filter(
+      (e) => e.type === 'question' && e.status !== 'resolved' && e.status !== 'archived' && e.status !== 'answered'
+    )
     if (questions.length > 0) {
       lines.push('## Open Questions')
       lines.push('')
@@ -651,7 +884,9 @@ export class KnowledgeBaseManager {
     }
 
     // Resolved questions
-    const resolved = entities.filter((e) => e.type === 'question' && (e.status === 'resolved' || e.status === 'archived'))
+    const resolved = entities.filter(
+      (e) => e.type === 'question' && (e.status === 'resolved' || e.status === 'answered' || e.status === 'archived')
+    )
     if (resolved.length > 0) {
       lines.push('## Resolved Questions')
       lines.push('')
@@ -837,13 +1072,29 @@ export class KnowledgeBaseManager {
         case 'edge.created': {
           const entity = entityMap.get(event.entityId!)
           if (!entity) break
-          const { relation, target } = event.data as { relation: string; target: string }
-          entity.edges.push({ relation, target, since: event.ts, eventRef: event.id })
+          const data = event.data as {
+            relation: string
+            target: string
+            qualifiers?: import('../models').KBEdgeQualifiers | null
+          }
+          const qualifiers: import('../models').KBEdgeQualifiers = {
+            at: event.ts,
+            by: event.actor,
+            source: event.id,
+            ...(data.qualifiers || {}),
+          }
+          entity.edges.push({
+            relation: data.relation,
+            target: data.target,
+            since: event.ts,
+            eventRef: event.id,
+            qualifiers,
+          })
           entity.updated = event.ts
           entity.history.push({
             ts: event.ts,
             event: event.id,
-            summary: `Linked to ${target} via "${relation}"`,
+            summary: `Linked to ${data.target} via "${data.relation}"`,
           })
           break
         }
@@ -858,6 +1109,107 @@ export class KnowledgeBaseManager {
           entity.updated = event.ts
           break
         }
+
+        // --- v1 → v2 migration events (P9) ---
+        // These describe semantic transformations (type rename, status fix,
+        // relation rewrite, qualifier backfill) that must be replayable so
+        // that `kb sync` produces the same v2 state as the live migration did.
+        case 'kb.migration.action': {
+          const entity = entityMap.get(event.entityId!)
+          if (!entity) break
+          const a = event.data as {
+            kind: string
+            before: Record<string, unknown>
+            after: Record<string, unknown>
+          }
+          switch (a.kind) {
+            case 'reclassify_type': {
+              entity.type = String(a.after.type) as KBEntityType
+              const tag = String(a.after.tag)
+              if (tag && !entity.tags.includes(tag)) entity.tags.push(tag)
+              break
+            }
+            case 'normalize_status': {
+              entity.status = String(a.after.status) as KBEntityStatus
+              break
+            }
+            case 'rewrite_relation': {
+              const oldRel = String(a.before.relation)
+              const target = String(a.before.target)
+              const newRel = String(a.after.relation)
+              const edge = entity.edges.find(
+                (e) => e.relation === oldRel && e.target === target
+              )
+              if (edge) edge.relation = newRel
+              break
+            }
+            case 'backfill_qualifiers': {
+              const target = String(a.before.target)
+              const relation = String(a.before.relation)
+              const edge = entity.edges.find(
+                (e) => e.relation === relation && e.target === target
+              )
+              if (edge && !edge.qualifiers) {
+                edge.qualifiers = a.after.qualifiers as KBEdge['qualifiers']
+              }
+              break
+            }
+            case 'backfill_property': {
+              const prop = String(a.after.property)
+              const value = a.after.value
+              if (!entity.properties[prop]) {
+                entity.properties[prop] = value
+              }
+              break
+            }
+          }
+          entity.updated = event.ts
+          break
+        }
+
+        // Reclassification — entity gets a new id and type. Entries in
+        // entityMap are renamed and any edges in OTHER entities that targeted
+        // the old id are rewritten. Subsequent edge.created events that
+        // reference the new id (post-migration writes) just work.
+        case 'kb.migration.reclassified': {
+          const data = event.data as {
+            old_id: string
+            new_id: string
+            old_type: string
+            new_type: string
+          }
+          const entity = entityMap.get(data.old_id)
+          if (entity) {
+            entity.id = data.new_id
+            entity.type = data.new_type as KBEntityType
+            entity.updated = event.ts
+            entity.history.push({
+              ts: event.ts,
+              event: event.id,
+              summary: `Reclassified from ${data.old_type} to ${data.new_type}`,
+            })
+            // Move under new key
+            entityMap.delete(data.old_id)
+            entityMap.set(data.new_id, entity)
+          }
+          // Rewrite edges in every other entity that pointed to old id
+          for (const e of entityMap.values()) {
+            for (const edge of e.edges) {
+              if (edge.target === data.old_id) {
+                edge.target = data.new_id
+              }
+            }
+          }
+          break
+        }
+
+        // entity.flagged events are validation breadcrumbs for `kb lint`.
+        // They don't change entity state — handled at lint time, ignored here.
+        case 'entity.flagged':
+        case 'kb.migration.start':
+        case 'kb.migration.complete':
+        case 'kb.migration.error':
+          break
       }
     }
 
@@ -903,7 +1255,10 @@ export class KnowledgeBaseManager {
           const entity = await this.addEntity('person', nameMatch[1], {
             actor: 'migration',
             properties: { email: nameMatch[2] },
-            edges: [{ relation: 'contributes-to', target: repoEntity.id }],
+            // v2: use 'relates-to' instead of deprecated 'contributes-to'.
+            // Role can be added later as a qualifier (P4) once edge metadata
+            // is in place: relates-to{role: 'contributor'}.
+            edges: [{ relation: 'relates-to', target: repoEntity.id }],
           })
           generatedEvents.push(
             (await this.getEntityHistory(entity.id))[0]
@@ -921,8 +1276,9 @@ export class KnowledgeBaseManager {
       if (await fs.pathExists(fullPath)) {
         const entity = await this.addEntity('artifact', docFile, {
           actor: 'migration',
-          properties: { filePath: docFile },
-          edges: [{ relation: 'part-of', target: repoEntity.id }],
+          properties: { filePath: docFile, description: `Project doc: ${docFile}` },
+          // v2: use 'references' (artifact → repo) instead of deprecated 'part-of'.
+          edges: [{ relation: 'references', target: repoEntity.id }],
         })
         generatedEvents.push(
           (await this.getEntityHistory(entity.id))[0]
@@ -957,6 +1313,24 @@ export class KnowledgeBaseManager {
   private async writeEntity(entity: KBEntity): Promise<void> {
     const filePath = path.join(this.entitiesPath, `${entity.id}.json`)
     await fs.writeJson(filePath, entity, { spaces: 2 })
+  }
+
+  /**
+   * Cheap refresh of views/index.json after a single mutation.
+   * Keeps the UI / API in sync without full sync() (which also rewrites
+   * context.md, graph.dot, timeline.md — those still go through sync()).
+   * Failures are swallowed so a transient FS error never breaks a write.
+   */
+  private async refreshIndex(): Promise<void> {
+    try {
+      if (!await fs.pathExists(this.viewsPath)) {
+        await fs.ensureDir(this.viewsPath)
+      }
+      const index = await this.buildIndex()
+      await fs.writeJson(path.join(this.viewsPath, 'index.json'), index, { spaces: 2 })
+    } catch {
+      // Swallow — index can be rebuilt on next sync()/getIndex() call
+    }
   }
 
   private async buildIndex(): Promise<KBIndex> {

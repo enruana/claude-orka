@@ -293,6 +293,7 @@ function KBGraphInner({ projectPath, encodedPath, sessionId, branch, onSwitchToT
           </ReactFlow>
           <KBDetailPanel
             entity={selectedEntity}
+            allEntities={entities}
             encodedPath={encodedPath}
             projectPath={projectPath}
             sessionId={sessionId}

@@ -1,66 +1,76 @@
-# KB Project Context
+# KB Project Context (v2)
 
-Load the full context of a specific project — its status, decisions, questions, milestones, people, source files, and everything related. After loading, read the source files to deeply understand where the project stands.
+Load the full context of a specific project (or initiative/goal) — its status, sub-work-items, decisions, questions, milestones, people — and read its source files for deep understanding.
+
+For full v2 model see `/kb-guide`.
 
 ## Instructions
 
-1. First, list available projects:
+1. List available projects/initiatives if needed:
 ```bash
 orka kb list --type project
+orka kb list --type initiative
+orka kb list --type goal
 ```
 
-2. Load the project's context (replace `<project-id>` with the actual ID):
+2. Load the project context — pick breadth based on need:
+
 ```bash
-orka kb context --project <project-id>
+orka kb context --project <id>                    # medium default
+orka kb context --project <id> --breadth narrow   # focused: only directly-linked entities
+orka kb context --project <id> --breadth wide     # 3-hop, broad sweep
 ```
 
-This outputs:
+The output sections:
 - **Project header** — status, description, owner, target release, repo path
-- **Decisions** — what's been decided for this project
+- **Active Work Items** — tasks, spikes, bugs, sub-initiatives in flight (v2 tier types)
+- **Decisions** — what's been decided
 - **Questions** — what's still open
 - **Milestones** — deadlines and targets
 - **Directions** — strategic context
 - **People** — who's involved
 - **Repositories** — codebases related to this project
-- **Source Files** — list of files that contain detailed context
+- **Source Files** — files that contain detailed context
 
-3. **Read the source files** listed in the "Source Files" section. These are the actual meeting notes, specs, PRDs, and documents that contain the detailed context:
+3. **Read the source files** listed in "Source Files". These are the actual meeting notes, PRDs, specs, and docs:
 
 ```bash
-# Read each source file listed
 cat path/to/meeting-notes.md
 cat path/to/prd.md
-cat path/to/spec.md
 ```
 
-Read as many source files as needed to fully understand the project. Priority:
-- Meeting notes (`notes_path`) — conversations and decisions
-- Project folder (`path`) — specs, designs, documents
-- Profile paths (`profile_path`) — who's who
+Priority order:
+- **Meeting notes** (`notes_path`) — what was actually said
+- **PRDs/specs** (`path` on artifacts) — formal requirements
+- **Profile paths** (`profile_path`) — who's who
+- **Sub-task descriptions** — what's being done
 
-4. After reading, summarize your understanding back to the user:
-- What is this project about?
-- What's the current status and next steps?
-- What decisions have been made?
-- What questions are still open?
-- What's blocked or needs attention?
+4. **Summarize back to the user**:
+   - What the project is about
+   - Current status + next steps
+   - Key decisions made
+   - Open questions blocking progress
+   - Anything blocked or stale
 
-## Usage examples
+5. **If the project has a `repo_path`**, you can also explore the codebase using regular file tools.
+
+6. **After discussion**, capture any new decisions/questions/work items via `/kb-track`.
+
+## Examples
 
 ```
 /kb-project-context
-> Load context for the Top 5 Contacts Card project
+> Load context for ENG-204193
 
 /kb-project-context
-> What's the status of the AI Routing project?
+> What's the status of PRD #1 AI Routing? Read the latest meeting notes.
 
 /kb-project-context
-> Catch me up on everything related to prj-xxx
+> Catch me up on prj-xxx
 ```
 
 ## Tips
 
-- If no project is specified, ask the user which one they want
-- After loading context, you have deep understanding — use it to answer questions, suggest next steps, or help with implementation
-- If the project has a `repo_path`, you can also explore the codebase
-- Use `/kb-track` after discussing to capture any new decisions or questions that come up
+- If the user mentions a project by name, use `orka kb list --type project` to find the id.
+- The traversal is scored — if you need broader context, ask the user before re-running with `--breadth wide`.
+- After deep context, you have rich understanding — use it to suggest next steps, identify blockers, or help with implementation. Don't just dump info; synthesize.

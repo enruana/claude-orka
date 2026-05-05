@@ -1,94 +1,133 @@
-# KB Track
+# KB Track (v2)
 
-Track decisions, questions, directions, and other project knowledge from the current conversation.
+Capture decisions, questions, directions, milestones, work items (tasks/spikes/bugs), and people from the current conversation. **Always pass `--skill kb-track`** so the entities you create get auto-provenance (a `generated-by` edge to the kb-track activity).
+
+For the full v2 model (types, statuses, relations), see `/kb-guide`.
 
 ## Instructions
 
-1. First, load current KB context to understand what already exists:
+1. **Load context first** to avoid duplicates and respect existing decisions:
 ```bash
 orka kb context
 ```
 
-2. Review the current conversation and identify new knowledge to track:
-   - **Decisions** made (use type: `decision`)
-   - **Questions** raised or answered (use type: `question`)
-   - **Directions** chosen or explored (use type: `direction`)
-   - **People** mentioned with roles (use type: `person`)
-   - **Milestones** set (use type: `milestone`)
+2. Identify what's new in the conversation:
+   - **Decisions** made — `decision` type, MADR fields recommended
+   - **Questions** raised or answered — `question` type
+   - **Work items** committed to — pick the right tier (`task`, `spike`, `bug`, `project`, `initiative`, `goal`)
+   - **Directions / milestones** — `direction` or `milestone`
+   - **People** mentioned with roles — `person`
 
-3. **Determine the source** of the information:
-   - If from a file/document: note the file path
-   - If from a conversation: note who said it and the date
-   - If from a meeting: check if the meeting entity already exists, create it if not
+3. **Pick the right tier** for work items (this is the v2 distinction that matters):
+   - Single PR / single sitting → `task`
+   - Multi-PR, multi-week, has milestones → `project`
+   - Multi-project under strategic umbrella → `initiative`
+   - Ongoing responsibility, no end date → `goal`
+   - Time-boxed exploration → `spike`
+   - Defect → `bug`
 
-4. For each piece of knowledge, create the entity WITH source traceability:
+4. **Create the source meeting/artifact entity first** if the conversation has a clear anchor (a meeting with a date, a doc being discussed). Then link everything to it via `sourced-from`.
+
+5. Create entities — **always with `--skill kb-track --strict`**:
 
 ```bash
-# Decision with source — always include source_path or source property
-orka kb add decision "Title of decision" \
-  --property confidence=high \
-  --property source="conversation with X, 2026-04-20" \
-  --property source_path="path/to/relevant/file.md" \
-  --link sourced-from:<meeting-or-artifact-id> \
-  --tag architecture
-
-# Question with source
-orka kb add question "Question text" \
-  --property source="sprint planning discussion" \
+# A new decision (MADR-style)
+orka kb add decision "Use JWT for auth" \
+  --skill kb-track \
+  --strict \
+  --status proposed \
+  --property description="Pick auth strategy for the API" \
+  --property "drivers=stateless, mobile clients, scalability" \
+  --property "options=JWT|server sessions|magic links" \
+  --property outcome="JWT — best fit for our scale + mobile" \
+  --property "consequences=No central revocation; need short-lived tokens + refresh" \
+  --property decided_by="felipe" \
+  --property source_path="01-journal/2026/05-may/2026-05-05_security-meeting/notes.md" \
   --link sourced-from:<meeting-id>
 
-# Direction with source
-orka kb add direction "Direction name" \
-  --property rationale="why we chose this" \
-  --property source_path="path/to/spec.md" \
-  --link sourced-from:<artifact-id>
+# A question raised in a meeting
+orka kb add question "How do we handle token refresh?" \
+  --skill kb-track \
+  --strict \
+  --link raised-at:<meeting-id> \
+  --link addresses:<decision-id>   # if it relates to a decision-in-flight
+
+# A task scoped under a project
+orka kb add task "Wire up JWT middleware in api.activepipe" \
+  --skill kb-track \
+  --strict \
+  --status todo \
+  --property description="Add Devise::JWT and configure key rotation" \
+  --property owner="felipe" \
+  --property estimate="2 days" \
+  --link scope-of:<project-id>
+
+# A spike
+orka kb add spike "Investigate JWT key rotation strategies" \
+  --skill kb-track \
+  --strict \
+  --property description="Compare Auth0 vs custom rotation" \
+  --property time_box="1 week" \
+  --property question="What's the ops cost of self-hosted rotation?" \
+  --link scope-of:<project-id>
+
+# A bug
+orka kb add bug "Token refresh fails silently after 24h" \
+  --skill kb-track \
+  --strict \
+  --property description="Refresh endpoint returns 200 with empty body when token expired" \
+  --property severity="medium" \
+  --property repro_steps="Login → wait 24h → call /refresh" \
+  --link child-of:<project-id>
 ```
 
-5. Link entities together with typed relations:
+6. **Use the right relation** (see `/kb-guide` or `orka kb relations`):
+   - Hierarchy: `subtask-of`, `scope-of`, `child-of`
+   - Knowledge ↔ work: `addresses`, `answers`, `implements`
+   - Meeting links: `decided-at`, `raised-at`, `attended-by`
+   - Lifecycle: `blocks`, `depends-on`, `supersedes`
+   - Provenance: `sourced-from`, `derived-from`, `attributed-to`
+   - Categorical: `assigned-to`, `relates-to`
+
+7. **Add edge qualifiers** when you know the role/confidence:
 ```bash
-orka kb link <source-id> relates-to <target-id>
-orka kb link <source-id> supersedes <target-id>
-orka kb link <decision-id> decided-at <meeting-id>
-orka kb link <question-id> raised-at <meeting-id>
+orka kb link tsk-xxx assigned-to per-yyy --role primary --confidence 1.0
+orka kb link dec-xxx supersedes dec-old --note "after team review"
 ```
 
-6. Common relation types:
-   - `sourced-from` — **ALWAYS USE**: where this info came from
-   - `decided-at` / `raised-at` — anchored to a meeting
-   - `relates-to`, `supersedes`, `blocks`, `depends-on`
-   - `implements`, `assigned-to`, `part-of`, `contributes-to`
-
-7. Update existing entities when their status changes:
+8. **Update existing entities** when their status changes (validator enforces transitions):
 ```bash
-orka kb update <id> --status resolved --property resolution="answer here"
-orka kb update <id> --status superseded
+orka kb update qst-xxx --status resolved --property resolution="answer here" --strict
+orka kb update tsk-xxx --status done --strict
+orka kb update dec-xxx --status accepted --strict   # decisions immutable after this
 ```
 
-8. After tracking, **regenerate the project INDEX.md** for any affected projects:
+9. **After the conversation**, regenerate the project INDEX.md:
 ```bash
 orka kb project-doc <project-id>
 ```
 
-9. Confirm what was captured to the user.
+10. **Run lint** to catch anything you missed:
+```bash
+orka kb lint --type decision     # or --type task, etc.
+```
 
-## Source Traceability Rules
+## Validation rules to keep in mind
 
-- EVERY new entity MUST have source info. Use at minimum ONE of:
-  - `--property source_path="path/to/file.md"` (link to a file in the project)
-  - `--property source="human-readable description"` (text reference)
-  - `--link sourced-from:<entity-id>` (link to meeting/artifact/context entity)
-- Prefer ALL THREE when possible — the file path enables direct navigation in the UI
-- If tracking from a live conversation, use `--property source="conversation, YYYY-MM-DD"`
+- Off-spec types/statuses/relations are **rejected** in strict — pay attention to the error hint, it suggests the closest valid value.
+- Decisions become **immutable after `accepted`** — to revise, create a new decision with `--link supersedes:<old-id>`.
+- Required properties: every work-tier entity needs `description`. Decisions also need `outcome`. Meetings need `date`.
 
-## Path Convention
+## Path convention
 
-**All paths MUST be from the project root.** Never use relative (`../`) or absolute system paths.
-- Correct: `source_path="01-journal/2026/04-april/meeting/notes.md"`
-- Wrong: `source_path="../meeting/notes.md"`
+**All paths from project root**, never relative or absolute:
+- ✅ `01-journal/2026/05-may/security-meeting/notes.md`
+- ❌ `../meeting/notes.md`
 
 ## Tips
+
 - Keep titles concise but descriptive
-- Use tags for cross-cutting concerns (e.g., `architecture`, `security`, `ux`)
-- Link new entities to existing ones when relationships exist
-- Mark questions as `resolved` when answered, add `--property resolution="..."`
-- Mark decisions as `superseded` when replaced
+- For decisions, fill in `drivers`, `options`, and `consequences` even if briefly — that's what makes the KB searchable later
+- When something is genuinely uncertain (LLM-extracted), add `--confidence 0.7` to its edges
+- Mark questions `resolved` only when they have a real `resolution` property
+- Don't be afraid to use `--draft` for in-progress captures and tighten to `--strict` later
