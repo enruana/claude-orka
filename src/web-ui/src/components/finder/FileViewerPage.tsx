@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, AlertCircle, Printer, MessageSquarePlus } from 'lucide-react'
+import { ArrowLeft, ExternalLink, AlertCircle, Printer, MessageSquarePlus, Copy, Check } from 'lucide-react'
 import Editor, { useMonaco } from '@monaco-editor/react'
 import { api, ProjectComment } from '../../api/client'
 import { MarkdownViewer } from '../code-editor/MarkdownViewer'
@@ -30,6 +30,7 @@ export function FileViewerPage() {
     selectedText: string
   } | null>(null)
   const [selectionBtn, setSelectionBtn] = useState<{ top: number; left: number } | null>(null)
+  const [pathCopied, setPathCopied] = useState(false)
 
   if (!encodedPath || !filePath) {
     return (
@@ -159,6 +160,29 @@ export function FileViewerPage() {
     navigate(`/projects/${encodedPath}/code`)
   }
 
+  // Copy the absolute path of the currently-viewed file to the clipboard
+  // (so the user can paste it into the terminal as an argument)
+  const handleCopyPath = async () => {
+    const absolutePath = `${projectPath}/${filePath}`
+    try {
+      await navigator.clipboard.writeText(absolutePath)
+    } catch {
+      // Fallback for non-secure contexts
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = absolutePath
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      } catch { /* silently fail */ }
+    }
+    setPathCopied(true)
+    setTimeout(() => setPathCopied(false), 1500)
+  }
+
   const handlePrint = () => {
     printFile({
       content: content || '',
@@ -267,6 +291,13 @@ export function FileViewerPage() {
           <span className="file-name">{fileName}</span>
         </div>
         <span className="file-viewer-path">{dirPath || '/'}</span>
+        <button
+          className={`icon-button ${pathCopied ? 'success' : ''}`}
+          onClick={handleCopyPath}
+          title={pathCopied ? 'Path copied!' : 'Copy file path to clipboard'}
+        >
+          {pathCopied ? <Check size={16} /> : <Copy size={16} />}
+        </button>
         <button className="icon-button" onClick={handlePrint} title="Print / Save as PDF">
           <Printer size={16} />
         </button>

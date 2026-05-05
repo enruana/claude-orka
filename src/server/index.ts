@@ -38,6 +38,7 @@ export async function createServer(options: ServerOptions = {}) {
 
   // Middleware
   app.use(cors())
+  app.use('/api/transcribe', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '100mb' }))
   app.use(express.json())
 
   // API routes

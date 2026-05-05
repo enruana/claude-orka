@@ -51,7 +51,9 @@ function getEntityType(event: KBEvent): string {
   return (event.data?.type as string) || ''
 }
 
-const todayStr = new Date().toISOString().split('T')[0]
+// Use local date for "today" comparison (not UTC)
+const now = new Date()
+const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
 interface KBTimelineProps {
   projectPath: string
@@ -77,7 +79,7 @@ export function KBTimeline({ projectPath, entities, selectedId, onSelectEntity }
     for (const event of visible) {
       const date = new Date(event.ts)
       const weekKey = getWeekKey(date)
-      const dayKey = event.ts.split('T')[0]
+      const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
       if (!weekMap.has(weekKey)) weekMap.set(weekKey, new Map())
       const dayMap = weekMap.get(weekKey)!
       if (!dayMap.has(dayKey)) dayMap.set(dayKey, [])
@@ -88,7 +90,7 @@ export function KBTimeline({ projectPath, entities, selectedId, onSelectEntity }
     for (const [, dayMap] of [...weekMap.entries()].sort(([a], [b]) => a.localeCompare(b))) {
       const days: DayGroup[] = []
       for (const [dateStr, dayEvents] of [...dayMap.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-        const date = new Date(dateStr + 'T00:00:00')
+        const date = new Date(dateStr + 'T12:00:00')
         const typeCounts = new Map<string, number>()
         for (const e of dayEvents) {
           const t = getEntityType(e)
@@ -103,7 +105,7 @@ export function KBTimeline({ projectPath, entities, selectedId, onSelectEntity }
           isToday: dateStr === todayStr,
         })
       }
-      const firstDate = new Date(days[0].date + 'T00:00:00')
+      const firstDate = new Date(days[0].date + 'T12:00:00')
       result.push({ label: getWeekLabel(firstDate), days })
     }
     return result
@@ -193,7 +195,7 @@ export function KBTimeline({ projectPath, entities, selectedId, onSelectEntity }
         <div className="kb-timeline-detail">
           <div className="kb-timeline-detail-header">
             <Calendar size={13} />
-            <span>{new Date(selectedDay + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
+            <span>{new Date(selectedDay + 'T12:00:00').toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
             <span className="kb-timeline-detail-count">{dayEvents.length} events</span>
           </div>
           <div className="kb-timeline-detail-events">

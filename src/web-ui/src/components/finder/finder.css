@@ -423,6 +423,11 @@
   color: var(--text-primary);
 }
 
+.file-viewer-header .icon-button.success {
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--accent-green);
+}
+
 .file-viewer-header .file-viewer-title {
   display: flex;
   align-items: center;

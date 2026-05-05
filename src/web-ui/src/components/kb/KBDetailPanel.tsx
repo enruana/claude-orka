@@ -21,6 +21,12 @@ interface KBDetailPanelProps {
   encodedPath: string
   projectPath: string
   sessionId?: string
+  /** Currently-selected branch in the session ('main' or fork id) — used to
+   *  route terminal commands to the correct tmux pane. */
+  branch?: string
+  /** Called after a command is successfully sent to the terminal so the host
+   *  can switch the right panel back to the terminal tab. */
+  onSwitchToTerminal?: () => void
   onClose: () => void
   onSelectNode: (id: string) => void
 }
@@ -73,7 +79,7 @@ function formatPropKey(key: string): string {
   return key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')
 }
 
-export function KBDetailPanel({ entity, encodedPath, projectPath, sessionId, onClose, onSelectNode }: KBDetailPanelProps) {
+export function KBDetailPanel({ entity, encodedPath, projectPath, sessionId, branch, onSwitchToTerminal, onClose, onSelectNode }: KBDetailPanelProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [loadingContext, setLoadingContext] = useState(false)
@@ -94,8 +100,10 @@ export function KBDetailPanel({ entity, encodedPath, projectPath, sessionId, onC
     const prompt = buildPromptForEntity(entity)
 
     try {
-      await api.sendTextToSession(projectPath, sessionId, prompt)
+      await api.sendTextToSession(projectPath, sessionId, prompt, branch)
       setSent(true)
+      // Switch to terminal tab so the user immediately sees Claude responding
+      onSwitchToTerminal?.()
       setTimeout(() => setSent(false), 3000)
     } catch (err) {
       console.error('Failed to send to terminal:', err)
@@ -118,8 +126,10 @@ orka kb context --project ${entity.id}
 After running the command, read each file listed in the "Source Files" section to build deep context. Then give me a clear summary.`
 
     try {
-      await api.sendTextToSession(projectPath, sessionId, prompt)
+      await api.sendTextToSession(projectPath, sessionId, prompt, branch)
       setContextLoaded(true)
+      // Switch to terminal tab so user sees the command run and Claude respond
+      onSwitchToTerminal?.()
       setTimeout(() => setContextLoaded(false), 3000)
     } catch (err) {
       console.error('Failed to load project context:', err)

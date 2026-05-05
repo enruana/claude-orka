@@ -361,14 +361,15 @@ export function SessionView({
 
   // Get terminal URL - uses our custom wrapper with virtual keyboard disabled for desktop
   const getTerminalUrl = () => {
-    // Always use our wrapper to have consistent styling and disabled context menu
-    // Include project path so the terminal can upload files
-    return `/terminal/${session.ttydPort}?desktop=1&project=${btoa(project.path)}`
+    // Include project path AND sessionId so the terminal can upload files
+    // and call session-scoped APIs (e.g. /api/sessions/:id/capture for the
+    // active pane instead of grabbing the full xterm buffer).
+    return `/terminal/${session.ttydPort}?desktop=1&project=${btoa(project.path)}&session=${session.id}`
   }
 
   // Get mobile terminal URL - uses our custom wrapper with virtual keyboard
   const getMobileTerminalUrl = () => {
-    return `/terminal/${session.ttydPort}?project=${btoa(project.path)}`
+    return `/terminal/${session.ttydPort}?project=${btoa(project.path)}&session=${session.id}`
   }
 
   const handleOpenTerminalInNewTab = () => {
@@ -801,6 +802,8 @@ export function SessionView({
                   projectPath={project.path}
                   encodedPath={encodedPath}
                   sessionId={session.id}
+                  branch={selectedNode}
+                  onSwitchToTerminal={() => setRightPanelTab('terminal')}
                   visible
                 />
               </div>

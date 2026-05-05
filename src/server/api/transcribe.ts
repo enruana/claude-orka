@@ -70,25 +70,36 @@ transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> =>
   let tempFilePath: string | null = null
   let wavFilePath: string | null = null
 
-  // Increase timeout for large uploads
-  req.setTimeout(300000)
-
   try {
-    // Read raw body as audio
-    const chunks: Buffer[] = []
+    // Body is pre-buffered by express.raw() middleware
+    logger.info(`Transcribe request: content-type=${req.headers['content-type']}, body type=${typeof req.body}, isBuffer=${Buffer.isBuffer(req.body)}, body length=${req.body?.length || 0}`)
 
-    await new Promise<void>((resolve, reject) => {
-      req.on('data', (chunk: Buffer) => chunks.push(chunk))
-      req.on('end', () => resolve())
-      req.on('error', reject)
-    })
+    let audioBuffer: Buffer
 
-    if (chunks.length === 0) {
-      res.status(400).json({ error: 'No audio data provided' })
-      return
+    if (Buffer.isBuffer(req.body)) {
+      audioBuffer = req.body
+    } else if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+      // express.json() may have parsed it - fall back to reading stream
+      logger.warn('Body was not a Buffer, attempting stream read')
+      const chunks: Buffer[] = []
+      await new Promise<void>((resolve, reject) => {
+        req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        req.on('end', () => resolve())
+        req.on('error', reject)
+        // If stream is already consumed, end fires immediately
+        setTimeout(() => resolve(), 3000)
+      })
+      audioBuffer = Buffer.concat(chunks)
+      logger.info(`Stream read got ${audioBuffer.length} bytes`)
+    } else {
+      audioBuffer = Buffer.from(req.body || '')
     }
 
-    const audioBuffer = Buffer.concat(chunks)
+    if (!audioBuffer || audioBuffer.length < 100) {
+      logger.warn(`Audio body too small: ${audioBuffer?.length || 0} bytes`)
+      res.status(400).json({ error: `No audio data provided (received ${audioBuffer?.length || 0} bytes)` })
+      return
+    }
 
     // Save to temp file
     const tempDir = getTempDir()

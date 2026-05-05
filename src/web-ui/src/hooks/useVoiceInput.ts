@@ -30,24 +30,46 @@ export function useVoiceInput(): UseVoiceInputReturn {
 
   const transcribeAudio = useCallback(async (audioBlob: Blob, mimeType: string, lang: VoiceLanguage) => {
     try {
-      const response = await fetch(`/api/transcribe?language=${lang}`, {
+      // Step 1: Upload audio - server returns jobId immediately
+      const uploadResponse = await fetch(`/api/transcribe?language=${lang}`, {
         method: 'POST',
         headers: { 'Content-Type': mimeType },
         body: audioBlob
       })
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ error: 'Transcription failed' }))
-        throw new Error(err.message || err.error || 'Transcription failed')
+      if (!uploadResponse.ok) {
+        const err = await uploadResponse.json().catch(() => ({ error: 'Upload failed' }))
+        throw new Error(err.message || err.error || 'Upload failed')
       }
 
-      const result = await response.json()
+      const { jobId } = await uploadResponse.json()
+      if (!jobId) throw new Error('No job ID returned')
 
-      if (!result.text || result.text.trim() === '') {
-        setError('No speech detected. Please try again.')
-      } else {
-        setTranscribedText(result.text.trim())
+      // Step 2: Poll for result every 2 seconds (max 10 minutes)
+      const maxAttempts = 300
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(r => setTimeout(r, 2000))
+
+        const pollResponse = await fetch(`/api/transcribe/job/${jobId}`)
+        if (!pollResponse.ok) throw new Error('Failed to check status')
+
+        const result = await pollResponse.json()
+
+        if (result.status === 'completed') {
+          if (!result.text || result.text.trim() === '') {
+            setError('No speech detected. Please try again.')
+          } else {
+            setTranscribedText(result.text.trim())
+          }
+          return
+        }
+
+        if (result.status === 'error') {
+          throw new Error(result.error || 'Transcription failed')
+        }
       }
+
+      throw new Error('Transcription timed out')
     } catch (err: any) {
       console.error('Transcription error:', err)
       setError(`Transcription failed: ${err.message}`)

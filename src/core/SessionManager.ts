@@ -18,6 +18,11 @@ import execa from 'execa'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// Module-level throttle for untracked-panes sync. Each API request creates a new
+// SessionManager, so this needs to be shared across instances.
+const LAST_UNTRACKED_SYNC = new Map<string, number>()
+const UNTRACKED_SYNC_INTERVAL_MS = 8000
+
 /**
  * Opciones para inicializar Claude
  */
@@ -535,7 +540,24 @@ export class SessionManager {
    * Listar sesiones con filtros opcionales
    */
   async listSessions(filters?: SessionFilters): Promise<Session[]> {
-    return await this.stateManager.listSessions(filters)
+    const sessions = await this.stateManager.listSessions(filters)
+    // Throttled background sync of untracked panes for active sessions, so manually-
+    // created tmux panes (e.g. via Ctrl-B " or right-click split) get persisted into
+    // state.json without requiring a close/detach. Fire-and-forget — never block list.
+    for (const s of sessions) {
+      if (s.status === 'active') {
+        this.syncUntrackedPanesThrottled(s.id).catch(() => {})
+      }
+    }
+    return sessions
+  }
+
+  private async syncUntrackedPanesThrottled(sessionId: string): Promise<void> {
+    const now = Date.now()
+    const last = LAST_UNTRACKED_SYNC.get(sessionId) || 0
+    if (now - last < UNTRACKED_SYNC_INTERVAL_MS) return
+    LAST_UNTRACKED_SYNC.set(sessionId, now)
+    await this.syncUntrackedPanes(sessionId)
   }
 
   /**

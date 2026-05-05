@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Save, GitBranch, RefreshCw, X, ExternalLink, Check, FolderOpen, Search } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
@@ -53,6 +53,42 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
   const [diffData, setDiffData] = useState<GitDiff | null>(null)
   const [sidebarMode, setSidebarMode] = useState<'files' | 'search'>('files')
   const [goToLine, setGoToLine] = useState<{ line: number; column?: number } | null>(null)
+
+  // Resizable sidebar
+  const SIDEBAR_KEY = 'orka-code-sidebar-width'
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem(SIDEBAR_KEY)
+    return saved ? parseInt(saved, 10) : 180
+  })
+  const isResizing = useRef(false)
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isResizing.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const newWidth = Math.min(Math.max(startWidth + ev.clientX - startX, 120), 500)
+      setSidebarWidth(newWidth)
+    }
+
+    const onMouseUp = () => {
+      isResizing.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      // Persist
+      setSidebarWidth(w => { localStorage.setItem(SIDEBAR_KEY, String(w)); return w })
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }, [sidebarWidth])
 
   // Context menu state
   const { contextMenu, hideContextMenu, handleContextMenu, handleLongPress } = useContextMenu()
@@ -490,7 +526,7 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
       {/* Main Content */}
       <div className="session-code-content">
         {/* Sidebar */}
-        <div className="session-code-sidebar">
+        <div className="session-code-sidebar" style={{ width: sidebarWidth }}>
           <div className="sidebar-tabs compact">
             <button
               className={`sidebar-tab ${sidebarMode === 'files' ? 'active' : ''}`}
@@ -528,6 +564,9 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
             />
           )}
         </div>
+
+        {/* Resize Handle */}
+        <div className="sidebar-resize-handle" onMouseDown={handleResizeStart} />
 
         {/* Editor Area */}
         <div className="session-code-main">

@@ -27,10 +27,12 @@ interface KBGraphInnerProps {
   projectPath: string
   encodedPath: string
   sessionId?: string
+  branch?: string
+  onSwitchToTerminal?: () => void
   visible?: boolean
 }
 
-function KBGraphInner({ projectPath, encodedPath, sessionId, visible }: KBGraphInnerProps) {
+function KBGraphInner({ projectPath, encodedPath, sessionId, branch, onSwitchToTerminal, visible }: KBGraphInnerProps) {
   const [entities, setEntities] = useState<KBEntity[]>([])
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
@@ -294,6 +296,8 @@ function KBGraphInner({ projectPath, encodedPath, sessionId, visible }: KBGraphI
             encodedPath={encodedPath}
             projectPath={projectPath}
             sessionId={sessionId}
+            branch={branch}
+            onSwitchToTerminal={onSwitchToTerminal}
             onClose={() => setSelectedEntity(null)}
             onSelectNode={handleSelectEntity}
           />
@@ -423,13 +427,22 @@ interface KBGraphProps {
   projectPath: string
   encodedPath: string
   sessionId?: string
+  branch?: string
+  onSwitchToTerminal?: () => void
   visible?: boolean
 }
 
-export function KBGraph({ projectPath, encodedPath, sessionId, visible }: KBGraphProps) {
+export function KBGraph({ projectPath, encodedPath, sessionId, branch, onSwitchToTerminal, visible }: KBGraphProps) {
   return (
     <ReactFlowProvider>
-      <KBGraphInner projectPath={projectPath} encodedPath={encodedPath} sessionId={sessionId} visible={visible} />
+      <KBGraphInner
+        projectPath={projectPath}
+        encodedPath={encodedPath}
+        sessionId={sessionId}
+        branch={branch}
+        onSwitchToTerminal={onSwitchToTerminal}
+        visible={visible}
+      />
     </ReactFlowProvider>
   )
 }

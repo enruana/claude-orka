@@ -408,12 +408,23 @@ export class TmuxCommands {
    */
   static async getActivePane(sessionName: string): Promise<string | null> {
     try {
+      // Use list-panes filtering by pane_active so we always get a fresh
+      // result regardless of which client/window happens to be the "default"
+      // for display-message. We restrict to the active window of the session.
       const { stdout } = await execa('tmux', [
+        'list-panes',
+        '-t', sessionName,
+        '-F', '#{?pane_active,#{pane_id},}',
+      ])
+      const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean)
+      if (lines.length > 0) return lines[0]
+      // Fallback to display-message if list-panes returns nothing
+      const { stdout: dm } = await execa('tmux', [
         'display-message',
         '-t', sessionName,
         '-p', '#{pane_id}'
       ])
-      return stdout.trim() || null
+      return dm.trim() || null
     } catch (error: any) {
       logger.warn(`Failed to get active pane for session ${sessionName}: ${error.message}`)
       return null

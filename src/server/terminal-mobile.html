@@ -1780,10 +1780,18 @@
           this.permissionGranted = true;
 
           // Detect supported format (important for iOS)
-          const mimeType = this.getSupportedMimeType();
-          console.log('Using audio format:', mimeType);
+          let mimeType = this.getSupportedMimeType();
+          console.log('Using audio format:', mimeType || '(browser default)');
 
-          this.mediaRecorder = new MediaRecorder(this.stream, { mimeType });
+          // If empty, let MediaRecorder pick its own default and read it back
+          this.mediaRecorder = mimeType
+            ? new MediaRecorder(this.stream, { mimeType })
+            : new MediaRecorder(this.stream);
+          // After construction, the actual format is in mediaRecorder.mimeType
+          if (!mimeType) {
+            mimeType = this.mediaRecorder.mimeType || 'audio/webm';
+            console.log('Browser chose format:', mimeType);
+          }
           this.chunks = [];
 
           this.mediaRecorder.ondataavailable = (e) => {
@@ -1864,36 +1872,37 @@
       }
 
       getSupportedMimeType() {
-        // Order of preference
-        const types = [
-          'audio/webm;codecs=opus',
-          'audio/webm',
-          'audio/mp4',
-          'audio/ogg;codecs=opus',
-          'audio/wav'
-        ];
+        // iOS Safari only supports MP4/AAC. Other browsers prefer WebM/Opus.
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        const types = isIOS
+          ? ['audio/mp4', 'audio/mp4;codecs=mp4a.40.2', 'audio/aac', 'audio/wav', 'audio/webm']
+          : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/wav'];
 
         for (const type of types) {
-          if (MediaRecorder.isTypeSupported(type)) {
-            return type;
-          }
+          try {
+            if (MediaRecorder.isTypeSupported(type)) {
+              return type;
+            }
+          } catch { /* ignore */ }
         }
 
-        return 'audio/webm'; // Fallback
+        // Last-ditch fallback: pass empty string to let browser pick its default
+        return '';
       }
 
       async transcribe(blob, mimeType) {
-        // Get the orka server URL (same origin, different port)
+        // The /api/transcribe endpoint is async — it returns {jobId} immediately
+        // and we must poll /api/transcribe/job/:id until status is 'completed' or 'error'.
         const transcribeUrl = `${window.location.origin}/api/transcribe`;
 
-        console.log('Sending audio to:', transcribeUrl);
+        console.log('Sending audio to:', transcribeUrl, 'size:', blob.size, 'mime:', mimeType);
 
         const response = await fetch(transcribeUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': mimeType
-          },
-          body: blob
+          headers: { 'Content-Type': mimeType },
+          body: blob,
         });
 
         if (!response.ok) {
@@ -1901,14 +1910,44 @@
           throw new Error(error.message || error.error || 'Transcription failed');
         }
 
-        const result = await response.json();
-        console.log('Transcription result:', result);
+        const initial = await response.json();
+        console.log('Transcription submitted:', initial);
 
-        if (!result.text || result.text.trim() === '') {
-          throw new Error('No speech detected');
+        // Server may either return text immediately (legacy/sync mode) or a jobId.
+        if (initial.text && typeof initial.text === 'string') {
+          if (!initial.text.trim()) throw new Error('No speech detected');
+          return initial.text.trim();
+        }
+        if (!initial.jobId) {
+          throw new Error('Unexpected server response (no jobId or text)');
         }
 
-        return result.text.trim();
+        // Poll for completion (every 2s, up to 10 minutes)
+        const jobUrl = `${window.location.origin}/api/transcribe/job/${initial.jobId}`;
+        const maxAttempts = 300;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          let job;
+          try {
+            const jobRes = await fetch(jobUrl);
+            if (!jobRes.ok) continue; // transient error, retry
+            job = await jobRes.json();
+          } catch {
+            continue;
+          }
+
+          if (job.status === 'completed') {
+            const text = (job.text || '').trim();
+            if (!text) throw new Error('No speech detected');
+            return text;
+          }
+          if (job.status === 'error') {
+            throw new Error(job.error || 'Transcription failed');
+          }
+          // status === 'pending' or 'processing' → keep polling
+        }
+
+        throw new Error('Transcription timed out');
       }
     }
 
@@ -3734,25 +3773,36 @@
         }, { passive: false });
 
         container.addEventListener('touchend', (e) => {
-          if (!isSwiping) return;
-
           const touchEndTime = Date.now();
           const duration = touchEndTime - touchStartTime;
 
-          // Calculate velocity for momentum scrolling
-          if (duration > 0 && duration < 300) {
-            const velocity = Math.abs(touchStartY - (e.changedTouches[0]?.clientY || touchStartY)) / duration;
-
-            if (velocity > VELOCITY_THRESHOLD) {
-              // Add extra scroll lines for momentum
-              const extraLines = Math.ceil(velocity * 5);
-              const direction = touchStartY > (e.changedTouches[0]?.clientY || touchStartY) ? 'up' : 'down';
-              // Use last known touch position for correct tmux pane targeting
-              this.sendMouseScroll(direction, extraLines, lastTouchX, lastTouchY);
+          if (isSwiping) {
+            // Calculate velocity for momentum scrolling
+            if (duration > 0 && duration < 300) {
+              const velocity = Math.abs(touchStartY - (e.changedTouches[0]?.clientY || touchStartY)) / duration;
+              if (velocity > VELOCITY_THRESHOLD) {
+                const extraLines = Math.ceil(velocity * 5);
+                const direction = touchStartY > (e.changedTouches[0]?.clientY || touchStartY) ? 'up' : 'down';
+                this.sendMouseScroll(direction, extraLines, lastTouchX, lastTouchY);
+              }
             }
+            isSwiping = false;
+            return;
           }
 
-          isSwiping = false;
+          // Not a swipe — treat as tap. iOS doesn't forward taps to xterm.js as
+          // mouse events, so when tmux mouse mode is on the user can't select a
+          // pane by tapping. We send a synthetic SGR mouse click to tmux at the
+          // tap coordinates so the tapped pane becomes active.
+          if (duration < 300) {
+            const endX = e.changedTouches[0]?.clientX ?? touchStartX;
+            const endY = e.changedTouches[0]?.clientY ?? touchStartY;
+            const dx = Math.abs(endX - touchStartX);
+            const dy = Math.abs(endY - touchStartY);
+            if (dx < 10 && dy < 10) {
+              this.sendMouseClick(endX, endY);
+            }
+          }
         }, { passive: true });
 
         // Handle mouse wheel scroll (for desktop) - target correct tmux pane
@@ -3815,6 +3865,28 @@
         }
 
         console.log(`Scroll ${direction} x${lines} at col:${col} row:${row}`);
+      }
+
+      // Send a synthetic SGR mouse click to tmux at the given pixel coordinates.
+      // Used to translate iOS taps into pane-selection events when tmux mouse mode is on.
+      sendMouseClick(clientX, clientY) {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+        if (!this.hasValidDimensions()) return;
+
+        const { cols, rows } = this.term;
+        const container = document.getElementById('terminal-container');
+        const rect = container.getBoundingClientRect();
+        const cellWidth = rect.width / cols;
+        const cellHeight = rect.height / rows;
+        const col = Math.max(1, Math.min(cols, Math.floor((clientX - rect.left) / cellWidth) + 1));
+        const row = Math.max(1, Math.min(rows, Math.floor((clientY - rect.top) / cellHeight) + 1));
+
+        // SGR mouse format: button 0 (left), M = press, m = release
+        const press = `\x1b[<0;${col};${row}M`;
+        const release = `\x1b[<0;${col};${row}m`;
+        this.sendInput(press);
+        this.sendInput(release);
+        console.log(`Mouse click sent at col:${col} row:${row}`);
       }
 
       // Validate terminal dimensions are valid before sending
@@ -4009,42 +4081,73 @@
         }
       }
 
-      openCopyFromTerminal() {
+      async openCopyFromTerminal() {
         const modal = document.getElementById('copy-terminal-modal');
         const textarea = document.getElementById('copy-terminal-textarea');
 
-        // Capture recent terminal content from xterm buffer
+        // Show modal immediately with loading state
+        textarea.value = 'Capturing terminal…';
+        modal.classList.add('visible');
+
+        // Prefer the API: tmux capture-pane on the SELECTED pane only.
+        // Falls back to xterm.js buffer (full view) only if API is unavailable.
+        const params = new URLSearchParams(window.location.search);
+        const projectEncoded = params.get('project');
+        const sessionId = params.get('session');
+        console.log('[Orka] CopyFromTerminal — project:', !!projectEncoded, 'session:', sessionId);
+
         let text = '';
-        try {
-          const buffer = this.term.buffer.active;
-          const totalLines = buffer.length;
-          const lines = [];
-          // Grab up to last 200 lines
-          const startLine = Math.max(0, totalLines - 200);
-          for (let i = startLine; i < totalLines; i++) {
-            const line = buffer.getLine(i);
-            if (line) {
-              lines.push(line.translateToString(true));
+        let captured = false;
+
+        if (projectEncoded && sessionId) {
+          try {
+            const url = `${window.location.origin}/api/sessions/${sessionId}/capture` +
+                        `?project=${projectEncoded}&lines=400`;
+            console.log('[Orka] CopyFromTerminal — calling', url);
+            const res = await fetch(url);
+            console.log('[Orka] CopyFromTerminal — status', res.status);
+            if (res.ok) {
+              const data = await res.json();
+              console.log('[Orka] CopyFromTerminal — captured branch:', data.branch, 'paneId:', data.paneId, 'len:', (data.text || '').length);
+              text = (data.text || '').replace(/\n+$/, '');
+              if (text.length > 5000) text = '…' + text.slice(-5000);
+              captured = true;
+            } else {
+              const err = await res.text();
+              console.warn('[Orka] CopyFromTerminal — API error:', err);
             }
+          } catch (err) {
+            console.warn('[Orka] CopyFromTerminal — fetch failed, falling back to xterm buffer:', err);
           }
-          text = lines.join('\n').replace(/\n+$/, '');
-          // Limit to ~3000 chars from the end (most recent content)
-          if (text.length > 3000) {
-            text = '…' + text.slice(-3000);
+        } else {
+          console.warn('[Orka] CopyFromTerminal — missing session/project in URL, using xterm buffer');
+        }
+
+        // Fallback: capture entire xterm.js buffer (legacy behaviour)
+        if (!captured) {
+          try {
+            const buffer = this.term.buffer.active;
+            const totalLines = buffer.length;
+            const lines = [];
+            const startLine = Math.max(0, totalLines - 200);
+            for (let i = startLine; i < totalLines; i++) {
+              const line = buffer.getLine(i);
+              if (line) lines.push(line.translateToString(true));
+            }
+            text = lines.join('\n').replace(/\n+$/, '');
+            if (text.length > 3000) text = '…' + text.slice(-3000);
+          } catch (err) {
+            console.error('Failed to capture terminal content:', err);
+            text = '(Could not capture terminal content)';
           }
-        } catch (err) {
-          console.error('Failed to capture terminal content:', err);
-          text = '(Could not capture terminal content)';
         }
 
         textarea.value = text;
-        modal.classList.add('visible');
 
-        // Focus and select all so iOS shows its native menu easily
+        // Focus and scroll to bottom so user sees most recent output first
         setTimeout(() => {
           textarea.focus();
-          textarea.setSelectionRange(0, 0); // Start at top, user can select what they want
-          // Scroll to bottom to see the most recent content
+          textarea.setSelectionRange(0, 0);
           textarea.scrollTop = textarea.scrollHeight;
         }, 100);
       }
