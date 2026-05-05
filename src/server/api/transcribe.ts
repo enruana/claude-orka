@@ -107,9 +107,11 @@ transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> =>
 
     // Determine file extension from content-type
     const contentType = req.headers['content-type'] || 'audio/webm'
-    const ext = contentType.includes('mp4') ? 'mp4'
-      : contentType.includes('wav') ? 'wav'
-      : contentType.includes('ogg') ? 'ogg'
+    const ct = contentType.toLowerCase()
+    const ext = ct.includes('mp4') || ct.includes('m4a') ? 'mp4'
+      : ct.includes('aac') ? 'aac'
+      : ct.includes('wav') ? 'wav'
+      : ct.includes('ogg') ? 'ogg'
       : 'webm'
 
     const timestamp = Date.now()

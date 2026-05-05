@@ -83,6 +83,17 @@ export function useVoiceInput(): UseVoiceInputReturn {
       setError(null)
       setTranscribedText('')
 
+      // Pre-flight check: getUserMedia requires HTTPS or localhost.
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const isSecure = window.location.protocol === 'https:' ||
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1'
+        setError(isSecure
+          ? 'Microphone API not supported in this browser.'
+          : 'Microphone requires HTTPS. Open this page via https:// or localhost.')
+        return
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -91,13 +102,20 @@ export function useVoiceInput(): UseVoiceInputReturn {
         }
       })
 
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : 'audio/webm'
+      // iOS Safari only supports MP4/AAC for MediaRecorder. Other browsers prefer WebM/Opus.
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+
+      const mimeCandidates = isIOS
+        ? ['audio/mp4', 'audio/mp4;codecs=mp4a.40.2', 'audio/aac', 'audio/wav', 'audio/webm']
+        : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/wav']
+
+      let mimeType = ''
+      for (const t of mimeCandidates) {
+        try {
+          if (MediaRecorder.isTypeSupported(t)) { mimeType = t; break }
+        } catch { /* ignore */ }
+      }
 
       // Set up AudioContext + AnalyserNode for amplitude visualization
       const audioContext = new AudioContext()
@@ -109,7 +127,11 @@ export function useVoiceInput(): UseVoiceInputReturn {
       audioContextRef.current = audioContext
       setAnalyserNode(analyser)
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType })
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
+      // If we let the browser pick, use whatever it actually chose
+      const effectiveMimeType = mimeType || mediaRecorder.mimeType || 'audio/webm'
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
 
@@ -131,8 +153,8 @@ export function useVoiceInput(): UseVoiceInputReturn {
           return
         }
 
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
-        await transcribeAudio(audioBlob, mimeType, language)
+        const audioBlob = new Blob(audioChunksRef.current, { type: effectiveMimeType })
+        await transcribeAudio(audioBlob, effectiveMimeType, language)
       }
 
       mediaRecorder.start()
