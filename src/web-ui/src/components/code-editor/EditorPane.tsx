@@ -339,15 +339,28 @@ export function EditorPane({ content, filePath, onChange, readOnly = false, goTo
           fontSize: isMobile ? 8 : 13,
           fontFamily: "'SF Mono', Monaco, 'Courier New', monospace",
           fontLigatures: true,
-          minimap: { enabled: !isMobile, scale: 0.8 },
+          minimap: {
+            enabled: !isMobile,
+            scale: 1,
+            renderCharacters: false,
+            maxColumn: 100,
+            showSlider: 'mouseover',
+          },
           scrollBeyondLastLine: false,
           wordWrap: isMobile ? 'on' : 'off',
           lineNumbers: isMobile ? 'off' : 'on',
           renderWhitespace: 'selection',
+          renderLineHighlight: 'all',
           tabSize: 2,
           insertSpaces: true,
           automaticLayout: true,
           bracketPairColorization: { enabled: true },
+          guides: {
+            bracketPairs: 'active',
+            indentation: true,
+            highlightActiveIndentation: 'always',
+          },
+          stickyScroll: { enabled: !isMobile, maxLineCount: 5 },
           smoothScrolling: true,
           cursorBlinking: 'smooth',
           cursorSmoothCaretAnimation: 'on',
@@ -365,6 +378,11 @@ export function EditorPane({ content, filePath, onChange, readOnly = false, goTo
           glyphMargin: !isMobile,
           lineDecorationsWidth: isMobile ? 0 : 10,
           lineNumbersMinChars: isMobile ? 2 : 3,
+          scrollbar: {
+            verticalScrollbarSize: 10,
+            horizontalScrollbarSize: 10,
+            useShadows: false,
+          },
         }}
       />
 

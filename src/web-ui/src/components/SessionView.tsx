@@ -613,6 +613,13 @@ export function SessionView({
             <FolderOpen size={28} />
             <span>Files</span>
           </button>
+          <button
+            className="mobile-action-card knowledge"
+            onClick={() => window.open(`/projects/${encodedPath}/kb?sessionId=${session.id}&branch=${selectedNode}`, '_blank')}
+          >
+            <Share2 size={28} />
+            <span>Knowledge</span>
+          </button>
         </div>
 
         {/* Thread Info Card */}

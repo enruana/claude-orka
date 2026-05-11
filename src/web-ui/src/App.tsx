@@ -14,6 +14,7 @@ import { ProjectDashboard, decodeProjectPath } from './components/ProjectDashboa
 import { SessionPage } from './components/SessionPage'
 import { CodeEditorPage, FilesPage } from './components/code-editor'
 import { FileViewerPage } from './components/finder'
+import { KBPage } from './components/kb'
 import { AgentCanvasPage } from './pages/AgentCanvasPage'
 import { HomePage } from './pages/HomePage'
 import { TaskWidget } from './components/TaskWidget'
@@ -265,6 +266,7 @@ const router = createBrowserRouter(
       <Route path="/projects/:encodedPath/code" element={<CodeEditorPage />} />
       <Route path="/projects/:encodedPath/files" element={<FilesPage />} />
       <Route path="/projects/:encodedPath/files/view" element={<FileViewerPage />} />
+      <Route path="/projects/:encodedPath/kb" element={<KBPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>
   )

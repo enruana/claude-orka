@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Save, GitBranch, RefreshCw, X, ExternalLink, Check, FolderOpen, Search } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
@@ -54,17 +54,18 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
   const [sidebarMode, setSidebarMode] = useState<'files' | 'search'>('files')
   const [goToLine, setGoToLine] = useState<{ line: number; column?: number } | null>(null)
 
+  // Sidebar visibility (toggled by Cmd/Ctrl+B)
+  const [showSidebar, setShowSidebar] = useState(true)
+
   // Resizable sidebar
   const SIDEBAR_KEY = 'orka-code-sidebar-width'
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem(SIDEBAR_KEY)
     return saved ? parseInt(saved, 10) : 180
   })
-  const isResizing = useRef(false)
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
-    isResizing.current = true
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
 
@@ -77,18 +78,44 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
     }
 
     const onMouseUp = () => {
-      isResizing.current = false
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
-      // Persist
       setSidebarWidth(w => { localStorage.setItem(SIDEBAR_KEY, String(w)); return w })
     }
 
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
   }, [sidebarWidth])
+
+  // Resizable Git panel
+  const GIT_KEY = 'orka-code-session-git-width'
+  const [gitPanelWidth, setGitPanelWidth] = useState(() => {
+    const saved = localStorage.getItem(GIT_KEY)
+    return saved ? parseInt(saved, 10) : 220
+  })
+
+  const handleGitResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const startX = e.clientX
+    const startWidth = gitPanelWidth
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.min(Math.max(startWidth - (ev.clientX - startX), 180), 420)
+      setGitPanelWidth(w)
+    }
+    const onUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      setGitPanelWidth(w => { localStorage.setItem(GIT_KEY, String(w)); return w })
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [gitPanelWidth])
 
   // Context menu state
   const { contextMenu, hideContextMenu, handleContextMenu, handleLongPress } = useContextMenu()
@@ -315,18 +342,29 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key === 's') {
         e.preventDefault()
         handleSave()
-      }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'f') {
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         setSidebarMode(prev => prev === 'search' ? 'files' : 'search')
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        setShowSidebar(prev => !prev)
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'j') {
+        e.preventDefault()
+        setShowGitPanel(prev => !prev)
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'w') {
+        if (activeTab) {
+          e.preventDefault()
+          handleCloseTab(activeTab)
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeTab, openTabs])
+  }, [activeTab, openTabs]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Open a file
   const handleFileSelect = async (filePath: string) => {
@@ -525,8 +563,9 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
 
       {/* Main Content */}
       <div className="session-code-content">
-        {/* Sidebar */}
-        <div className="session-code-sidebar" style={{ width: sidebarWidth }}>
+        {/* Sidebar (toggle with Cmd/Ctrl+B) */}
+        {showSidebar && (
+        <div className="session-code-sidebar" style={{ width: sidebarWidth, flexShrink: 0 }}>
           <div className="sidebar-tabs compact">
             <button
               className={`sidebar-tab ${sidebarMode === 'files' ? 'active' : ''}`}
@@ -556,6 +595,7 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
               onContextMenu={handleTreeContextMenu}
               onLongPress={handleTreeLongPress}
               onMoveFile={handleMoveFile}
+              storageKey={projectPath}
             />
           ) : (
             <SearchPanel
@@ -564,9 +604,12 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
             />
           )}
         </div>
+        )}
 
         {/* Resize Handle */}
-        <div className="sidebar-resize-handle" onMouseDown={handleResizeStart} />
+        {showSidebar && (
+          <div className="sidebar-resize-handle" onMouseDown={handleResizeStart} />
+        )}
 
         {/* Editor Area */}
         <div className="session-code-main">
@@ -577,21 +620,28 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
                 <div
                   key={tab.path}
                   className={`session-code-tab ${activeTab === tab.path ? 'active' : ''} ${tab.isDirty ? 'dirty' : ''}`}
+                  title={tab.path}
                   onClick={() => {
                     setActiveTab(tab.path)
                     setViewMode('editor')
                   }}
+                  onAuxClick={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault()
+                      handleCloseTab(tab.path)
+                    }
+                  }}
                 >
                   <span className="tab-name">{tab.name}</span>
-                  {tab.isDirty && <span className="dirty-dot" />}
                   <button
                     className="tab-close-btn"
                     onClick={(e) => {
                       e.stopPropagation()
                       handleCloseTab(tab.path)
                     }}
+                    title={tab.isDirty ? 'Close (unsaved changes)' : 'Close'}
                   >
-                    <X size={12} />
+                    {tab.isDirty ? <span className="dirty-dot" /> : <X size={12} />}
                   </button>
                 </div>
               ))}
@@ -626,9 +676,14 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
           </div>
         </div>
 
+        {/* Git Panel resize handle */}
+        {showGitPanel && gitStatus && (
+          <div className="sidebar-resize-handle" onMouseDown={handleGitResizeStart} />
+        )}
+
         {/* Git Panel */}
         {showGitPanel && gitStatus && (
-          <div className="session-code-git">
+          <div className="session-code-git" style={{ width: gitPanelWidth, flexShrink: 0 }}>
             <GitPanel
               status={gitStatus}
               onStage={handleStage}

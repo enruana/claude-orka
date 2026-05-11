@@ -85,6 +85,68 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
   const [sidebarMode, setSidebarMode] = useState<'files' | 'search'>('files')
   const [goToLine, setGoToLine] = useState<{ line: number; column?: number } | null>(null)
 
+  // Sidebar visibility (Cmd/Ctrl+B toggles on desktop)
+  const [showSidebar, setShowSidebar] = useState(true)
+
+  // Resizable sidebar (desktop only). Persist width per project root.
+  const SIDEBAR_KEY = 'orka-code-fullpage-sidebar-width'
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === 'undefined') return 240
+    const saved = localStorage.getItem(SIDEBAR_KEY)
+    return saved ? parseInt(saved, 10) : 240
+  })
+
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.min(Math.max(startWidth + ev.clientX - startX, 160), 600)
+      setSidebarWidth(w)
+    }
+    const onUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      setSidebarWidth(w => { localStorage.setItem(SIDEBAR_KEY, String(w)); return w })
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [sidebarWidth])
+
+  // Resizable Git panel
+  const GIT_PANEL_KEY = 'orka-code-fullpage-git-width'
+  const [gitPanelWidth, setGitPanelWidth] = useState(() => {
+    if (typeof window === 'undefined') return 280
+    const saved = localStorage.getItem(GIT_PANEL_KEY)
+    return saved ? parseInt(saved, 10) : 280
+  })
+
+  const handleGitResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const startX = e.clientX
+    const startWidth = gitPanelWidth
+    const onMove = (ev: MouseEvent) => {
+      // Dragging right shrinks the git panel (it lives on the right edge)
+      const w = Math.min(Math.max(startWidth - (ev.clientX - startX), 200), 500)
+      setGitPanelWidth(w)
+    }
+    const onUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      setGitPanelWidth(w => { localStorage.setItem(GIT_PANEL_KEY, String(w)); return w })
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [gitPanelWidth])
+
   // Comments state
   const [comments, setComments] = useState<ProjectComment[]>([])
   const [commentDialog, setCommentDialog] = useState<{
@@ -353,18 +415,29 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key === 's') {
         e.preventDefault()
         handleSave()
-      }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'f') {
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         setSidebarMode(prev => prev === 'search' ? 'files' : 'search')
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        setShowSidebar(prev => !prev)
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'j') {
+        e.preventDefault()
+        setShowGitPanel(prev => !prev)
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'w') {
+        if (activeTab) {
+          e.preventDefault()
+          handleCloseTab(activeTab)
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeTab, openTabs])
+  }, [activeTab, openTabs]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Open a file
   const handleFileSelect = async (filePath: string) => {
@@ -594,58 +667,69 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
       {/* Main Content */}
       <div className="code-editor-content">
         {/* Sidebar */}
-        <aside className={`file-tree-panel ${isMobile && fileTreeCollapsed ? 'collapsed' : ''}`}>
-          {isMobile && (
-            <div
-              className="collapsible-header"
-              onClick={() => setFileTreeCollapsed(!fileTreeCollapsed)}
-            >
-              <FolderOpen size={14} />
-              <span>Files</span>
-              {fileTreeCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-            </div>
-          )}
-          {(!isMobile || !fileTreeCollapsed) && (
-            <>
-              <div className="sidebar-tabs">
-                <button
-                  className={`sidebar-tab ${sidebarMode === 'files' ? 'active' : ''}`}
-                  onClick={() => setSidebarMode('files')}
-                >
-                  <FolderOpen size={14} />
-                  <span>Files</span>
-                </button>
-                <button
-                  className={`sidebar-tab ${sidebarMode === 'search' ? 'active' : ''}`}
-                  onClick={() => setSidebarMode('search')}
-                >
-                  <Search size={14} />
-                  <span>Search</span>
-                </button>
+        {(isMobile || showSidebar) && (
+          <aside
+            className={`file-tree-panel ${isMobile && fileTreeCollapsed ? 'collapsed' : ''}`}
+            style={!isMobile ? { width: sidebarWidth, flexShrink: 0 } : undefined}
+          >
+            {isMobile && (
+              <div
+                className="collapsible-header"
+                onClick={() => setFileTreeCollapsed(!fileTreeCollapsed)}
+              >
+                <FolderOpen size={14} />
+                <span>Files</span>
+                {fileTreeCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
               </div>
-              {sidebarMode === 'files' ? (
-                <FileTree
-                  tree={fileTree}
-                  selectedFile={activeTab}
-                  onFileSelect={handleFileSelect}
-                  gitStatus={gitStatus}
-                  onExpandDirectory={async (dirPath) => {
-                    const children = await api.expandFileTree(encodedPath, dirPath)
-                    setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
-                  }}
-                  onContextMenu={handleTreeContextMenu}
-                  onLongPress={handleTreeLongPress}
-                  onMoveFile={handleMoveFile}
-                />
-              ) : (
-                <SearchPanel
-                  encodedPath={encodedPath}
-                  onResultClick={handleSearchResultClick}
-                />
-              )}
-            </>
-          )}
-        </aside>
+            )}
+            {(!isMobile || !fileTreeCollapsed) && (
+              <>
+                <div className="sidebar-tabs">
+                  <button
+                    className={`sidebar-tab ${sidebarMode === 'files' ? 'active' : ''}`}
+                    onClick={() => setSidebarMode('files')}
+                  >
+                    <FolderOpen size={14} />
+                    <span>Files</span>
+                  </button>
+                  <button
+                    className={`sidebar-tab ${sidebarMode === 'search' ? 'active' : ''}`}
+                    onClick={() => setSidebarMode('search')}
+                  >
+                    <Search size={14} />
+                    <span>Search</span>
+                  </button>
+                </div>
+                {sidebarMode === 'files' ? (
+                  <FileTree
+                    tree={fileTree}
+                    selectedFile={activeTab}
+                    onFileSelect={handleFileSelect}
+                    gitStatus={gitStatus}
+                    onExpandDirectory={async (dirPath) => {
+                      const children = await api.expandFileTree(encodedPath, dirPath)
+                      setFileTree(prev => updateTreeWithChildren(prev, dirPath, children))
+                    }}
+                    onContextMenu={handleTreeContextMenu}
+                    onLongPress={handleTreeLongPress}
+                    onMoveFile={handleMoveFile}
+                    storageKey={projectPath}
+                  />
+                ) : (
+                  <SearchPanel
+                    encodedPath={encodedPath}
+                    onResultClick={handleSearchResultClick}
+                  />
+                )}
+              </>
+            )}
+          </aside>
+        )}
+
+        {/* Sidebar resize handle (desktop only, when sidebar visible) */}
+        {!isMobile && showSidebar && (
+          <div className="sidebar-resize-handle" onMouseDown={handleSidebarResizeStart} />
+        )}
 
         {/* Editor Area */}
         <main className="editor-main">
@@ -656,21 +740,28 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
                 <div
                   key={tab.path}
                   className={`editor-tab ${activeTab === tab.path ? 'active' : ''} ${tab.isDirty ? 'dirty' : ''}`}
+                  title={tab.path}
                   onClick={() => {
                     setActiveTab(tab.path)
                     setViewMode('editor')
                   }}
+                  onAuxClick={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault()
+                      handleCloseTab(tab.path)
+                    }
+                  }}
                 >
                   <span className="tab-name">{tab.name}</span>
-                  {tab.isDirty && <span className="dirty-indicator" />}
                   <button
                     className="tab-close"
                     onClick={(e) => {
                       e.stopPropagation()
                       handleCloseTab(tab.path)
                     }}
+                    title={tab.isDirty ? 'Close (unsaved changes)' : 'Close'}
                   >
-                    <X size={14} />
+                    {tab.isDirty ? <span className="dirty-indicator" /> : <X size={14} />}
                   </button>
                 </div>
               ))}
@@ -708,9 +799,17 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
           </div>
         </main>
 
+        {/* Git Panel resize handle (desktop only) */}
+        {!isMobile && showGitPanel && gitStatus && (
+          <div className="sidebar-resize-handle" onMouseDown={handleGitResizeStart} />
+        )}
+
         {/* Git Panel */}
         {showGitPanel && gitStatus && (
-          <aside className={`git-panel ${isMobile && gitPanelCollapsed ? 'collapsed' : ''}`}>
+          <aside
+            className={`git-panel ${isMobile && gitPanelCollapsed ? 'collapsed' : ''}`}
+            style={!isMobile ? { width: gitPanelWidth, flexShrink: 0 } : undefined}
+          >
             {isMobile && (
               <div
                 className="collapsible-header"

@@ -2925,7 +2925,7 @@ body {
 
   .mobile-quick-actions {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: var(--space-md);
   }
 
@@ -2975,6 +2975,12 @@ body {
     background: linear-gradient(135deg, rgba(191, 90, 242, 0.15), rgba(191, 90, 242, 0.05));
     border-color: rgba(191, 90, 242, 0.3);
     color: var(--accent-purple);
+  }
+
+  .mobile-action-card.knowledge {
+    background: linear-gradient(135deg, rgba(255, 159, 10, 0.15), rgba(255, 159, 10, 0.05));
+    border-color: rgba(255, 159, 10, 0.3);
+    color: var(--accent-orange);
   }
 
   .mobile-info-card {

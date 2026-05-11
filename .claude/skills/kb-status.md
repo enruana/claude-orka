@@ -1,29 +1,44 @@
-# KB Status
+# KB Status (v2)
 
-Quick project knowledge base status — open questions, recent decisions, active directions.
+Quick KB pulse check — open questions, recent decisions, active work items, upcoming milestones, and overall health. For full v2 model, see `/kb-guide`.
 
 ## Instructions
 
-Run these commands and present a concise project status to the user:
+1. Run a quick set of queries:
 
 ```bash
-orka kb list --status active --type decision
-orka kb list --status active --type question
-orka kb list --status active --type direction
-orka kb list --status active --type milestone
+# Active work items by tier
+orka kb list --type task --status todo
+orka kb list --type task --status in-progress
+orka kb list --type spike --status open
+orka kb list --type bug --status open
+orka kb list --type bug --status investigating
+
+# Knowledge tier
+orka kb list --type decision --status accepted
+orka kb list --type question --status open
+orka kb list --type milestone --status active
+
+# KB health
+orka kb lint
 ```
 
-Present the results as a structured summary:
+2. Summarize for the user:
+   - **Active work** — what's in flight per tier (tasks/spikes/bugs)
+   - **Recent decisions** — what's been decided lately
+   - **Open questions** — what needs answers
+   - **Upcoming milestones** — deadlines on the horizon
+   - **KB health** — top 3 lint issues to address
 
-1. **Key Decisions** — what has been decided and is currently active
-2. **Open Questions** — what needs to be answered
-3. **Active Directions** — what the team is exploring or building
-4. **Milestones** — upcoming targets
-
-If the user wants more detail on any item:
+3. If the user asks for detail:
 ```bash
-orka kb show <entity-id>
-orka kb history <entity-id>
+orka kb show <id>           # full entity
+orka kb history <id>        # event timeline
+orka kb timeline --limit 30 # recent events across the whole KB
 ```
 
-Keep the output concise and actionable — this is meant to be a quick pulse check.
+## Tips
+
+- Keep output concise — this is a pulse check, not a deep dive. For depth use `/kb-context` or `/kb-project-context`.
+- Surface **stale** entities: questions open > 7 days, tasks `in-progress` for too long. The user can decide if they need attention.
+- If lint shows 100+ issues, mention `orka kb upgrade` (P9 migration) instead of trying to fix one by one.

@@ -10,7 +10,7 @@
   <div class="container">
     <div class="header">
       <h1>Orka Writer</h1>
-      <div class="tone-select">
+      <div class="tone-select" id="tone-wrap">
         <label for="tone">Tone</label>
         <select id="tone">
           <option value="professional">Professional</option>
@@ -21,55 +21,104 @@
       </div>
     </div>
 
-    <div class="input-section">
-      <div class="textarea-group">
-        <label for="english">English</label>
-        <textarea id="english" placeholder="Type English text here..." rows="6"></textarea>
-      </div>
-      <div class="textarea-group">
-        <label for="spanish">Español</label>
-        <textarea id="spanish" placeholder="Escribe texto en español aquí..." rows="6"></textarea>
-      </div>
+    <!-- Tabs -->
+    <div class="tabs-bar">
+      <button class="tab-btn active" data-tab="translator">Translator</button>
+      <button class="tab-btn" data-tab="markdown">Markdown</button>
     </div>
 
-    <div id="loading" class="loading hidden">
-      <div class="spinner"></div>
-      <span>Processing...</span>
-    </div>
-
-    <div id="results" class="results hidden">
-      <div class="results-divider">Results</div>
-
-      <div class="result-card">
-        <div class="result-label">Improved</div>
-        <div class="result-content">
-          <div id="improved" class="result-text"></div>
-          <button class="copy-btn" data-target="improved" title="Copy">
-            <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </button>
+    <!-- === Translator tab === -->
+    <div id="tab-translator" class="tab-pane active">
+      <div class="input-section">
+        <div class="textarea-group">
+          <label for="english">English</label>
+          <textarea id="english" placeholder="Type English text here..." rows="6"></textarea>
+        </div>
+        <div class="textarea-group">
+          <label for="spanish">Español</label>
+          <textarea id="spanish" placeholder="Escribe texto en español aquí..." rows="6"></textarea>
         </div>
       </div>
 
-      <div class="result-card">
-        <div class="result-label">Grammar Fix</div>
-        <div class="result-content">
-          <div id="grammarFix" class="result-text"></div>
-          <button class="copy-btn" data-target="grammarFix" title="Copy">
-            <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </button>
-        </div>
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <span>Processing...</span>
       </div>
 
-      <div class="result-card">
-        <div class="result-label">Summary</div>
-        <div class="result-content">
-          <div id="summary" class="result-text"></div>
-          <button class="copy-btn" data-target="summary" title="Copy">
-            <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </button>
+      <div id="results" class="results hidden">
+        <div class="results-divider">Results</div>
+
+        <div class="result-card">
+          <div class="result-label">Improved</div>
+          <div class="result-content">
+            <div id="improved" class="result-text"></div>
+            <button class="copy-btn" data-target="improved" title="Copy">
+              <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="result-card">
+          <div class="result-label">Grammar Fix</div>
+          <div class="result-content">
+            <div id="grammarFix" class="result-text"></div>
+            <button class="copy-btn" data-target="grammarFix" title="Copy">
+              <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="result-card">
+          <div class="result-label">Summary</div>
+          <div class="result-content">
+            <div id="summary" class="result-text"></div>
+            <button class="copy-btn" data-target="summary" title="Copy">
+              <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- === Markdown tab === -->
+    <div id="tab-markdown" class="tab-pane">
+      <div class="textarea-group">
+        <label for="md-input">Source text</label>
+        <textarea id="md-input" placeholder="Paste text to convert into Markdown..." rows="8"></textarea>
+      </div>
+      <div class="md-actions">
+        <button class="primary-btn" id="md-format-btn">Format as Markdown</button>
+      </div>
+
+      <div id="md-loading" class="loading hidden">
+        <div class="spinner"></div>
+        <span>Formatting...</span>
+      </div>
+
+      <div id="md-results" class="results hidden">
+        <div class="result-card">
+          <div class="result-label">
+            Markdown source
+            <button class="copy-btn inline" data-target="md-source" title="Copy">
+              <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+          </div>
+          <pre id="md-source" class="result-code"></pre>
+        </div>
+
+        <div class="result-card">
+          <div class="result-label">
+            Rendered preview
+            <button class="copy-btn inline" id="md-copy-html" title="Copy HTML">
+              <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <svg class="icon-check hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+          </div>
+          <div id="md-rendered" class="result-rendered"></div>
         </div>
       </div>
     </div>
@@ -83,6 +132,7 @@
     </div>
   </div>
 
+  <script src="marked.min.js"></script>
   <script src="storage.js"></script>
   <script src="writer.js"></script>
 </body>

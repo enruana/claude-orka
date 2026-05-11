@@ -1,35 +1,57 @@
-# KB Context
+# KB Context (v2)
 
-Load the project's knowledge base context to understand decisions, open questions, active directions, and recent activity.
+Load the project's knowledge base context — decisions, open questions, active work items, milestones, recent activity. For full v2 model, see `/kb-guide`.
 
 ## Instructions
 
-Run the following command and incorporate the output into your understanding of this project:
+1. Run with appropriate breadth:
 
 ```bash
-orka kb context
+orka kb context                                      # whole KB, narrow default
+orka kb context --project <prj-id>                   # scoped to a project (medium breadth default)
+orka kb context --project <prj-id> --breadth narrow  # only directly-linked entities
+orka kb context --project <prj-id> --breadth wide    # 3 hops, weak relations included
 ```
 
-This provides:
-- Active decisions and their relationships
-- Open questions that need answers
-- Current directions being explored
-- Active milestones
-- Key people and their roles
-- Recent activity timeline
+The output includes:
+- Active work items (tasks, spikes, bugs, sub-initiatives)
+- Active decisions
+- Open questions
+- Milestones
+- Directions
+- People
+- Repos
+- Source files to read for deeper detail
 
-Use this context to:
-- Avoid re-asking questions that were already answered
-- Build on existing decisions rather than contradicting them
-- Understand who is responsible for what
-- Know what directions the project is heading
+2. **Use the context to**:
+   - Avoid re-asking resolved questions
+   - Build on existing decisions rather than contradicting them
+   - Know who is responsible for what
+   - Understand current direction
 
-If you need details on a specific entity:
+3. For deeper detail on a specific entity:
 ```bash
 orka kb show <entity-id>
+orka kb history <entity-id>     # full event history including flagged issues
 ```
 
-If you need the full graph of relationships:
+4. To see the full graph (rare; use the Web UI for visual):
 ```bash
-orka kb list
+orka kb list                    # everything
+orka kb list --type decision    # one type
+orka kb graph --format dot      # Graphviz output
 ```
+
+## Breadth presets
+
+- **narrow** (1 hop, score ≥ 0.5): only directly-linked entities — the project's tasks, decisions, and meetings
+- **medium** (2 hops, score ≥ 0.2, default): includes sibling decisions, related people, indirectly-linked artifacts
+- **wide** (3 hops, score ≥ 0.1): broad sweep including weak/categorical edges
+
+If `medium` returns too much noise, try `narrow`. If you're missing context, try `wide`.
+
+## Tips
+
+- This skill is read-only — it doesn't mutate the KB.
+- Combine with `/kb-project-context` to also read source files for deep dive.
+- If `--project` errors with "not found", check `orka kb list --type project` for the right id.

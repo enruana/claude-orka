@@ -101,7 +101,7 @@ interface KBGuidePanelProps {
 }
 
 export function KBGuidePanel({ entities, allEntities, selectedId, selectedProjectId, onSelect, onSelectProject }: KBGuidePanelProps) {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
 
@@ -122,7 +122,7 @@ export function KBGuidePanel({ entities, allEntities, selectedId, selectedProjec
   }, [entities, search])
 
   const toggleSection = (key: string) => {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
+    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
   return (
@@ -207,7 +207,8 @@ export function KBGuidePanel({ entities, allEntities, selectedId, selectedProjec
           const items = filteredEntities.filter(section.filter)
           if (items.length === 0) return null
 
-          const isCollapsed = collapsed[section.key]
+          // When the user is searching, auto-expand sections so results are visible.
+          const isExpanded = search ? true : !!expanded[section.key]
           const SectionIcon = section.icon
 
           return (
@@ -217,7 +218,7 @@ export function KBGuidePanel({ entities, allEntities, selectedId, selectedProjec
                 onClick={() => toggleSection(section.key)}
               >
                 <div className="kb-guide-section-left">
-                  {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                  {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                   <SectionIcon size={13} style={{ color: section.color }} />
                   <span>{section.label}</span>
                 </div>
@@ -226,7 +227,7 @@ export function KBGuidePanel({ entities, allEntities, selectedId, selectedProjec
                 </span>
               </button>
 
-              {!isCollapsed && (
+              {isExpanded && (
                 <div className="kb-guide-items">
                   {items.map((entity) => {
                     const isSelected = selectedId === entity.id

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, AlertCircle, Printer, MessageSquarePlus, Copy, Check } from 'lucide-react'
+import { ArrowLeft, ExternalLink, AlertCircle, Printer, MessageSquarePlus, Copy, Check, Download } from 'lucide-react'
 import Editor, { useMonaco } from '@monaco-editor/react'
 import { api, ProjectComment } from '../../api/client'
 import { MarkdownViewer } from '../code-editor/MarkdownViewer'
@@ -183,6 +183,20 @@ export function FileViewerPage() {
     setTimeout(() => setPathCopied(false), 1500)
   }
 
+  // Download the file to the user's computer. Uses the raw file endpoint
+  // (preserves binary fidelity for images/PDFs) with a download attribute so
+  // the browser saves with the original filename.
+  const handleDownload = () => {
+    const url = `/api/files/raw?project=${encodedPath}&path=${encodeURIComponent(filePath)}`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
   const handlePrint = () => {
     printFile({
       content: content || '',
@@ -297,6 +311,9 @@ export function FileViewerPage() {
           title={pathCopied ? 'Path copied!' : 'Copy file path to clipboard'}
         >
           {pathCopied ? <Check size={16} /> : <Copy size={16} />}
+        </button>
+        <button className="icon-button" onClick={handleDownload} title="Download file">
+          <Download size={16} />
         </button>
         <button className="icon-button" onClick={handlePrint} title="Print / Save as PDF">
           <Printer size={16} />

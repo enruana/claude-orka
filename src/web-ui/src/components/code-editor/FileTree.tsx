@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   ChevronRight,
   ChevronDown,
@@ -23,6 +23,8 @@ interface FileTreeProps {
   onContextMenu?: (e: React.MouseEvent, path: string, isDirectory: boolean) => void
   onLongPress?: (e: React.TouchEvent | React.MouseEvent, path: string, isDirectory: boolean) => void
   onMoveFile?: (fromPath: string, toDirectory: string) => void
+  /** Used to namespace persisted expansion state in localStorage. */
+  storageKey?: string
 }
 
 interface TreeNodeProps {
@@ -37,86 +39,84 @@ interface TreeNodeProps {
   onMoveFile?: (fromPath: string, toDirectory: string) => void
   dragOverPath: string | null
   setDragOverPath: (path: string | null) => void
+  expandedPaths: Set<string>
+  toggleExpanded: (path: string) => void
 }
 
-// Get appropriate icon for file type
+// Per-extension color tokens — keep Lucide icons but tint by language for fast scanning.
+const ICON_COLOR: Record<string, string> = {
+  ts: '#3178c6', tsx: '#3178c6',
+  js: '#f7df1e', jsx: '#f7df1e', mjs: '#f7df1e', cjs: '#f7df1e',
+  json: '#cbcb41', jsonc: '#cbcb41',
+  py: '#3572a5',
+  rb: '#cc342d',
+  go: '#00add8',
+  rs: '#dea584',
+  java: '#b07219', kt: '#a97bff',
+  c: '#555555', cpp: '#f34b7d', h: '#555555', hpp: '#f34b7d',
+  cs: '#178600',
+  php: '#777bb4',
+  swift: '#ffac45',
+  md: '#dcdcaa', mdx: '#dcdcaa', txt: '#cccccc',
+  html: '#e34c26', htm: '#e34c26',
+  css: '#563d7c', scss: '#cc6699', sass: '#cc6699', less: '#1d365d',
+  yaml: '#cb171e', yml: '#cb171e', toml: '#9c4221',
+  sh: '#89e051', bash: '#89e051', zsh: '#89e051',
+  sql: '#dad8d8',
+  graphql: '#e535ab', gql: '#e535ab',
+  png: '#a074c4', jpg: '#a074c4', jpeg: '#a074c4',
+  gif: '#a074c4', svg: '#ffb13b', webp: '#a074c4', ico: '#a074c4',
+  xml: '#e37933',
+}
+
+// Get appropriate icon + color for file type
 function getFileIcon(filename: string) {
   const ext = filename.split('.').pop()?.toLowerCase() || ''
   const name = filename.toLowerCase()
+  const color = ICON_COLOR[ext]
 
-  // Config files
+  // Config / dotfiles — handled before extension switch
   if (name.includes('config') || name.includes('rc') || name.startsWith('.')) {
-    return <Settings size={16} />
+    return <Settings size={14} />
   }
 
-  // By extension
   switch (ext) {
-    case 'ts':
-    case 'tsx':
-    case 'js':
-    case 'jsx':
-    case 'py':
-    case 'rb':
-    case 'go':
-    case 'rs':
-    case 'java':
-    case 'c':
-    case 'cpp':
-    case 'h':
-    case 'cs':
-    case 'php':
-    case 'swift':
-    case 'kt':
-      return <FileCode size={16} />
+    case 'ts': case 'tsx':
+    case 'js': case 'jsx': case 'mjs': case 'cjs':
+    case 'py': case 'rb': case 'go': case 'rs':
+    case 'java': case 'c': case 'cpp': case 'h': case 'hpp':
+    case 'cs': case 'php': case 'swift': case 'kt':
+      return <FileCode size={14} style={color ? { color } : undefined} />
 
-    case 'json':
-    case 'yaml':
-    case 'yml':
-    case 'toml':
-      return <FileJson size={16} />
+    case 'json': case 'jsonc':
+    case 'yaml': case 'yml': case 'toml':
+      return <FileJson size={14} style={color ? { color } : undefined} />
 
-    case 'md':
-    case 'mdx':
-    case 'txt':
-    case 'doc':
-    case 'docx':
-      return <FileText size={16} />
+    case 'md': case 'mdx': case 'txt': case 'doc': case 'docx':
+      return <FileText size={14} style={color ? { color } : undefined} />
 
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'gif':
-    case 'svg':
-    case 'ico':
-    case 'webp':
-      return <Image size={16} />
+    case 'png': case 'jpg': case 'jpeg':
+    case 'gif': case 'svg': case 'ico': case 'webp':
+      return <Image size={14} style={color ? { color } : undefined} />
 
-    case 'html':
-    case 'css':
-    case 'scss':
-    case 'sass':
-    case 'less':
-      return <FileType size={16} />
+    case 'html': case 'htm':
+    case 'css': case 'scss': case 'sass': case 'less':
+      return <FileType size={14} style={color ? { color } : undefined} />
 
     default:
-      return <File size={16} />
+      return <File size={14} />
   }
 }
 
-// Get git status indicator color
-function getGitStatusColor(status: string): string {
+// Single-letter git status badge
+function getGitStatusBadge(status: string): { letter: string; color: string } | null {
   switch (status) {
-    case 'modified':
-      return 'var(--accent-yellow)'
-    case 'added':
-    case 'untracked':
-      return 'var(--accent-green)'
-    case 'deleted':
-      return 'var(--accent-red)'
-    case 'renamed':
-      return 'var(--accent-purple)'
-    default:
-      return 'transparent'
+    case 'modified': return { letter: 'M', color: 'var(--accent-yellow)' }
+    case 'added': return { letter: 'A', color: 'var(--accent-green)' }
+    case 'untracked': return { letter: 'U', color: 'var(--accent-green)' }
+    case 'deleted': return { letter: 'D', color: 'var(--accent-red)' }
+    case 'renamed': return { letter: 'R', color: 'var(--accent-purple)' }
+    default: return null
   }
 }
 
@@ -139,10 +139,7 @@ function useLongPress(
 
     timerRef.current = setTimeout(() => {
       isLongPressRef.current = true
-      // Haptic feedback
-      if ('vibrate' in navigator) {
-        navigator.vibrate(50)
-      }
+      if ('vibrate' in navigator) navigator.vibrate(50)
       onLongPressRef.current?.(e)
     }, delay)
   }, [onLongPressRef, delay])
@@ -159,7 +156,6 @@ function useLongPress(
     if (!isLongPressRef.current) {
       onClickRef.current?.()
     }
-    // Prevent ghost clicks
     if (isLongPressRef.current) {
       e.preventDefault()
     }
@@ -171,9 +167,7 @@ function useLongPress(
         Math.pow(e.touches[0].clientX - startPosRef.current.x, 2) +
         Math.pow(e.touches[0].clientY - startPosRef.current.y, 2)
       )
-      if (distance > 10) {
-        clear()
-      }
+      if (distance > 10) clear()
     }
   }, [clear])
 
@@ -197,42 +191,43 @@ function TreeNode({
   onMoveFile,
   dragOverPath,
   setDragOverPath,
+  expandedPaths,
+  toggleExpanded,
 }: TreeNodeProps) {
-  const [expanded, setExpanded] = useState(false) // All folders closed by default
   const [loading, setLoading] = useState(false)
 
   const isDirectory = node.type === 'directory'
   const isSelected = selectedFile === node.path
+  const expanded = expandedPaths.has(node.path)
   const gitStatus = gitChanges.get(node.path)
   const isDragOver = dragOverPath === node.path
+  const badge = gitStatus ? getGitStatusBadge(gitStatus) : null
 
-  // Use refs to store callbacks to avoid hook dependency issues
   const onClickRef = useRef<(() => void) | null>(null)
   const onLongPressCallbackRef = useRef<((e: React.TouchEvent) => void) | null>(null)
 
-  // Update refs on each render
   onClickRef.current = async () => {
     if (isDirectory) {
-      if (!expanded && node.children?.length === 0) {
+      const willExpand = !expanded
+      if (willExpand && (!node.children || node.children.length === 0)) {
         setLoading(true)
-        await onExpandDirectory(node.path)
-        setLoading(false)
+        try {
+          await onExpandDirectory(node.path)
+        } finally {
+          setLoading(false)
+        }
       }
-      setExpanded(!expanded)
+      toggleExpanded(node.path)
     } else {
       onFileSelect(node.path)
     }
   }
 
   onLongPressCallbackRef.current = (e: React.TouchEvent) => {
-    if (onLongPress) {
-      onLongPress(e, node.path, isDirectory)
-    }
+    if (onLongPress) onLongPress(e, node.path, isDirectory)
   }
 
-  const handleClick = () => {
-    onClickRef.current?.()
-  }
+  const handleClick = () => onClickRef.current?.()
 
   const handleContextMenu = (e: React.MouseEvent) => {
     if (onContextMenu) {
@@ -242,42 +237,29 @@ function TreeNode({
     }
   }
 
-  const longPressHandlers = useLongPress(
-    onLongPressCallbackRef,
-    onClickRef,
-    500
-  )
-
-  // Determine if we should use touch handlers
+  const longPressHandlers = useLongPress(onLongPressCallbackRef, onClickRef, 500)
   const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window
 
-  // Handle drag start for dropping path to terminal
   const handleDragStart = (e: React.DragEvent) => {
-    // Set the path in multiple formats for compatibility
     e.dataTransfer.setData('text/x-orka-path', node.path)
     e.dataTransfer.setData('text/plain', node.path)
     e.dataTransfer.effectAllowed = 'copyMove'
   }
 
-  // Drop handlers for directory nodes
   const handleDragOver = (e: React.DragEvent) => {
     if (!isDirectory || !onMoveFile) return
     if (!e.dataTransfer.types.includes('text/x-orka-path')) return
     e.preventDefault()
     e.stopPropagation()
     e.dataTransfer.dropEffect = 'move'
-    if (dragOverPath !== node.path) {
-      setDragOverPath(node.path)
-    }
+    if (dragOverPath !== node.path) setDragOverPath(node.path)
   }
 
   const handleDragLeave = (e: React.DragEvent) => {
     if (!isDirectory || !onMoveFile) return
     const relatedTarget = e.relatedTarget as HTMLElement | null
     if (relatedTarget && (e.currentTarget as HTMLElement).contains(relatedTarget)) return
-    if (dragOverPath === node.path) {
-      setDragOverPath(null)
-    }
+    if (dragOverPath === node.path) setDragOverPath(null)
   }
 
   const handleDrop = (e: React.DragEvent) => {
@@ -287,20 +269,16 @@ function TreeNode({
     setDragOverPath(null)
     const fromPath = e.dataTransfer.getData('text/x-orka-path')
     if (!fromPath || fromPath === node.path) return
-    // Prevent dropping a folder into itself
     if (node.path.startsWith(fromPath + '/')) return
     onMoveFile(fromPath, node.path)
-    // Auto-expand target folder
-    if (!expanded) {
-      setExpanded(true)
-    }
+    if (!expanded) toggleExpanded(node.path)
   }
 
   return (
     <div className="tree-node-wrapper">
       <div
         className={`tree-node ${isSelected ? 'selected' : ''} ${isDirectory ? 'directory' : 'file'} ${isDragOver ? 'drag-over' : ''}`}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        style={{ paddingLeft: `${depth * 14 + 8}px` }}
         onClick={isTouchDevice ? undefined : handleClick}
         onContextMenu={handleContextMenu}
         draggable
@@ -310,25 +288,34 @@ function TreeNode({
         onDrop={handleDrop}
         {...(isTouchDevice ? longPressHandlers : {})}
       >
-        {/* Expand/Collapse Arrow */}
+        {/* Indent guides — one vertical line per parent depth level */}
+        {Array.from({ length: depth }).map((_, i) => (
+          <span
+            key={i}
+            className="tree-indent-guide"
+            style={{ left: `${i * 14 + 14}px` }}
+          />
+        ))}
+
+        {/* Expand/Collapse arrow */}
         <span className="tree-node-arrow">
           {isDirectory ? (
             loading ? (
               <div className="spinner-tiny" />
             ) : expanded ? (
-              <ChevronDown size={14} />
+              <ChevronDown size={12} />
             ) : (
-              <ChevronRight size={14} />
+              <ChevronRight size={12} />
             )
           ) : (
-            <span style={{ width: 14 }} />
+            <span style={{ width: 12 }} />
           )}
         </span>
 
         {/* Icon */}
         <span className="tree-node-icon">
           {isDirectory ? (
-            expanded ? <FolderOpen size={16} /> : <Folder size={16} />
+            expanded ? <FolderOpen size={14} /> : <Folder size={14} />
           ) : (
             getFileIcon(node.name)
           )}
@@ -337,13 +324,15 @@ function TreeNode({
         {/* Name */}
         <span className="tree-node-name">{node.name}</span>
 
-        {/* Git Status Indicator */}
-        {gitStatus && (
+        {/* Git status — single-letter badge */}
+        {badge && (
           <span
-            className="tree-node-git-status"
-            style={{ backgroundColor: getGitStatusColor(gitStatus) }}
+            className="tree-node-git-badge"
+            style={{ color: badge.color }}
             title={gitStatus}
-          />
+          >
+            {badge.letter}
+          </span>
         )}
       </div>
 
@@ -364,6 +353,8 @@ function TreeNode({
               onMoveFile={onMoveFile}
               dragOverPath={dragOverPath}
               setDragOverPath={setDragOverPath}
+              expandedPaths={expandedPaths}
+              toggleExpanded={toggleExpanded}
             />
           ))}
         </div>
@@ -381,8 +372,37 @@ export function FileTree({
   onContextMenu,
   onLongPress,
   onMoveFile,
+  storageKey,
 }: FileTreeProps) {
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
+
+  // Lifted expansion state — preserved across remounts via localStorage when storageKey provided.
+  const fullStorageKey = storageKey ? `orka-code-tree-expanded:${storageKey}` : null
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
+    if (!fullStorageKey || typeof window === 'undefined') return new Set()
+    try {
+      const raw = localStorage.getItem(fullStorageKey)
+      if (raw) return new Set(JSON.parse(raw))
+    } catch { /* ignore */ }
+    return new Set()
+  })
+
+  // Persist on changes
+  useEffect(() => {
+    if (!fullStorageKey) return
+    try {
+      localStorage.setItem(fullStorageKey, JSON.stringify([...expandedPaths]))
+    } catch { /* ignore */ }
+  }, [expandedPaths, fullStorageKey])
+
+  const toggleExpanded = useCallback((path: string) => {
+    setExpandedPaths(prev => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
 
   // Build a map of file path -> git status
   const gitChanges = new Map<string, string>()
@@ -417,6 +437,8 @@ export function FileTree({
               onMoveFile={onMoveFile}
               dragOverPath={dragOverPath}
               setDragOverPath={setDragOverPath}
+              expandedPaths={expandedPaths}
+              toggleExpanded={toggleExpanded}
             />
           ))
         )}

@@ -167,6 +167,65 @@ Text: ${text}`
 })
 
 /**
+ * POST /api/ai/markdown-format
+ * Convert plain text into a well-structured Markdown document.
+ */
+aiRouter.post('/markdown-format', async (req, res) => {
+  try {
+    const { text } = req.body as { text: string }
+
+    if (!text?.trim()) {
+      res.status(400).json({ error: 'text is required' })
+      return
+    }
+
+    const prompt = `You are a Markdown formatter. Convert the user's plain text (provided via stdin) into a well-structured Markdown document.
+
+Rules:
+- Identify natural headings and use ## / ### appropriately
+- Detect bullet/numbered lists and format them with - or 1.
+- Wrap code/commands/file paths in backticks. Multi-line code in \`\`\` fences with appropriate language hint when obvious
+- Format URLs as [text](url) links when the surrounding text describes them, otherwise keep as raw URLs
+- Use **bold** for emphasis and *italics* sparingly
+- Use > for quotes
+- Use tables when the text describes tabular data
+- Preserve the original language of the text
+- Preserve ALL the original information — do not summarize, omit, or paraphrase
+- Output ONLY the Markdown content, no preamble, no explanation, no code fence around the whole thing`
+
+    const args = ['-p', prompt, '--model', 'sonnet', '--no-session-persistence']
+
+    const { stdout } = await execa('claude', args, {
+      timeout: 120000,
+      env: { ...process.env, CLAUDECODE: '' },
+      extendEnv: false,
+      input: text,
+    })
+
+    let markdown = stdout.trim()
+    // If Claude wrapped the entire output in a markdown fence, strip it
+    if (markdown.startsWith('```markdown\n') || markdown.startsWith('```md\n')) {
+      markdown = markdown.replace(/^```(?:markdown|md)\n/, '').replace(/\n```\s*$/, '')
+    } else if (markdown.startsWith('```\n') && markdown.endsWith('```')) {
+      markdown = markdown.slice(4, -3).trim()
+    }
+
+    res.json({ markdown })
+  } catch (error: any) {
+    console.error('Error in AI markdown-format:', error)
+    if (error.code === 'ENOENT') {
+      res.status(500).json({ error: 'Claude CLI not found.' })
+      return
+    }
+    if (error.timedOut) {
+      res.status(500).json({ error: 'Request timed out.' })
+      return
+    }
+    res.status(500).json({ error: error.message || 'Failed to format markdown' })
+  }
+})
+
+/**
  * POST /api/ai/name
  * Generate a short descriptive title from a transcript or report
  */
