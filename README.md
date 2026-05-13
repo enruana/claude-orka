@@ -1,475 +1,129 @@
 # Claude-Orka
 
-> SDK, CLI, and Web UI for orchestrating Claude Code sessions with tmux
+> SDK, CLI, and Web UI for orchestrating Claude Code sessions with tmux — conversation branching, project knowledge base, autonomous agents, and remote access.
 
-[![npm version](https://img.shields.io/npm/v/@enruana/claude-orka.svg)](https://www.npmjs.com/package/@enruana/claude-orka)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+**Current version:** 0.13.0 · **License:** MIT · **Node:** >=18
 
-## What is Claude-Orka?
+## What is Claude-Orka
 
-Claude-Orka is a powerful SDK, CLI, and Web UI that enables you to:
+Claude-Orka turns a single machine into a remote-accessible workspace for running multiple Claude Code sessions concurrently. Each session lives in a dedicated tmux pane, can be forked to explore alternatives, and can be opened from any browser on your tailnet via a built-in web UI.
 
-- **Orchestrate multiple Claude Code sessions** using tmux
-- **Create conversation forks** to explore different approaches in parallel
-- **Merge forks back to main** with context preservation
-- **Web-based dashboard** accessible from any device (desktop, tablet, phone)
-- **Autonomous agent system** with Claude Code hooks, LLM-based decisions, and Telegram notifications
-- **Integrated code editor** with Monaco (VS Code engine) and Git support
-- **Voice input** for hands-free interaction with agents
-- **Mobile-friendly terminal** with virtual keyboard
+It also includes:
 
-## Installation
+- **Knowledge Base (KB)** — track decisions, tasks, spikes, bugs, milestones, and their relationships as a graph that Claude can query for context.
+- **Master Agents** — autonomous Claude sessions that react to hook events, can be remote-controlled via Telegram, and self-recover from stalls.
+- **Web UI** — dashboard with embedded terminals, KB graph, code editor (Monaco), file finder, and per-session git panel.
+- **Chrome extension** — record audio (tab/mic), transcribe via local Whisper, generate AI reports.
+- **HTTPS via Tailscale** — auto-detect certs from `~/.orka/certs/`, fall back to HTTP if absent.
+
+## Quick start
 
 ```bash
+# Install
 npm install -g @enruana/claude-orka
-```
 
-## Prerequisites
-
-### Required
-
-- **Node.js** >= 18.0.0
-- **tmux** - Terminal multiplexer
-- **Claude CLI** - Claude Code CLI ([download](https://claude.ai/download))
-
-### Optional
-
-- **ttyd** - Web-based terminal (for embedded terminal in the UI)
-- **ffmpeg** - Audio processing (for voice input)
-- **whisper** - Speech-to-text (for voice input)
-- **puppeteer** - Headless browser (for terminal screenshots in agents)
-
-## Quick Start
-
-```bash
-# 1. Install system dependencies automatically
+# Install system dependencies (tmux, ttyd, ffmpeg, whisper, xclip, tailscale)
 orka prepare
 
-# 2. Verify everything is set up
+# Verify everything is ready
 orka doctor
 
-# 3. Initialize Claude-Orka in your project
-cd /path/to/your/project
-orka init
-
-# 4. Start the web server
+# Start the web server (default port 3456)
 orka start
-# → Opens Web UI at http://localhost:3456
 ```
 
----
-
-## Features
-
-### Web Interface
-
-- **Project Dashboard** - Manage multiple projects from one place
-- **Session View** - Create, resume, close sessions with embedded terminal
-- **Fork Tree** - Visual hierarchy of conversation branches
-- **Code Editor** - Monaco editor with syntax highlighting for 30+ languages
-- **Git Panel** - Stage, unstage, commit, view diffs, AI-generated commit messages
-- **File Browser** - Finder-style file explorer with list and grid views
-- **Agent Canvas** - Visual canvas for configuring autonomous agents
-- **Voice Input** - Record and transcribe voice commands for agents
-- **Mobile Support** - Responsive design with virtual keyboard for terminal
-
-### Agent System
-
-- **Claude Code Hooks** - React to 14 hook event types (Stop, SessionStart, PreCompact, Permission, etc.)
-- **LLM-based decisions** - Autonomous agent uses Claude to decide actions on ambiguous terminal states
-- **Terminal monitoring** - Watchdog polls terminal every ~30s to detect stalled sessions
-- **Telegram bot** - Bidirectional communication: receive notifications, send commands via `/tell`, free-text queries
-- **Event state machine** - Deterministic fast-path for known events, LLM fallback for ambiguous ones
-- **Terminal screenshots** - Headless browser captures for visual context in LLM decisions
-
----
-
-## CLI Reference
-
-### `orka start`
-
-Start the Orka web server and UI.
-
-```bash
-orka start [options]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-p, --port <port>` | Port to run the server on | `3456` |
-| `--no-open` | Don't open browser automatically | |
-
----
-
-### `orka prepare`
-
-Install and configure system dependencies automatically.
-
-```bash
-orka prepare [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-y, --yes` | Skip confirmation prompts |
-
----
-
-### `orka init`
-
-Initialize Claude-Orka in the current project directory.
-
-```bash
-orka init
-```
-
----
-
-### `orka doctor`
-
-Check system dependencies and configuration.
-
-```bash
-orka doctor
-```
-
----
-
-### `orka status`
-
-Show project status and all sessions.
-
-```bash
-orka status [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-j, --json` | Output as JSON |
-
----
-
-### `orka session`
-
-Manage Claude Code sessions.
-
-#### `orka session create [name]`
-
-```bash
-orka session create [name] [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--no-terminal` | Don't open terminal window |
-| `-c, --continue` | Continue from an existing Claude session (interactive selector) |
-| `--from <session-id>` | Continue from a specific Claude session ID |
-
-#### `orka session list`
-
-```bash
-orka session list [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-s, --status <status>` | Filter by status (`active`, `saved`) |
-| `-j, --json` | Output as JSON |
-
-#### `orka session get <session-id>`
-
-```bash
-orka session get <session-id> [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-j, --json` | Output as JSON |
-
-#### `orka session resume [session-id]`
-
-Resume a saved session. Shows interactive selector if no ID provided.
-
-```bash
-orka session resume [session-id] [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--no-terminal` | Don't open terminal window |
-
-#### `orka session close <session-id>`
-
-Close and save a session for later.
-
-```bash
-orka session close <session-id>
-```
-
-#### `orka session delete <session-id>`
-
-Permanently delete a session.
-
-```bash
-orka session delete <session-id>
-```
-
----
-
-### `orka fork`
-
-Manage conversation forks.
-
-#### `orka fork create <session-id> [name]`
-
-```bash
-orka fork create <session-id> [name] [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-v, --vertical` | Split pane vertically instead of horizontally |
-
-#### `orka fork list <session-id>`
-
-```bash
-orka fork list <session-id> [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-s, --status <status>` | Filter by status (`active`, `saved`, `merged`) |
-| `-j, --json` | Output as JSON |
-
-#### `orka fork resume <session-id> <fork-id>`
-
-```bash
-orka fork resume <session-id> <fork-id>
-```
-
-#### `orka fork close <session-id> <fork-id>`
-
-```bash
-orka fork close <session-id> <fork-id>
-```
-
-#### `orka fork delete <session-id> <fork-id>`
-
-```bash
-orka fork delete <session-id> <fork-id>
-```
-
----
-
-### `orka merge`
-
-Export and merge fork operations.
-
-#### `orka merge export <session-id> <fork-id>`
-
-Generate an export summary for a fork.
-
-```bash
-orka merge export <session-id> <fork-id>
-```
-
-#### `orka merge do <session-id> <fork-id>`
-
-Merge a fork to main (requires export first).
-
-```bash
-orka merge do <session-id> <fork-id>
-```
-
-#### `orka merge auto <session-id> <fork-id>`
-
-Generate export and merge automatically (recommended).
-
-```bash
-orka merge auto <session-id> <fork-id> [options]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-w, --wait <ms>` | Wait time for Claude to complete export | `15000` |
-
----
-
-### `orka telegram`
-
-Telegram bot utilities.
-
-#### `orka telegram test`
-
-Send a test message to verify bot configuration.
-
-```bash
-orka telegram test -t <token> -c <chat-id>
-```
-
-| Option | Description |
-|--------|-------------|
-| `-t, --token <token>` | Bot token (required) |
-| `-c, --chat-id <chatId>` | Chat ID (required) |
-
-#### `orka telegram chat-id`
-
-Detect your chat ID from recent messages sent to the bot.
-
-```bash
-orka telegram chat-id -t <token>
-```
-
-| Option | Description |
-|--------|-------------|
-| `-t, --token <token>` | Bot token (required) |
-
----
-
-## SDK API Reference
-
-### Installation
-
-```typescript
-import { ClaudeOrka } from '@enruana/claude-orka'
-```
-
-### Basic Usage
-
-```typescript
-const orka = new ClaudeOrka('/path/to/project')
-await orka.initialize()
-
-// Create session
-const session = await orka.createSession('Feature Implementation')
-
-// Create fork
-const fork = await orka.createFork(session.id, 'Alternative Approach')
-
-// Work on fork... then merge
-await orka.generateExportAndMerge(session.id, fork.id)
-```
-
-### Main Methods
-
-| Method | Description |
-|--------|-------------|
-| `initialize()` | Initialize ClaudeOrka |
-| `createSession(name)` | Create new session |
-| `resumeSession(id)` | Resume saved session |
-| `closeSession(id)` | Close session |
-| `deleteSession(id)` | Delete session |
-| `createFork(sessionId, name)` | Create fork |
-| `closeFork(sessionId, forkId)` | Close fork |
-| `generateExportAndMerge(sessionId, forkId)` | Export and merge fork |
-
----
+Then open `http://localhost:3456` (or `https://<host>.<tailnet>.ts.net:3456` if SSL certs were generated — see [docs/https-tailscale.md](docs/https-tailscale.md)).
+
+## Common commands
+
+| Command | What it does |
+|---|---|
+| `orka start` | Start web server + UI (auto-HTTPS if certs exist) |
+| `orka prepare` | Install all system dependencies |
+| `orka doctor` | Check system state and configuration |
+| `orka init` | Create `.claude-orka/` in current project |
+| `orka status` | Show sessions and forks in current project |
+| `orka session create [name]` | Create a new Claude session |
+| `orka session list` | List all sessions |
+| `orka session resume [id]` | Resume a saved session (interactive if no id) |
+| `orka fork create <session-id> [name]` | Branch a session into a new fork |
+| `orka merge auto <session-id> <fork-id>` | Export fork + merge into parent |
+| `orka kb add <type> <title>` | Add a KB entity (decision, task, spike, bug, ...) |
+| `orka kb show <id>` | Display an entity with its edges |
+| `orka kb context` | Output AI-optimized project context |
+| `orka git-account` | Switch SSH key used for git pushes |
+| `orka aws-account` | Switch active AWS profile |
+| `orka telegram test --token ... --chat ...` | Send a Telegram test message |
+
+Full CLI reference: [docs/cli-reference.md](docs/cli-reference.md)
 
 ## Architecture
 
-### Directory Structure
-
 ```
-.claude-orka/
-├── state.json              # Project state (sessions, forks)
-└── exports/                # Fork export summaries
-    └── fork-{id}.md        # Export for each fork
-
-~/.orka/
-└── config.json             # Global config (projects, ports)
-
-~/.claude-orka/
-└── agents.json             # Agent configurations
-```
-
-### Key Concepts
-
-**Session** - A Claude Code conversation with main branch + forks, running in tmux.
-
-**Fork** - A branched conversation that can be merged back to its parent.
-
-**Export** - Summary of a fork's exploration, generated by Claude.
-
-**Merge** - Integrates fork learnings into parent conversation.
-
-**Agent** - Autonomous daemon that monitors a Claude Code session via hooks and terminal polling, making LLM-based decisions and communicating via Telegram.
-
-### System Ports
-
-| Port | Service |
-|------|---------|
-| 3456 | Web server (configurable with `--port`) |
-| 9999 | Hook server (receives Claude Code hook events) |
-| 4444+ | ttyd instances (web terminal) |
-
----
-
-## Troubleshooting
-
-### tmux not found
-
-```bash
-# macOS
-brew install tmux
-
-# Ubuntu
-sudo apt-get install tmux
-
-# Or use
-orka prepare
+┌─────────────────────────────────────────────────────────┐
+│  CLI  (orka …)              Web UI  (browser)            │
+└──────────┬─────────────────────────────┬─────────────────┘
+           │                             │
+           ▼                             ▼
+        ClaudeOrka  (src/core)  ◀───  Express server (src/server)
+           │                             │
+           ▼                             ▼
+       SessionManager  ──▶ tmux + ttyd + Claude Code processes
+       KnowledgeBaseManager ──▶ .claude-orka/.orka-kb/
+       GlobalStateManager    ──▶ ~/.orka/config.json
+       AgentManager  ──▶ Hook server + AgentDaemons + Telegram bots
 ```
 
-### Claude CLI not found
+- **CLI** — single binary (`orka`) built with esbuild; commands in `src/cli/commands/`.
+- **SDK** — `ClaudeOrka` class in `src/core/`; usable programmatically.
+- **Server** — Express on port 3456; HTTPS optional via `--cert`/`--key` or auto-detect.
+- **Web UI** — React + Vite + React Router; built into `dist/web-ui/`, served by Express.
+- **Agents** — daemons in `src/agent/` that subscribe to Claude Code hooks and use an LLM to decide next actions.
+- **Chrome extension** — standalone `chrome-extension/` directory; talks to the local server.
 
-Download from [claude.ai/download](https://claude.ai/download)
+Full architectural reference: [CLAUDE.md](CLAUDE.md)
 
-### Session recovery fails
+## Documentation
 
-```bash
-# Check system status
-orka doctor
+- **[CLAUDE.md](CLAUDE.md)** — Architecture reference (read first if you are an AI agent working on this repo).
+- **[docs/cli-reference.md](docs/cli-reference.md)** — Every command, every flag.
+- **[docs/https-tailscale.md](docs/https-tailscale.md)** — HTTPS setup via Tailscale (required for clipboard from remote).
+- **[docs/knowledge-base.md](docs/knowledge-base.md)** — KB system overview for humans.
+- **[docs/AGENTS.md](docs/AGENTS.md)** — Master agents: design and implementation.
+- **[MANAGEMENT.md](MANAGEMENT.md)** — Build, version bump, and npm publish workflow.
+- **[.claude/skills/](.claude/skills/)** — Claude Code skills for working with the KB (auto-loaded inside any Orka project).
 
-# Force resume
-orka session resume <session-id>
+## Requirements
+
+- Node.js 18 or newer
+- tmux (terminal multiplexer)
+- ttyd (web terminal server)
+- Claude CLI (`claude`) — install from https://claude.ai/download
+- ffmpeg (voice input)
+- cmake (build Whisper)
+- xclip (Linux clipboard for tmux)
+- Tailscale (optional, for HTTPS / remote access)
+
+All of these are installed by `orka prepare` on Linux and macOS.
+
+## Repository structure
+
 ```
-
-### Web UI won't start
-
-```bash
-# Check if port is in use
-lsof -i :3456
-
-# Try different port
-orka start --port 8080
+src/
+  cli/              — CLI commands and entry point
+  core/             — SDK: ClaudeOrka, SessionManager, KnowledgeBaseManager, ...
+  server/           — Express app + API routers + WebSocket proxies
+  agent/            — Master agent system (daemons, hooks, LLM decisions, Telegram)
+  web-ui/           — React frontend (Vite)
+  utils/            — Shared helpers (tmux, logger, certs, paths, claude-history)
+  models/           — TypeScript types and KB validator/registry
+  assets/skills/    — KB skills shipped with the package
+chrome-extension/   — Chrome MV3 extension (recorder, writer, settings)
+docs/               — Human-facing documentation
+.claude/skills/     — Skills installed into this repo for Claude Code
+.tmux.orka.conf     — Custom tmux theme applied to every session
 ```
-
-### Agent not receiving hooks
-
-```bash
-# Check hook server is running
-lsof -i :9999
-
-# Verify agent is started in the Agent Canvas
-# Check agent logs in the Web UI
-```
-
----
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
----
-
-## License
-
-MIT © enruana
-
----
-
-## Links
-
-- [GitHub Repository](https://github.com/enruana/claude-orka)
-- [Issue Tracker](https://github.com/enruana/claude-orka/issues)
-- [npm Package](https://www.npmjs.com/package/@enruana/claude-orka)
-- [Claude Code](https://claude.ai/code)
+This is currently a personal/internal project. Issues and PRs welcome at https://github.com/enruana/claude-orka/issues.

@@ -2,6 +2,10 @@
 
 This document explains how to maintain, build, and publish the Claude-Orka package to npm.
 
+> Current published version: see `package.json` (`"version"`). Latest stable line at the time of this doc: **0.13.x**.
+>
+> Heads-up for releases: `orka prepare` now installs Tailscale and creates `~/.orka/certs/` for HTTPS. Make sure release notes mention this when bumping from <=0.12 to >=0.13. See [docs/https-tailscale.md](docs/https-tailscale.md).
+
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)

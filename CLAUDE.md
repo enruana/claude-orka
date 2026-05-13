@@ -4,383 +4,285 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Claude-Orka is an SDK, CLI, and Web UI for orchestrating Claude Code sessions with tmux. It enables conversation forking (branching), merging, and session management for Claude Code workflows, plus an autonomous agent system with hooks, LLM-based decisions, and Telegram integration.
+Claude-Orka is an SDK, CLI, and Web UI for orchestrating Claude Code sessions with tmux. It enables conversation forking (branching), merging, session management for Claude Code workflows, plus:
 
-**Core concept**: Use tmux panes to run multiple Claude Code sessions simultaneously - a main conversation and "forks" that branch off to explore alternatives. Forks can be exported (summarized) and merged back into their parent conversation.
+- A **Knowledge Base (KB)** for tracking project decisions, tasks, spikes, bugs, etc. as a typed graph
+- An **autonomous agent system** that reacts to Claude Code hook events and can be remote-controlled via Telegram
+- A **Web UI** with embedded terminals, KB graph, Monaco code editor, and a finder-style file browser
+- A **Chrome extension** for audio recording, transcription, and AI-powered writing
+- **HTTPS** support via Tailscale-issued certs (required for cross-device clipboard support)
+
+**Core concept**: every session lives in its own tmux session prefixed `orka-<uuid>`, with one ttyd web terminal proxied through the Express server. Forks are extra panes inside the same tmux session running `claude session resume` with the parent's session id.
 
 ## Build & Development Commands
 
 ```bash
-# Install dependencies
+# Install
 npm install
 
-# Build all components (SDK + CLI + Web UI + assets)
+# Build everything (SDK + CLI bundle + Web UI + static assets + skills)
 npm run build
 
-# Build individual components
-npm run build:sdk          # TypeScript SDK compilation
-npm run build:cli          # Bundle CLI with esbuild
-npm run build:web-ui       # Build React Web UI with Vite
-npm run build:assets       # Copy static assets (terminal-mobile.html)
+# Individual builds
+npm run build:sdk          # TypeScript compile to dist/
+npm run build:cli          # esbuild bundle dist/cli.js
+npm run build:web-ui       # Vite build dist/web-ui/
+npm run build:assets       # Copy terminal-mobile.html, chrome-extension/, skills/
 
-# Development
+# Dev
 npm run dev                # Watch mode for SDK
-npm run orka               # Run CLI from source with tsx
+npm run orka -- <args>     # Run CLI from source via tsx
+npm run type-check         # tsc --noEmit
 
-# Testing & Validation
-npm run type-check         # TypeScript type checking (no output)
-npm link                   # Link globally for testing CLI
-orka doctor                # Verify system dependencies (Node, tmux, Claude CLI, ttyd)
-orka prepare               # Install missing dependencies automatically
+# Link for local testing
+npm link
+orka doctor
 ```
 
 ## Project Architecture
 
-### Core Components
+### CLI entry point — `src/cli/`
 
-**ClaudeOrka SDK** (`src/core/ClaudeOrka.ts`)
-- Public API facade for all operations
-- Delegates to SessionManager for actual work
-- Entry point for programmatic usage
+`src/cli/index.ts` registers every command and dispatches. All commands live in `src/cli/commands/`:
 
-**SessionManager** (`src/core/SessionManager.ts`)
-- Orchestrates tmux sessions and Claude Code processes
-- Handles session lifecycle (create, resume, close, delete)
-- Manages fork creation and merging
-- Detects Claude session IDs from `~/.claude/history.jsonl`
+| Command | File | Purpose |
+|---|---|---|
+| `orka start` | `start.ts` | Start web server (HTTPS auto-detect via `findCertPair`) |
+| `orka prepare` | `prepare.ts` | Install tmux, ttyd, ffmpeg, cmake, whisper, xclip, tailscale, Puppeteer |
+| `orka init` | `init.ts` | Create `.claude-orka/` in current project |
+| `orka doctor` | `doctor.ts` | Check system deps + Tailscale + SSL certs state |
+| `orka status` | `status.ts` | Show sessions/forks for current project |
+| `orka session …` | `session.ts` | create, list, get, resume, close, delete |
+| `orka fork …` | `fork.ts` | create, list, resume, close, delete |
+| `orka merge …` | `merge.ts` | export, do, auto |
+| `orka telegram …` | `telegram.ts` | test, chat-id |
+| `orka git-account` | `git-account.ts` | Interactive SSH key selector in ssh-agent |
+| `orka aws-account` | `aws-account.ts` | AWS profile switcher + optional shell integration |
+| `orka kb …` | `kb.ts` | Knowledge Base (init, add, update, link, show, list, lint, upgrade, classify, …) |
 
-**StateManager** (`src/core/StateManager.ts`)
-- Persists state to `.claude-orka/state.json`
-- Manages ProjectState with all sessions and forks
-- Handles state reads/writes with file locking
+Full CLI reference with flags and examples: [docs/cli-reference.md](docs/cli-reference.md).
 
-**GlobalStateManager** (`src/core/GlobalStateManager.ts`)
-- Manages global Orka state in `~/.orka/config.json`
-- Tracks registered projects, server port, ttyd base port
-- Singleton pattern with lazy initialization
+### SDK / Core — `src/core/`
 
-**TmuxCommands** (`src/utils/tmux.ts`)
-- Low-level tmux wrapper using execa
-- Creates sessions, panes, sends keys
-- Applies custom Claude-Orka theme (`.tmux.orka.conf`)
+Public API surface (exported from `src/core/index.ts`):
 
-**Claude History Integration** (`src/utils/claude-history.ts`)
-- Reads `~/.claude/history.jsonl` to detect session IDs
-- Polls for new session IDs when creating forks
-- Links Claude sessions to tmux panes
+- **`ClaudeOrka`** (`ClaudeOrka.ts`) — Facade. Constructs a `SessionManager` and exposes all session/fork operations.
+- **`SessionManager`** (`SessionManager.ts`) — Orchestrates tmux sessions and Claude Code processes. Handles fork creation/merging, claude-history polling, ttyd lifecycle, and the **system terminal** (`startSystemTerminal` / `stopSystemTerminal` for the dashboard's standalone shell).
+- **`StateManager`** (`StateManager.ts`) — Persists per-project state to `.claude-orka/state.json` with file locking. Manages tmux theme copy with mtime check to avoid race conditions.
 
-### Server (`src/server/`)
+Also in `src/core/` (not exported from index but used internally):
 
-**Express HTTP Server** (`src/server/index.ts`)
-- Serves Web UI static files with SPA fallback
-- WebSocket proxy for ttyd (web terminal)
-- HTTP proxy for ttyd mobile access
-- Custom terminal route with xterm.js + virtual keyboard
+- **`GlobalStateManager`** — Singleton for `~/.orka/config.json`. Tracks `projects[]`, `serverPort`, `ttydBasePort`, `systemTerminal` ttyd info.
+- **`KnowledgeBaseManager`** — KB CRUD. Reads/writes `.claude-orka/.orka-kb/`. Supports validation modes (strict / draft / off) and the entity registry in `src/models/kb-registry.ts`.
+- **`KBMigrator`** — Plans and applies v1→v2 KB schema migrations (types, statuses, relations, qualifiers).
+- **`kb-traversal.ts`** — `weightedTraversal`, `relatedEntityIds`, `BREADTH_PRESETS` (narrow/medium/wide) for KB context generation.
 
-**API Routers** (`src/server/api/`):
-- `projects.ts` - CRUD for registered projects
-- `sessions.ts` - Session create/list/get/resume/delete
-- `agents.ts` - Agent CRUD, start/stop, logs
-- `files.ts` - File tree, image serving, safe path traversal
-- `git.ts` - Git status, history, commit, push
-- `browse.ts` - Directory browsing (security-constrained)
-- `transcribe.ts` - Audio transcription for voice input
+### Server — `src/server/`
 
-### Agent System (`src/agent/`)
+`src/server/index.ts` creates the Express app, mounts API routers, sets up:
 
-**AgentManager** (`src/agent/AgentManager.ts`)
-- Orchestrates all agent daemons and the hook server
-- CRUD operations for agents, start/stop lifecycle
-- Routes hook events to appropriate daemons
+- **WebSocket upgrade proxy** for `/ttyd/:port/ws` — routes each session's xterm WS to its ttyd backend
+- **HTTP proxy** for `/ttyd/:port/*` — same purpose for non-WS requests
+- **Custom mobile terminal page** at `/terminal/:port` — serves `terminal-mobile.html` (xterm.js + virtual keyboard + OSC 52 handler)
+- **HTTPS** when both `certPath` and `keyPath` are passed in `ServerOptions`
+- **SPA fallback** that serves `dist/web-ui/index.html` for any non-API GET
 
-**AgentDaemon** (`src/agent/AgentDaemon.ts`)
-- Individual agent process monitoring a Claude Code session
-- Delegates event processing to EventStateMachine
-- Integrates TerminalWatchdog for stall detection
-- Owns per-agent TelegramBot instance
+API routers in `src/server/api/`:
 
-**EventStateMachine** (`src/agent/EventStateMachine.ts`)
-- Processes Claude Code hook events through a state machine
-- Flow: guard → route_event → capture_terminal → parse_terminal → fast_path
-- Fast-path for deterministic decisions, LLM fallback for ambiguous states
-- Actions: respond, approve, reject, wait, request_help, compact, clear, escape
+| Router | Path | Highlights |
+|---|---|---|
+| `projects.ts` | `/api/projects` | CRUD, system-terminal (POST/DELETE), tasks, comments, version check, reinitialize |
+| `sessions.ts` | `/api/sessions` | CRUD, resume, detach, close, forks (create/close/export/merge), select-branch, restart, capture, send-text |
+| `agents.ts` | `/api/agents` | CRUD, start/stop, connect/disconnect, logs |
+| `files.ts` | `/api/files` | list, tree, content (read/write), create, delete, image, raw, download, search, move, upload |
+| `git.ts` | `/api/git` | status, diff, stage/unstage/discard, commit, log, show, generate-commit-message, branches |
+| `kb.ts` | `/api/kb` | status, entities CRUD, edges, timeline, graph, context, project-doc, sync |
+| `ai.ts` | `/api/ai` | query, translate, markdown-format, name, report (powered by Claude CLI) |
+| `transcribe.ts` | `/api/transcribe` | Upload audio, get transcription (Whisper-based), job polling |
+| `browse.ts` | `/api/browse` | Filesystem directory browsing (sandboxed) |
 
-**HookServer** (`src/agent/HookServer.ts`)
-- HTTP server on port 9999 receiving Claude Code hook events
-- Route: `POST /api/hooks/:agentId`
-- Normalizes hook payloads, extracts type-specific data
+### Web UI — `src/web-ui/`
 
-**HookConfigGenerator** (`src/agent/HookConfigGenerator.ts`)
-- Generates Claude Code hook config for projects
-- Creates hook entries using curl POST to hook server
+React + TypeScript + Vite + React Router. Routes defined in `src/web-ui/src/App.tsx`:
 
-**LLMDecisionMaker** (`src/agent/LLMDecisionMaker.ts`)
-- Uses Claude Code Agent SDK for intelligent decisions
-- Called by EventStateMachine for ambiguous terminal states
-- Structured output with JSON schema (action, response, reason)
+| Path | Component | Purpose |
+|---|---|---|
+| `/` | `HomePage` | Landing page |
+| `/dashboard` | `ProjectDashboard` | All projects, sessions, group filters, system terminal |
+| `/agents` | `AgentCanvasPage` | Master agents visualization + config |
+| `/projects/:encodedPath` | redirect → `/dashboard` | Legacy URL |
+| `/projects/:encodedPath/sessions/:sessionId` | `SessionPage` | Session view (terminal iframe + side panels) |
+| `/projects/:encodedPath/code` | `CodeEditorPage` | Monaco editor with file tree + git panel |
+| `/projects/:encodedPath/files` | `FilesPage` | Finder-style file browser |
+| `/projects/:encodedPath/files/view` | `FileViewerPage` | Single-file viewer (markdown render, image preview) |
+| `/projects/:encodedPath/kb` | `KBPage` | Knowledge Base graph + timeline + detail panel |
 
-**TerminalWatchdog** (`src/agent/TerminalWatchdog.ts`)
-- Timer-driven polling (~30s) to detect stalled sessions
-- LLM evaluates if Claude is stalled or needs intervention
-- Safety: requires N consecutive verdicts, skips during spinners
+Key component directories (`src/web-ui/src/components/`):
 
-**TelegramBot** (`src/agent/TelegramBot.ts`)
-- Per-agent Telegram bot (grammY library, long polling)
-- Free text → LLM consultation, `/tell` → direct terminal injection
-- Sends notifications on milestones, errors, approval requests
+- `kb/` — KB graph + side panels (KBGraph, KBGuidePanel, KBDetailPanel, KBTimeline, KBEntityNode, KBZoneLabel, KBPage)
+- `agent/` — Agent canvas (AgentCanvas, AgentNode, ProjectNode, AgentConfigModal, AgentLogsModal, ConnectionEdge)
+- `code-editor/` — Monaco view (CodeEditorView, EditorPane, FileExplorer/FileTree, GitPanel, SearchPanel, CommitHistory, DiffViewer, ContextMenu, MarkdownViewer)
+- `finder/` — Finder-style file browser (FinderExplorer, FinderListView/GridView, FinderToolbar, FinderBreadcrumb, FinderStatusBar)
+- Top level: `SessionView`, `SessionPage`, `ProjectDashboard`, `ProjectDock`, `TaskWidget`, `CommentWidget`, `AddCommentDialog`, `VoiceInputPopover`, `QuickAIDialog`, `FolderBrowser`
 
-**TerminalReader** (`src/agent/TerminalReader.ts`)
-- Reads terminal content via tmux with metadata
-- Parses terminal state: waiting, permission prompts, processing, context limits
+### Agent system — `src/agent/`
 
-**TerminalScreenshot** (`src/agent/TerminalScreenshot.ts`)
-- Captures terminal screenshots using headless Puppeteer
+Documented in detail in [docs/AGENTS.md](docs/AGENTS.md). Key modules:
 
-**AgentStateManager** (`src/agent/AgentStateManager.ts`)
-- Persistent agent configuration in `~/.claude-orka/agents.json`
+- **`AgentManager`** — Orchestrates all daemons + the hook HTTP server on port 9999
+- **`AgentDaemon`** — One per active agent; owns a `TerminalReader`, `TerminalWatchdog`, `TelegramBot`, and an `EventStateMachine`
+- **`EventStateMachine`** — Processes hook events via guard → route → capture-terminal → parse → fast-path → LLM fallback
+- **`LLMDecisionMaker`** — Uses Claude Agent SDK with structured output to decide actions (respond / approve / reject / wait / request_help / compact / clear / escape)
+- **`TerminalWatchdog`** — Timer-driven (~30s) staleness detector with LLM verdict and safety quorum
+- **`TerminalReader`** — Reads tmux pane content + parses terminal state (waiting, permission prompt, processing, context limit)
+- **`TerminalScreenshot`** — Headless Puppeteer screenshot of tmux pane (for richer LLM input)
+- **`HookServer`** — `POST /api/hooks/:agentId` endpoint receiving Claude Code hook payloads
+- **`HookConfigGenerator`** — Writes `.claude/settings.json` hook entries (curl POSTs) for projects with an active agent
+- **`TelegramBot`** — Per-agent grammY bot; long polling; `/tell` injects text into the terminal; free text triggers LLM consultation
+- **`AgentStateManager`** — Persists agent configs in `~/.claude-orka/agents.json`
+- **`mcp/`** — MCP server exposing terminal tools to Claude (read/write/screenshot)
 
-### Web UI (`src/web-ui/`)
+### Knowledge Base — `src/models/` + `src/core/Knowledge*`
 
-**Tech stack**: React + TypeScript + Vite + React Router
+The KB stores typed entities (`decision`, `task`, `spike`, `bug`, `project`, `meeting`, `milestone`, `direction`, `goal`, `initiative`, `question`, `person`, `repo`, `artifact`, `context`, `activity`) with edges (relations). Stored in `.claude-orka/.orka-kb/`:
 
-**Routes** (defined in `src/web-ui/src/App.tsx`):
-- `/` - Home page
-- `/dashboard` - Project dashboard (main landing)
-- `/agents` - Agent canvas page
-- `/projects/:path/sessions/:sessionId` - Session view
-- `/projects/:path/code` - Code editor
-- `/projects/:path/files` - File browser
-- `/projects/:path/files/view` - File viewer
+```
+.orka-kb/
+  events.jsonl      — event log (append-only source of truth)
+  entities/         — materialized entity JSON files
+  edges/            — materialized edge JSON files
+  views/            — generated context.md, timeline.md, INDEX.md per project
+```
 
-**Key components** (`src/web-ui/src/components/`):
-- `ProjectDashboard` - Project listing with session management
-- `SessionView` - Session details with embedded terminal
-- `code-editor/` - Monaco editor, file explorer, Git panel, diff viewer, commit history
-- `finder/` - Finder-style file browser (list/grid views, breadcrumbs, toolbar)
-- `agent/` - Agent canvas, agent nodes, project nodes, config modal, logs modal
-- `VoiceInputPopover` - Voice recording and transcription UI
+- Schema, validation, and registry in `src/models/kb-registry.ts` + `src/models/kb-validator.ts`
+- CRUD in `src/core/KnowledgeBaseManager.ts`
+- Migration from v1 in `src/core/kb-migrator.ts`
+- Traversal/context selection in `src/core/kb-traversal.ts`
+- CLI exposed via `orka kb <subcommand>`
+- HTTP API at `/api/kb/*`
+- Web UI at `/projects/:path/kb`
+- Skills for Claude in `.claude/skills/kb-*.md` (auto-installed by `orka kb init`)
 
-### State Management
+Human-facing overview: [docs/knowledge-base.md](docs/knowledge-base.md).
 
-**State file location**: `.claude-orka/state.json`
+### HTTPS / Tailscale — `src/utils/certs.ts`
 
-**State structure**:
-- `ProjectState` contains array of `Session` objects
-- Each `Session` has a `main` branch (MainBranch) and `forks[]` array
-- Each `Fork` tracks: parentId, claudeSessionId, tmuxPaneId, status, contextPath
+- `CERTS_DIR` = `~/.orka/certs/`
+- `findCertPair()` — scans for any `*.crt` + matching `*.key` and returns the pair
+- `getTailscaleHostname()` — parses `tailscale dns status` → returns `host.<tailnet>.ts.net`
+- `ensureCertsDir()` — `mkdir -p`
 
-**Critical state fields**:
-- `tmuxSessionId`: Session name like "orka-abc123"
-- `claudeSessionId`: UUID from Claude's history.jsonl
-- `tmuxPaneId`: Pane identifier like "%1", "%2"
-- `status`: "active" | "saved" (sessions), "active" | "saved" | "closed" | "merged" (forks)
-- `contextPath`: Path to fork export file (`.claude-orka/exports/fork-{id}.md`)
+`orka start` calls `findCertPair()` when no explicit `--cert`/`--key` are passed and `--http` is not set; auto-enables HTTPS if a pair is found. `orka prepare` installs Tailscale and prints the exact commands to generate the cert (it cannot run `sudo tailscale cert` non-interactively). `orka doctor` reports cert + Tailscale state.
 
-### Session Lifecycle
+Setup walkthrough: [docs/https-tailscale.md](docs/https-tailscale.md).
 
-**Creating a session**:
-1. Generate session ID (nanoid)
-2. Create tmux session with name "orka-{sessionId}"
-3. Apply custom theme from `.tmux.orka.conf`
-4. Launch Claude Code in pane
-5. Detect new Claude session ID from history.jsonl
-6. Save state with session + main branch
-7. Start ttyd for web terminal access
+### Clipboard / OSC 52 — `src/server/terminal-mobile.html`
 
-**Creating a fork**:
-1. Split tmux pane (horizontal or vertical)
-2. Capture existing session IDs from history.jsonl
-3. Send Ctrl+C to new pane, then run `claude session resume {parentClaudeSessionId}`
-4. Poll history.jsonl to detect new session ID (fork's Claude session)
-5. Add fork to parent's forks array in state
-6. Fork inherits context from parent via Claude's resume
+The mobile terminal page registers a custom OSC 52 handler on `term.parser` (not the official addon-clipboard). On selection in tmux (with `set-clipboard on` + `terminal-overrides` for `Ms`), tmux emits OSC 52 to xterm.js. The handler:
 
-**Merging a fork**:
-1. Export: Send prompt to fork asking Claude to generate summary at `.claude-orka/exports/fork-{id}.md`
-2. Wait for export file to be created (async operation, Claude does it)
-3. Merge: Send prompt to parent conversation including the export file contents
-4. Close fork pane and mark status as "merged"
+1. Tries `navigator.clipboard.writeText()` immediately (may fail without user gesture)
+2. Stashes the text as pending
+3. On next `click`/`keydown`/`touchend`, flushes via `document.execCommand('copy')` inside a hidden textarea (works in iframes within secure context)
 
-**Session recovery** (after system restart):
-1. Check if tmux session exists
-2. If missing: Create new tmux session, resume main Claude session, recreate fork panes
-3. If exists: Reconnect to existing panes
+The page also has a "Copy from Terminal" quick action that opens a modal with the last ~3000 chars of the buffer in a textarea so users can select/copy with the native OS menu.
 
-### CLI Architecture
+For this to work end-to-end the server must be HTTPS (Clipboard API requires secure context except on localhost).
 
-**Entry point**: `src/cli/index.ts`
+### State files
 
-**Command structure**: Uses `commander` library
-- Commands in `src/cli/commands/` (start.ts, session.ts, fork.ts, merge.ts, telegram.ts, etc.)
-- Each command imports ClaudeOrka SDK and calls appropriate methods
-- Output utilities in `src/cli/utils/output.ts` (chalk, cli-table3, ora)
+| Path | Contents |
+|---|---|
+| `.claude-orka/state.json` | Per-project: sessions + forks + tasks + comments + version |
+| `.claude-orka/exports/fork-{id}.md` | Fork export summaries (input to merge) |
+| `.claude-orka/.orka-kb/` | KB events, entities, edges, views |
+| `.claude-orka/.tmux.orka.conf` | Project-local copy of tmux theme |
+| `~/.orka/config.json` | Global: registered projects, ports, system terminal info |
+| `~/.orka/certs/*.crt` + `*.key` | HTTPS certificates (Tailscale-issued) |
+| `~/.claude-orka/agents.json` | Agent configurations (one entry per master agent) |
+| `~/.claude/history.jsonl` | Claude CLI's session history (read-only; we poll it) |
+| `.tmux.orka.conf` | Tmux theme source (in package root) |
 
-**Key CLI commands**:
-- `orka start`: Start web server (default port 3456)
-- `orka prepare`: Install system dependencies (tmux, Claude CLI, ttyd, ffmpeg, whisper, puppeteer)
-- `orka doctor`: Check system dependencies and configuration
-- `orka init`: Create `.claude-orka/` directory structure
-- `orka status`: Show project status
-- `orka session create/list/get/resume/close/delete`: Session management
-- `orka fork create/list/resume/close/delete`: Fork management
-- `orka merge export/do/auto`: Fork export and merge workflow
-- `orka telegram test/chat-id`: Telegram bot utilities
+### System ports
 
-### Important Implementation Details
-
-**Claude session detection**:
-- Claude writes new entries to `~/.claude/history.jsonl` when sessions start
-- We poll this file to detect new session IDs after forking
-- Timeout: 10 seconds (configurable in detectNewSessionId)
-
-**Custom tmux theme**:
-- Stored in `.tmux.orka.conf` at package root
-- Applied automatically to all new sessions
-- Orange branding (#208), top status bar, pane borders with titles
-
-**Export mechanism**:
-- Async: We send prompt to Claude, it generates file in background
-- No direct control over timing - rely on file system polling
-- Default wait time: 15 seconds (configurable with --wait flag)
-
-**Fork limitation**:
-- Claude Code limitation: Only one fork per parent branch can be active
-- Must merge or close existing fork before creating new one from same parent
-- UI enforces this with disabled "New Fork" button
-
-**System ports**:
-- 3456: Web server (configurable with `orka start --port`)
-- 9999: Hook server (receives Claude Code hook events)
-- 4444+: ttyd instances (web terminal, auto-assigned)
+| Port | Purpose |
+|---|---|
+| 3456 | Web server (configurable with `--port`) |
+| 9999 | Hook server (for Claude Code hooks → agents) |
+| 4444+ | ttyd instances (auto-assigned starting at `ttydBasePort` in global config) |
 
 ## Development Patterns
 
 ### Adding a new CLI command
 
-1. Create command file in `src/cli/commands/mycommand.ts`
-2. Import ClaudeOrka SDK and output utilities
-3. Implement command logic using SDK methods
-4. Register command in `src/cli/index.ts`
-5. Build: `npm run build:cli`
-6. Test: `npm run orka -- mycommand`
+1. Create `src/cli/commands/mycommand.ts` exporting a `mycommandCommand(program)` function
+2. Import the SDK + output utilities from `src/cli/utils/`
+3. Register in `src/cli/index.ts`
+4. `npm run build:cli` then `orka mycommand`
 
 ### Adding a new SDK method
 
-1. Add method to `src/core/ClaudeOrka.ts` (public API)
-2. Implement in `src/core/SessionManager.ts` if needed
-3. Update types in `src/models/` if needed
-4. Build: `npm run build:sdk`
-5. Update type declarations are auto-generated
+1. Method on `src/core/ClaudeOrka.ts` (public surface)
+2. Implementation in `src/core/SessionManager.ts` (or the appropriate manager)
+3. `npm run build:sdk` regenerates types
 
 ### Adding a new API route
 
-1. Create router file in `src/server/api/myroute.ts`
-2. Define Express routes with proper error handling
-3. Register router in `src/server/index.ts`
-4. Build: `npm run build:sdk && npm run build:cli`
+1. Create or edit `src/server/api/<router>.ts`
+2. Register in `src/server/index.ts`
+3. Add a client method in `src/web-ui/src/api/client.ts`
+4. Build both: `npm run build:sdk && npm run build:cli && npm run build:web-ui`
 
 ### Adding a new Web UI page
 
-1. Create page component in `src/web-ui/src/pages/` or `src/web-ui/src/components/`
-2. Add route in `src/web-ui/src/App.tsx`
-3. Build: `npm run build:web-ui`
-4. Dev: Vite dev server at port 5174 proxies API to port 3456
+1. Create the component
+2. Add a `<Route>` in `src/web-ui/src/App.tsx`
+3. `npm run build:web-ui`
+4. Vite dev server: `cd src/web-ui && npx vite` (proxies `/api` to port 3456)
 
 ### Working with state
 
-- Always use StateManager methods (load, save)
-- Update `lastUpdated` timestamp when modifying state
-- Use `session.lastActivity` for session-specific updates
-- State mutations should be atomic (read → modify → save)
+- Always go through `StateManager` / `GlobalStateManager` — never edit JSON files directly
+- Atomic read-modify-save
+- Update `lastUpdated` on each mutation
 
 ### Working with tmux
 
-- Use TmuxCommands wrapper, not raw execa
-- All tmux commands include error handling
-- Session names follow pattern: "orka-{sessionId}"
-- Pane IDs are dynamic ("%1", "%2", etc.) - don't hardcode
+- Use `TmuxCommands` in `src/utils/tmux.ts` (wraps `execa`)
+- Session names: `orka-{sessionId}` (one tmux session per Claude session)
+- Pane IDs are dynamic — never hardcode them
+- The system terminal lives in `orka-system-terminal` (separate from per-project sessions)
 
 ### Error handling
 
-- TmuxError for tmux-specific failures
-- Logger available throughout codebase
-- CLI commands should catch errors and display user-friendly messages
-- Use ora spinners for long-running operations
-
-## Important Files
-
-- `.claude-orka/state.json` - Project state (sessions, forks, metadata)
-- `.claude-orka/exports/fork-{id}.md` - Fork export summaries
-- `~/.claude/history.jsonl` - Claude's session history (read-only)
-- `~/.orka/config.json` - Global config (projects, ports)
-- `~/.claude-orka/agents.json` - Agent configurations
-- `.tmux.orka.conf` - Custom tmux theme configuration
-- `dist/cli.js` - Bundled CLI entry point
-- `dist/web-ui/` - Built Web UI (served by Express)
-
-## Testing Approach
-
-Manual testing workflow:
-1. Build: `npm run build`
-2. Link: `npm link`
-3. Test CLI: `orka session create "Test"`
-4. Test fork: `orka fork create {sessionId} "Test Fork"`
-5. Test merge: `orka merge auto {sessionId} {forkId}`
-6. Clean up: `orka session delete {sessionId}`
-
-For Web UI:
-1. Start server: `orka start`
-2. Or use Vite dev server: `cd src/web-ui && npx vite` (proxies API to port 3456)
-3. Manually test UI interactions at http://localhost:5174
-
-## Publishing Workflow
-
-See MANAGEMENT.md for complete publishing guide. Quick version:
-
-```bash
-# 1. Make changes and test
-npm run build
-npm run type-check
-
-# 2. Version bump
-npm version patch  # or minor/major
-
-# 3. Push to GitHub
-git push origin main --tags
-
-# 4. Publish to npm
-npm publish
-
-# 5. Verify
-npm install -g @enruana/claude-orka
-orka --version
-```
+- `TmuxError` for tmux failures
+- Use the project logger (`src/utils/logger.ts`)
+- CLI commands wrap actions in try/catch and emit user-friendly messages via `Output` utilities
 
 ## Common Issues
 
-**Session recovery fails**: Check if Claude session still exists in `~/.claude/history.jsonl`. If missing, create new session.
+- **Session creation hangs** — `detectNewSessionId` polls `~/.claude/history.jsonl` for ~10s. Slow disks can need more.
+- **Clipboard doesn't work from a remote browser** — Browser requires secure context. Run `orka start` with HTTPS certs (see [docs/https-tailscale.md](docs/https-tailscale.md)).
+- **Fork creation fails** — Only one active fork per parent is allowed by Claude. Close or merge the existing one first.
+- **Tmux theme not applied** — Re-run `orka init` in the project, or use the "Sync" button in the dashboard (calls `reinitialize` which re-copies the theme).
+- **Mobile selection doesn't copy** — Use the **Copy from Terminal** quick action button instead of native xterm selection.
+- **Agent not receiving hooks** — Check `lsof -i :9999` and verify the agent is started in the Web UI's Agent Canvas.
 
-**Fork creation timeout**: `detectNewSessionId` times out after 10 seconds. Increase timeout if needed in slow environments.
+## Publishing Workflow
 
-**Merge fails - no export**: Export must complete before merge. Use `orka merge auto` which handles timing automatically.
+See [MANAGEMENT.md](MANAGEMENT.md). Quick version:
 
-**Web UI won't start**:
-1. Check if port 3456 is in use: `lsof -i :3456`
-2. Try a different port: `orka start --port 8080`
-3. Verify build output exists: `ls dist/web-ui/index.html`
-
-**Agent not receiving hooks**:
-1. Check hook server is running: `lsof -i :9999`
-2. Verify agent is started in Agent Canvas
-3. Check agent logs in the Web UI
-
-**Type errors after changes**: Run `npm run type-check` to see all errors. Fix before building.
+```bash
+npm run build && npm run type-check
+npm version patch         # or minor/major
+git push origin main --tags
+npm publish
+```
 
 ## Code Style
 
-- TypeScript with strict mode enabled
-- ES modules (type: "module" in package.json)
-- async/await for all async operations
-- No unused imports or variables (enforced by tsconfig)
-- Use logger for debugging, not console.log
-- Descriptive error messages for user-facing errors
+- TypeScript with `strict` mode enabled
+- ES modules (`"type": "module"` in `package.json`)
+- async/await for all async ops
+- No unused imports or variables (enforced by `tsconfig`)
+- Use the project logger, not `console.log`
+- User-facing error messages should be actionable
