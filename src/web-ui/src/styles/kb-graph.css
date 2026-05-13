@@ -313,6 +313,148 @@
   padding: 2px 0;
 }
 
+/* Active project filter chip — shown when a project is being filtered */
+.kb-guide-filter-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 12px 8px;
+  padding: 6px 10px;
+  background: rgba(243, 139, 168, 0.10);
+  border: 1px solid rgba(243, 139, 168, 0.25);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #cdd6f4;
+}
+
+.kb-guide-filter-chip-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.kb-guide-filter-chip-prefix {
+  color: #7f849c;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.kb-guide-filter-chip-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-guide-filter-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: #7f849c;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+
+.kb-guide-filter-chip-clear:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #cdd6f4;
+}
+
+/* Project item that is the current active filter — subtle highlight */
+.kb-guide-item.is-filter:not(.selected) {
+  background: rgba(243, 139, 168, 0.06);
+  border-left-color: rgba(243, 139, 168, 0.5);
+}
+
+/* Status group mini-headers (Active / In Progress / Pending / Done) */
+.kb-guide-status-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.kb-guide-status-group + .kb-guide-status-group {
+  margin-top: 4px;
+}
+
+.kb-guide-status-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 14px 2px 36px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6c7086;
+  pointer-events: none;
+  user-select: none;
+}
+
+.kb-guide-status-group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kb-guide-status-group-label::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.kb-guide-status-group-count {
+  font-size: 9px;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+/* Visual hierarchy by group — alive states stand out, done fades out */
+.kb-guide-status-group-active .kb-guide-status-group-label {
+  color: #a6e3a1; /* green */
+}
+.kb-guide-status-group-inProgress .kb-guide-status-group-label {
+  color: #89b4fa; /* blue */
+}
+.kb-guide-status-group-pending .kb-guide-status-group-label {
+  color: #f9e2af; /* yellow */
+}
+.kb-guide-status-group-done .kb-guide-status-group-label {
+  color: #585b70; /* grey */
+}
+
+/* Make active/in-progress items more readable, dim done items */
+.kb-guide-status-group-active .kb-guide-item-title,
+.kb-guide-status-group-inProgress .kb-guide-item-title {
+  color: #cdd6f4;
+  font-weight: 500;
+}
+
+.kb-guide-status-group-pending .kb-guide-item-title {
+  color: #bac2de;
+}
+
+.kb-guide-status-group-done .kb-guide-item-title {
+  color: #7f849c;
+  font-weight: 400;
+}
+
+.kb-guide-status-group-done .kb-guide-item-tags {
+  opacity: 0.6;
+}
+
 .kb-guide-item {
   display: flex;
   flex-direction: column;
