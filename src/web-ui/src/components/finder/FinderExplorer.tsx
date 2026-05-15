@@ -28,11 +28,17 @@ interface FinderExplorerProps {
   embedded?: boolean
   /** Directory path to navigate to on mount (relative to project root) */
   initialPath?: string
+  /**
+   * Called whenever the current directory changes. The standalone Files page
+   * uses this to mirror the path into the URL so it survives reload/navigation.
+   * Omitted when embedded (e.g. inside a session) — no behavior change.
+   */
+  onPathChange?: (path: string) => void
 }
 
 const VIEW_MODE_KEY = 'orka-finder-view-mode'
 
-export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath }: FinderExplorerProps) {
+export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath, onPathChange }: FinderExplorerProps) {
   const projectName = projectPath.split('/').pop() || projectPath
   const navigate = useNavigate()
 
@@ -410,6 +416,12 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
   useEffect(() => {
     loadDirectory(currentPath)
   }, [currentPath, loadDirectory])
+
+  // Mirror the current directory out (Files page writes it to the URL so it
+  // survives reload and route navigation).
+  useEffect(() => {
+    onPathChange?.(currentPath)
+  }, [currentPath, onPathChange])
 
   // Render context menu
   const renderContextMenu = () => {

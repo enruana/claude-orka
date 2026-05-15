@@ -35,6 +35,9 @@ interface SessionViewProps {
   onGoHome: () => void
   currentTab?: RightPanelTab
   onTabChange?: (tab: RightPanelTab) => void
+  /** Embedded file-explorer directory, mirrored to the URL so it survives reload */
+  initialFinderPath?: string
+  onFinderPathChange?: (path: string) => void
 }
 
 interface TreeNode {
@@ -52,7 +55,9 @@ export function SessionView({
   onBack,
   onGoHome,
   currentTab = 'terminal',
-  onTabChange
+  onTabChange,
+  initialFinderPath,
+  onFinderPathChange
 }: SessionViewProps) {
   const [session, setSession] = useState<Session>(initialSession)
   const [selectedNode, setSelectedNode] = useState<string>('main')
@@ -801,6 +806,8 @@ export function SessionView({
                 projectPath={project.path}
                 encodedPath={encodedPath}
                 embedded
+                initialPath={initialFinderPath}
+                onPathChange={onFinderPathChange}
               />
             </div>
             {rightPanelTab === 'kb' && (

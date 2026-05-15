@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { usePersistentState } from '../../hooks/usePersistentState'
 import {
   ChevronDown, ChevronRight, HelpCircle, CheckCircle,
   Calendar, Flag, User, Compass, GitBranch, FileText,
@@ -89,6 +90,43 @@ function groupByStatus(entities: KBEntity[]): Record<StatusGroupKey, KBEntity[]>
   return groups
 }
 
+interface ChronoConfig {
+  // Property holding the entity's real-world date (e.g. a meeting's `date`).
+  dateProp: string
+  // Lifecycle timestamp to use when that property is absent.
+  fallback: 'created' | 'updated'
+}
+
+// Resolve the date string an entity should be ordered by. Time-anchored types
+// carry their real date in `properties`; when missing we fall back to a
+// lifecycle timestamp so items still sort sanely.
+function resolveDate(e: KBEntity, chrono: ChronoConfig): string {
+  const raw = e.properties?.[chrono.dateProp]
+  if (typeof raw === 'string' && raw.trim()) return raw
+  if (typeof raw === 'number') return new Date(raw).toISOString()
+  return chrono.fallback === 'created' ? e.created : e.updated
+}
+
+function toTime(dateStr: string): number {
+  const t = Date.parse(dateStr)
+  return Number.isNaN(t) ? -Infinity : t // unparseable → sort oldest (bottom)
+}
+
+function formatDate(dateStr: string): string {
+  const t = Date.parse(dateStr)
+  if (Number.isNaN(t)) return ''
+  return new Date(t).toLocaleDateString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+  })
+}
+
+// Most-recent first; entries with no usable date drop to the bottom.
+function sortChronologically(items: KBEntity[], chrono: ChronoConfig): KBEntity[] {
+  return [...items].sort(
+    (a, b) => toTime(resolveDate(b, chrono)) - toTime(resolveDate(a, chrono))
+  )
+}
+
 interface Section {
   key: string
   label: string
@@ -97,6 +135,9 @@ interface Section {
   filter: (e: KBEntity) => boolean
   // If true, ignore the project filter and always source from allEntities
   unscopedByProject?: boolean
+  // If set, render as a flat list ordered newest-first (no status sub-groups)
+  // and show the resolved date on each item.
+  chronological?: ChronoConfig
 }
 
 const SECTIONS: Section[] = [
@@ -112,9 +153,12 @@ const SECTIONS: Section[] = [
   // Knowledge
   { key: 'questions', label: 'Questions', icon: HelpCircle, color: '#f9e2af',
     filter: (e) => e.type === 'question' },
-  { key: 'decisions', label: 'Decisions', icon: CheckCircle, color: '#a6e3a1', filter: (e) => e.type === 'decision' },
-  { key: 'milestones', label: 'Milestones', icon: Flag, color: '#f5c2e7', filter: (e) => e.type === 'milestone' },
-  { key: 'meetings', label: 'Meetings', icon: Calendar, color: '#cba6f7', filter: (e) => e.type === 'meeting' },
+  { key: 'decisions', label: 'Decisions', icon: CheckCircle, color: '#a6e3a1', filter: (e) => e.type === 'decision',
+    chronological: { dateProp: 'decided_at', fallback: 'created' } },
+  { key: 'milestones', label: 'Milestones', icon: Flag, color: '#f5c2e7', filter: (e) => e.type === 'milestone',
+    chronological: { dateProp: 'target', fallback: 'updated' } },
+  { key: 'meetings', label: 'Meetings', icon: Calendar, color: '#cba6f7', filter: (e) => e.type === 'meeting',
+    chronological: { dateProp: 'date', fallback: 'updated' } },
   // Strategic
   { key: 'goals', label: 'Goals', icon: Target, color: '#f38ba8', filter: (e) => e.type === 'goal' },
   { key: 'initiatives', label: 'Initiatives', icon: Layers, color: '#eba0ac', filter: (e) => e.type === 'initiative' },
@@ -136,7 +180,10 @@ interface KBGuidePanelProps {
 }
 
 export function KBGuidePanel({ entities, allEntities, selectedId, selectedProjectId, onSelect, onSelectProject }: KBGuidePanelProps) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  // Section expand/collapse survives remount (e.g. switching to the Claude
+  // Code tab and back). Section keys are entity-type based, so this is a
+  // global reading preference rather than per-project.
+  const [expanded, setExpanded] = usePersistentState<Record<string, boolean>>('orka-kb-guide-expanded', {})
   const [search, setSearch] = useState('')
 
   const selectedProject = useMemo(() =>
@@ -235,45 +282,60 @@ export function KBGuidePanel({ entities, allEntities, selectedId, selectedProjec
 
               {isExpanded && (
                 <div className="kb-guide-items">
-                  {STATUS_GROUPS.map((group) => {
-                    const groupItems = groupByStatus(items)[group.key]
-                    if (groupItems.length === 0) return null
+                  {(() => {
+                    const renderItem = (entity: KBEntity) => {
+                      const isSelected = selectedId === entity.id
+                      const isFilterProject = entity.type === 'project' && selectedProjectId === entity.id
+                      const statusColor = STATUS_COLORS[entity.status] || '#585b70'
+                      const dateLabel = section.chronological
+                        ? formatDate(resolveDate(entity, section.chronological))
+                        : ''
 
-                    return (
-                      <div key={group.key} className={`kb-guide-status-group kb-guide-status-group-${group.key}`}>
-                        <div className="kb-guide-status-group-header">
-                          <span className="kb-guide-status-group-label">{group.label}</span>
-                          <span className="kb-guide-status-group-count">{groupItems.length}</span>
+                      return (
+                        <button
+                          key={entity.id}
+                          className={`kb-guide-item ${isSelected ? 'selected' : ''} ${isFilterProject ? 'is-filter' : ''}`}
+                          onClick={() => handleItemClick(entity)}
+                          style={isSelected ? { borderLeftColor: section.color } : undefined}
+                        >
+                          <div className="kb-guide-item-title">
+                            <Circle size={5} fill={statusColor} stroke="none" />
+                            <span>{entity.title}</span>
+                            {dateLabel && <time className="kb-guide-item-date">{dateLabel}</time>}
+                          </div>
+                          {entity.tags.length > 0 && (
+                            <div className="kb-guide-item-tags">
+                              {entity.tags.slice(0, 3).map((tag) => (
+                                <span key={tag}>#{tag}</span>
+                              ))}
+                            </div>
+                          )}
+                        </button>
+                      )
+                    }
+
+                    // Time-anchored sections: one flat list, newest first.
+                    if (section.chronological) {
+                      return sortChronologically(items, section.chronological).map(renderItem)
+                    }
+
+                    // Everything else: grouped by lifecycle status.
+                    const byStatus = groupByStatus(items)
+                    return STATUS_GROUPS.map((group) => {
+                      const groupItems = byStatus[group.key]
+                      if (groupItems.length === 0) return null
+
+                      return (
+                        <div key={group.key} className={`kb-guide-status-group kb-guide-status-group-${group.key}`}>
+                          <div className="kb-guide-status-group-header">
+                            <span className="kb-guide-status-group-label">{group.label}</span>
+                            <span className="kb-guide-status-group-count">{groupItems.length}</span>
+                          </div>
+                          {groupItems.map(renderItem)}
                         </div>
-                        {groupItems.map((entity) => {
-                          const isSelected = selectedId === entity.id
-                          const isFilterProject = entity.type === 'project' && selectedProjectId === entity.id
-                          const statusColor = STATUS_COLORS[entity.status] || '#585b70'
-
-                          return (
-                            <button
-                              key={entity.id}
-                              className={`kb-guide-item ${isSelected ? 'selected' : ''} ${isFilterProject ? 'is-filter' : ''}`}
-                              onClick={() => handleItemClick(entity)}
-                              style={isSelected ? { borderLeftColor: section.color } : undefined}
-                            >
-                              <div className="kb-guide-item-title">
-                                <Circle size={5} fill={statusColor} stroke="none" />
-                                <span>{entity.title}</span>
-                              </div>
-                              {entity.tags.length > 0 && (
-                                <div className="kb-guide-item-tags">
-                                  {entity.tags.slice(0, 3).map((tag) => (
-                                    <span key={tag}>#{tag}</span>
-                                  ))}
-                                </div>
-                              )}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )
-                  })}
+                      )
+                    })
+                  })()}
                 </div>
               )}
             </div>

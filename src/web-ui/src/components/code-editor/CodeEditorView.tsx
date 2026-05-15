@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { ChevronLeft, ChevronDown, ChevronUp, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2, Check, Search } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
@@ -23,6 +23,7 @@ import { useNavigate } from 'react-router-dom'
 import { api, FileTreeNode, GitStatus, GitDiff, ProjectComment } from '../../api/client'
 import { AddCommentDialog } from '../AddCommentDialog'
 import { usePageTitle } from '../../hooks/usePageTitle'
+import { usePersistentState, readPersisted } from '../../hooks/usePersistentState'
 import './code-editor.css'
 
 interface CodeEditorViewProps {
@@ -73,7 +74,7 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
   const activeFileName = activeTab ? activeTab.split('/').pop() : null
   const activeTabDirty = activeTab ? openTabs.find(t => t.path === activeTab)?.isDirty : false
   usePageTitle(projectName, activeFileName ? `${activeFileName}${activeTabDirty ? '*' : ''}` : 'Code')
-  const [showGitPanel, setShowGitPanel] = useState(true)
+  const [showGitPanel, setShowGitPanel] = usePersistentState('orka-code-show-git', true)
   const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false)
   const [gitPanelCollapsed, setGitPanelCollapsed] = useState(false)
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null)
@@ -82,11 +83,11 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
   const [diffData, setDiffData] = useState<GitDiff | null>(null)
-  const [sidebarMode, setSidebarMode] = useState<'files' | 'search'>('files')
+  const [sidebarMode, setSidebarMode] = usePersistentState<'files' | 'search'>('orka-code-sidebar-mode', 'files')
   const [goToLine, setGoToLine] = useState<{ line: number; column?: number } | null>(null)
 
   // Sidebar visibility (Cmd/Ctrl+B toggles on desktop)
-  const [showSidebar, setShowSidebar] = useState(true)
+  const [showSidebar, setShowSidebar] = usePersistentState('orka-code-show-sidebar', true)
 
   // Resizable sidebar (desktop only). Persist width per project root.
   const SIDEBAR_KEY = 'orka-code-fullpage-sidebar-width'
@@ -398,6 +399,72 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
       handleFileSelect(initialFile)
     }
   }, [initialFile]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Restore the set of open tabs for this project (survives reload and route
+  // navigation). We persist only file paths + the active path and re-fetch
+  // content on restore — unsaved edits are intentionally NOT restored.
+  const TABS_KEY = `orka-code-tabs:${projectPath}`
+  const [tabsRestored, setTabsRestored] = useState(false)
+  const tabsRestoreKey = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (tabsRestoreKey.current === projectPath) return
+    tabsRestoreKey.current = projectPath
+    const myProject = projectPath
+    setTabsRestored(false)
+    const saved = readPersisted<{ paths: string[]; active: string | null }>(
+      TABS_KEY,
+      { paths: [], active: null },
+    )
+    ;(async () => {
+      const loaded: OpenTab[] = []
+      for (const p of saved.paths) {
+        try {
+          const { content } = await api.getFileContent(encodedPath, p)
+          loaded.push({
+            path: p,
+            name: p.split('/').pop() || p,
+            content,
+            isDirty: false,
+            originalContent: content,
+          })
+        } catch {
+          /* file was deleted/moved since last session — skip it */
+        }
+      }
+      // Bail only if the user navigated to a *different* project mid-fetch.
+      // (Note: we deliberately do NOT use an effect-cleanup cancel flag —
+      // under React.StrictMode the dev double-invoke would cancel the only
+      // run and leave tabs permanently unrestored.)
+      if (tabsRestoreKey.current !== myProject) return
+      if (loaded.length > 0) {
+        setOpenTabs(prev => {
+          const have = new Set(prev.map(t => t.path))
+          return [...prev, ...loaded.filter(t => !have.has(t.path))]
+        })
+        setActiveTab(cur =>
+          cur ?? (saved.active && loaded.some(t => t.path === saved.active)
+            ? saved.active
+            : loaded[loaded.length - 1].path),
+        )
+      }
+      setTabsRestored(true)
+    })()
+  }, [projectPath, encodedPath, TABS_KEY])
+
+  // Persist open tabs only after restoration has completed, so the initial
+  // async load never clobbers the saved set with an empty array.
+  useEffect(() => {
+    if (!tabsRestored) return
+    try {
+      localStorage.setItem(TABS_KEY, JSON.stringify({
+        paths: openTabs.map(t => t.path),
+        active: activeTab,
+      }))
+    } catch {
+      /* quota / serialization — non-fatal */
+    }
+  }, [tabsRestored, openTabs, activeTab, TABS_KEY])
 
   // Listen for navigate-to-comment events from CommentWidget
   useEffect(() => {

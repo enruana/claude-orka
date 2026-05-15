@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { FinderExplorer } from '../finder/FinderExplorer'
 import { ArrowLeft } from 'lucide-react'
@@ -6,9 +7,21 @@ import './code-editor.css'
 
 export function FilesPage() {
   const { encodedPath } = useParams<{ encodedPath: string }>()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const initialPath = searchParams.get('path') || undefined
+
+  // Keep the current directory in the URL (?path=) so it survives a reload
+  // and a back/forward navigation. `replace` avoids polluting history with one
+  // entry per folder step.
+  const handlePathChange = useCallback((path: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (path) next.set('path', path)
+      else next.delete('path')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   if (!encodedPath) {
     return (
@@ -43,6 +56,7 @@ export function FilesPage() {
           projectPath={projectPath}
           encodedPath={encodedPath}
           initialPath={initialPath}
+          onPathChange={handlePathChange}
         />
       </div>
     </div>

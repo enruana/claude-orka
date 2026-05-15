@@ -488,8 +488,18 @@
 }
 
 .kb-guide-item-title span {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-guide-item-date {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: #6c7086;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 

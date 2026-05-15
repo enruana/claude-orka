@@ -13,10 +13,26 @@ export function SessionPage() {
 
   // Get current tab from URL, default to 'terminal'
   const currentTab = (searchParams.get('tab') as RightPanelTab) || 'terminal'
+  // Embedded file-explorer directory (so reload restores where you were)
+  const finderPath = searchParams.get('fpath') || undefined
 
-  // Handle tab change - updates URL
+  // Handle tab change - updates URL (preserve other params, e.g. fpath)
   const handleTabChange = useCallback((tab: RightPanelTab) => {
-    setSearchParams({ tab }, { replace: true })
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.set('tab', tab)
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  // Mirror the embedded explorer's current directory into the URL
+  const handleFinderPathChange = useCallback((path: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (path) next.set('fpath', path)
+      else next.delete('fpath')
+      return next
+    }, { replace: true })
   }, [setSearchParams])
 
   const [project, setProject] = useState<RegisteredProject | null>(null)
@@ -114,6 +130,8 @@ export function SessionPage() {
       onGoHome={handleGoHome}
       currentTab={currentTab}
       onTabChange={handleTabChange}
+      initialFinderPath={finderPath}
+      onFinderPathChange={handleFinderPathChange}
     />
   )
 }

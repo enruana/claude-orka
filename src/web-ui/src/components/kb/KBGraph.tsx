@@ -14,6 +14,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { List, Network } from 'lucide-react'
 import { api, type KBEntity } from '../../api/client'
+import { readPersisted } from '../../hooks/usePersistentState'
 import { KBEntityNode } from './KBEntityNode'
 import { KBDetailPanel } from './KBDetailPanel'
 import { KBGuidePanel } from './KBGuidePanel'
@@ -29,6 +30,14 @@ const nodeTypes = { kbEntity: KBEntityNode, kbZoneLabel: KBZoneLabel }
 //   v3 — organic circular clusters (brain-like)
 //   v4 — atom/universe: projects at nucleus, other clusters orbit chaotically
 const STORAGE_KEY = 'orka-kb-positions-v4'
+const SEL_KEY_PREFIX = 'orka-kb-sel'
+
+type PersistedSel = {
+  project: string | null
+  entity: string | null
+  mobileView: 'list' | 'graph'
+}
+const DEFAULT_SEL: PersistedSel = { project: null, entity: null, mobileView: 'list' }
 const TIMELINE_TYPES = new Set(['meeting', 'milestone', 'decision', 'direction'])
 const MOBILE_QUERY = '(max-width: 900px)'
 
@@ -59,12 +68,23 @@ function KBGraphInner({ projectPath, encodedPath, sessionId, branch, onSwitchToT
   const [entities, setEntities] = useState<KBEntity[]>([])
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const selKey = `${SEL_KEY_PREFIX}:${projectPath}`
   const [selectedEntity, setSelectedEntity] = useState<KBEntity | null>(null)
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    () => readPersisted<PersistedSel>(selKey, DEFAULT_SEL).project,
+  )
   const [initialized, setInitialized] = useState(false)
   const [loading, setLoading] = useState(true)
   const isMobile = useKBMobile()
-  const [mobileView, setMobileView] = useState<'list' | 'graph'>('list')
+  const [mobileView, setMobileView] = useState<'list' | 'graph'>(
+    () => readPersisted<PersistedSel>(selKey, DEFAULT_SEL).mobileView,
+  )
+  // Selection (project filter + open entity + mobile view) is persisted per
+  // project so it survives a reload and switching to the Claude Code tab and
+  // back. `selRestored` gates the persist effect so the one-shot restore can't
+  // be clobbered before it resolves.
+  const [selRestored, setSelRestored] = useState(false)
+  const selRestoreKey = useRef<string | null>(null)
   const { fitView, setCenter } = useReactFlow()
   const positionsRef = useRef<Record<string, { x: number; y: number }>>({})
 
@@ -98,6 +118,45 @@ function KBGraphInner({ projectPath, encodedPath, sessionId, branch, onSwitchToT
       )
     } catch { /* ignore */ }
   }, [onNodesChange, projectPath])
+
+  // Restore persisted selection when the project changes (or on mount).
+  // The entity object is resolved later (it needs `entities` loaded first).
+  useEffect(() => {
+    if (selRestoreKey.current === projectPath) return
+    selRestoreKey.current = projectPath
+    const saved = readPersisted<PersistedSel>(selKey, DEFAULT_SEL)
+    setSelectedProjectId(saved.project)
+    setMobileView(saved.mobileView)
+    setSelectedEntity(null)
+    // If there's no entity to resolve we're done restoring immediately;
+    // otherwise the resolve effect below flips this once entities are in.
+    setSelRestored(!saved.entity)
+  }, [projectPath, selKey])
+
+  // Resolve the persisted entity id to the loaded entity object.
+  useEffect(() => {
+    if (selRestored) return
+    if (entities.length === 0) return
+    const saved = readPersisted<PersistedSel>(selKey, DEFAULT_SEL)
+    const ent = saved.entity ? entities.find((e) => e.id === saved.entity) ?? null : null
+    if (ent) setSelectedEntity(ent)
+    setSelRestored(true)
+  }, [entities, selRestored, selKey])
+
+  // Persist selection (only after restore, so we never write a stale/empty
+  // selection over the saved one during the initial load).
+  useEffect(() => {
+    if (!selRestored) return
+    try {
+      localStorage.setItem(selKey, JSON.stringify({
+        project: selectedProjectId,
+        entity: selectedEntity?.id ?? null,
+        mobileView,
+      } satisfies PersistedSel))
+    } catch {
+      /* quota / serialization — non-fatal */
+    }
+  }, [selRestored, selKey, selectedProjectId, selectedEntity, mobileView])
 
   // Load entities
   const loadData = useCallback(async () => {

@@ -418,9 +418,14 @@
   transition: all var(--transition-fast);
 }
 
-.file-viewer-header .icon-button:hover {
+.file-viewer-header .icon-button:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.file-viewer-header .icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .file-viewer-header .icon-button.success {
@@ -460,6 +465,47 @@
 .file-viewer-body {
   flex: 1;
   overflow: auto;
+  background: var(--bg-primary);
+  transition: background var(--transition-fast);
+}
+
+/* Reading theme — scoped to the viewer body only. The dark variant just uses
+   the app's default :root variables. The light variant remaps the variables
+   the content (markdown, code fallback, etc.) consumes, so everything inside
+   re-themes without touching the app chrome. */
+.file-viewer-body.viewer-theme-light {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f4f5;
+  --bg-tertiary: #e9e9ec;
+  --bg-elevated: #ffffff;
+  --bg-hover: rgba(0, 0, 0, 0.05);
+  --bg-active: rgba(0, 0, 0, 0.08);
+  --text-primary: rgba(0, 0, 0, 0.88);
+  --text-secondary: rgba(0, 0, 0, 0.58);
+  --text-tertiary: rgba(0, 0, 0, 0.42);
+  --border-primary: rgba(0, 0, 0, 0.13);
+  --border-secondary: rgba(0, 0, 0, 0.08);
+  color: var(--text-primary);
+}
+
+/* The default internal-link purple is tuned for a dark bg; darken it so it
+   stays legible on white. */
+.file-viewer-body.viewer-theme-light .markdown-content a.md-link-internal {
+  color: #7c3aed;
+}
+.file-viewer-body.viewer-theme-light .markdown-content a.md-link-internal:hover {
+  color: #6d28d9;
+}
+
+.file-viewer-body.viewer-theme-light .image-viewer-content {
+  background: #ffffff;
+}
+
+/* Inline code uses --accent-orange, which is tuned for a dark bg and washes
+   out on white. Use a dark amber with proper contrast on the light chip. */
+.file-viewer-body.viewer-theme-light .markdown-content .inline-code {
+  color: #b45309;
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .file-viewer-body .code-viewer-content,

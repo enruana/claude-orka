@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, AlertCircle, Printer, MessageSquarePlus, Copy, Check, Download } from 'lucide-react'
+import { ArrowLeft, ExternalLink, AlertCircle, Printer, MessageSquarePlus, Copy, Check, Download, FileText, Sun, Moon } from 'lucide-react'
 import Editor, { useMonaco } from '@monaco-editor/react'
 import { api, ProjectComment } from '../../api/client'
 import { MarkdownViewer } from '../code-editor/MarkdownViewer'
 import { AddCommentDialog } from '../AddCommentDialog'
 import { getFileType, getMonacoLanguage, getFileIcon, getFileKind } from '../../utils/fileTypes'
 import { usePageTitle } from '../../hooks/usePageTitle'
+import { usePersistentState } from '../../hooks/usePersistentState'
 import { printFile } from '../../utils/printFile'
 import './finder.css'
 
@@ -31,6 +32,11 @@ export function FileViewerPage() {
   } | null>(null)
   const [selectionBtn, setSelectionBtn] = useState<{ top: number; left: number } | null>(null)
   const [pathCopied, setPathCopied] = useState(false)
+  const [contentCopied, setContentCopied] = useState(false)
+  // Reading theme for the viewer only (independent of the app chrome).
+  // Persisted globally so it's remembered across files and reloads.
+  const [viewerTheme, setViewerTheme] = usePersistentState<'dark' | 'light'>('orka-viewer-theme', 'dark')
+  const toggleViewerTheme = () => setViewerTheme(t => (t === 'dark' ? 'light' : 'dark'))
 
   if (!encodedPath || !filePath) {
     return (
@@ -160,17 +166,16 @@ export function FileViewerPage() {
     navigate(`/projects/${encodedPath}/code`)
   }
 
-  // Copy the absolute path of the currently-viewed file to the clipboard
-  // (so the user can paste it into the terminal as an argument)
-  const handleCopyPath = async () => {
-    const absolutePath = `${projectPath}/${filePath}`
+  // Writes text to the clipboard with a fallback for non-secure contexts
+  // (Clipboard API requires HTTPS/localhost; the hidden-textarea path works
+  // inside iframes and over plain HTTP).
+  const copyToClipboard = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(absolutePath)
+      await navigator.clipboard.writeText(text)
     } catch {
-      // Fallback for non-secure contexts
       try {
         const ta = document.createElement('textarea')
-        ta.value = absolutePath
+        ta.value = text
         ta.style.position = 'fixed'
         ta.style.opacity = '0'
         document.body.appendChild(ta)
@@ -179,8 +184,22 @@ export function FileViewerPage() {
         document.body.removeChild(ta)
       } catch { /* silently fail */ }
     }
+  }
+
+  // Copy the absolute path of the currently-viewed file to the clipboard
+  // (so the user can paste it into the terminal as an argument)
+  const handleCopyPath = async () => {
+    await copyToClipboard(`${projectPath}/${filePath}`)
     setPathCopied(true)
     setTimeout(() => setPathCopied(false), 1500)
+  }
+
+  // Copy the full text content of the currently-viewed file to the clipboard
+  const handleCopyContent = async () => {
+    if (content == null) return
+    await copyToClipboard(content)
+    setContentCopied(true)
+    setTimeout(() => setContentCopied(false), 1500)
   }
 
   // Download the file to the user's computer. Uses the raw file endpoint
@@ -258,7 +277,7 @@ export function FileViewerPage() {
               height="100%"
               language={getMonacoLanguage(filePath)}
               value={content || ''}
-              theme="vs-dark"
+              theme={viewerTheme === 'light' ? 'light' : 'vs-dark'}
               options={{
                 readOnly: true,
                 minimap: { enabled: true },
@@ -306,12 +325,36 @@ export function FileViewerPage() {
         </div>
         <span className="file-viewer-path">{dirPath || '/'}</span>
         <button
+          className="icon-button"
+          onClick={toggleViewerTheme}
+          title={viewerTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label={viewerTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {viewerTheme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
+        <button
           className={`icon-button ${pathCopied ? 'success' : ''}`}
           onClick={handleCopyPath}
-          title={pathCopied ? 'Path copied!' : 'Copy file path to clipboard'}
+          title={pathCopied ? 'Path copied!' : 'Copy file path'}
         >
           {pathCopied ? <Check size={16} /> : <Copy size={16} />}
         </button>
+        {fileType !== 'image' && (
+          <button
+            className={`icon-button ${contentCopied ? 'success' : ''}`}
+            onClick={handleCopyContent}
+            disabled={content == null}
+            title={
+              content == null
+                ? 'File content not available'
+                : contentCopied
+                  ? 'Content copied!'
+                  : 'Copy file content'
+            }
+          >
+            {contentCopied ? <Check size={16} /> : <FileText size={16} />}
+          </button>
+        )}
         <button className="icon-button" onClick={handleDownload} title="Download file">
           <Download size={16} />
         </button>
@@ -322,7 +365,11 @@ export function FileViewerPage() {
           <ExternalLink size={16} />
         </button>
       </div>
-      <div className="file-viewer-body" ref={bodyRef} style={{ position: 'relative' }}>
+      <div
+        className={`file-viewer-body viewer-theme-${viewerTheme}`}
+        ref={bodyRef}
+        style={{ position: 'relative' }}
+      >
         {renderContent()}
 
         {/* Floating "Add Comment" button on text selection */}
