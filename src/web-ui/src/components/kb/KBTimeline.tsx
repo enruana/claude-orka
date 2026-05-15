@@ -32,9 +32,20 @@ interface WeekGroup {
   days: DayGroup[]
 }
 
+// Local YYYY-MM-DD (never round-trip through UTC — toISOString() would shift
+// the date for events whose local time-of-day crosses the UTC offset).
+function localYMD(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Days to subtract to reach Monday of this date's week (Mon=0 … Sun=6).
+function daysSinceMonday(d: Date): number {
+  return (d.getDay() + 6) % 7
+}
+
 function getWeekLabel(date: Date): string {
   const start = new Date(date)
-  start.setDate(start.getDate() - start.getDay() + 1)
+  start.setDate(start.getDate() - daysSinceMonday(start))
   const end = new Date(start)
   end.setDate(end.getDate() + 6)
   const fmt = (d: Date) => d.toLocaleDateString('en', { month: 'short', day: 'numeric' })
@@ -43,8 +54,8 @@ function getWeekLabel(date: Date): string {
 
 function getWeekKey(date: Date): string {
   const d = new Date(date)
-  d.setDate(d.getDate() - d.getDay() + 1)
-  return d.toISOString().split('T')[0]
+  d.setDate(d.getDate() - daysSinceMonday(d))
+  return localYMD(d)
 }
 
 function getEntityType(event: KBEvent): string {
@@ -53,7 +64,7 @@ function getEntityType(event: KBEvent): string {
 
 // Use local date for "today" comparison (not UTC)
 const now = new Date()
-const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+const todayStr = localYMD(now)
 
 interface KBTimelineProps {
   projectPath: string
@@ -79,7 +90,7 @@ export function KBTimeline({ projectPath, entities, selectedId, onSelectEntity }
     for (const event of visible) {
       const date = new Date(event.ts)
       const weekKey = getWeekKey(date)
-      const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+      const dayKey = localYMD(date)
       if (!weekMap.has(weekKey)) weekMap.set(weekKey, new Map())
       const dayMap = weekMap.get(weekKey)!
       if (!dayMap.has(dayKey)) dayMap.set(dayKey, [])
