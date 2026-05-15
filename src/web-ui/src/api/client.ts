@@ -647,6 +647,44 @@ export const api = {
     return res.json()
   },
 
+  async getKBSchema(): Promise<{
+    statuses: Record<string, string[]>
+    transitions: Record<string, Record<string, string[]>>
+  }> {
+    const res = await fetch(`${API_BASE}/kb/schema`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  // Update a KB entity (status / title / properties / tags). The server runs
+  // the same validated mutation as `orka kb update`, logging an entity.updated
+  // event so the change is recorded in the KB timeline.
+  async updateKBEntity(
+    projectPath: string,
+    id: string,
+    patch: {
+      status?: string
+      title?: string
+      properties?: Record<string, unknown>
+      addTags?: string[]
+      removeTags?: string[]
+    },
+  ): Promise<KBEntity> {
+    const res = await fetch(
+      `${API_BASE}/kb/entities/${id}?project=${encodeProjectPath(projectPath)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      },
+    )
+    if (!res.ok) {
+      const data = await res.json().catch(() => null)
+      throw new Error(data?.error || (await res.text().catch(() => 'Update failed')))
+    }
+    return res.json()
+  },
+
   // AI Query
   async aiQuery(question: string, context?: AIQueryContext): Promise<AIQueryResponse> {
     const res = await fetch(`${API_BASE}/ai/query`, {

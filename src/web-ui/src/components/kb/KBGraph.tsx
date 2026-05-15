@@ -347,6 +347,13 @@ function KBGraphInner({ projectPath, encodedPath, sessionId, branch, onSwitchToT
     setSelectedEntity(null)
   }, [])
 
+  // A status change persisted from the detail panel — reflect it immediately
+  // in the graph, guide panel and selected entity (the 10s poll also reconciles).
+  const handleEntityUpdated = useCallback((updated: KBEntity) => {
+    setEntities(prev => prev.map(e => (e.id === updated.id ? updated : e)))
+    setSelectedEntity(cur => (cur && cur.id === updated.id ? updated : cur))
+  }, [])
+
   if (loading) {
     return (
       <div className="kb-graph-empty">
@@ -456,6 +463,7 @@ function KBGraphInner({ projectPath, encodedPath, sessionId, branch, onSwitchToT
             onSwitchToTerminal={onSwitchToTerminal}
             onClose={() => setSelectedEntity(null)}
             onSelectNode={handleSelectEntity}
+            onEntityUpdated={handleEntityUpdated}
           />
         </>
       )}

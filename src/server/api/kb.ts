@@ -4,9 +4,18 @@
 
 import { Router } from 'express'
 import { KnowledgeBaseManager } from '../../core/KnowledgeBaseManager'
+import { KB_STATUSES, KB_TRANSITIONS } from '../../models/kb-registry'
 import { logger } from '../../utils'
 
 export const kbRouter = Router()
+
+/**
+ * GET /api/kb/schema - Valid statuses + allowed transitions per entity type.
+ * Static (no project) — single source of truth for status-selector UIs.
+ */
+kbRouter.get('/schema', (_req, res) => {
+  res.json({ statuses: KB_STATUSES, transitions: KB_TRANSITIONS })
+})
 
 function getManager(projectPath: string): KnowledgeBaseManager {
   return new KnowledgeBaseManager(projectPath)

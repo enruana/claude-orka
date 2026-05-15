@@ -1,6 +1,64 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain, BookMarked } from 'lucide-react'
 import { api, type KBEntity } from '../../api/client'
+
+type KBSchema = {
+  statuses: Record<string, string[]>
+  transitions: Record<string, Record<string, string[]>>
+}
+
+// Built-in mirror of the KB v2 schema (src/models/kb-registry.ts). Used as a
+// fallback when the server predates the /api/kb/schema endpoint, so the status
+// selector works without requiring a server restart. The live endpoint (when
+// available) takes precedence and remains the single source of truth.
+const FALLBACK_SCHEMA: KBSchema = {
+  statuses: {
+    goal: ['active', 'archived'],
+    initiative: ['active', 'archived'],
+    project: ['planning', 'active', 'in-progress', 'blocked', 'review', 'done', 'cancelled', 'archived'],
+    task: ['todo', 'in-progress', 'done', 'blocked', 'cancelled'],
+    spike: ['open', 'in-progress', 'concluded', 'cancelled'],
+    bug: ['open', 'investigating', 'fixed', 'wontfix', 'duplicate'],
+    decision: ['proposed', 'accepted', 'rejected', 'superseded'],
+    question: ['open', 'active', 'answered', 'resolved', 'closed'],
+    meeting: ['scheduled', 'held', 'archived'],
+    milestone: ['active', 'reached', 'resolved', 'archived'],
+    direction: ['active', 'archived'],
+    person: ['active', 'archived', 'superseded'],
+    repo: ['active', 'archived'],
+    artifact: ['draft', 'active', 'archived', 'superseded'],
+    context: ['active', 'archived'],
+    activity: ['active'],
+  },
+  transitions: {
+    decision: { proposed: ['accepted', 'rejected'], accepted: ['superseded'], rejected: [], superseded: [] },
+    question: {
+      open: ['active', 'answered', 'resolved', 'closed'],
+      active: ['answered', 'resolved', 'closed'],
+      answered: ['resolved', 'closed'],
+      resolved: ['closed'],
+      closed: [],
+    },
+    milestone: { active: ['reached', 'archived'], reached: ['archived'], resolved: ['archived'], archived: [] },
+    bug: {
+      open: ['investigating', 'wontfix', 'duplicate'],
+      investigating: ['fixed', 'wontfix', 'duplicate', 'open'],
+      fixed: [],
+      wontfix: ['investigating'],
+      duplicate: [],
+    },
+  },
+}
+
+// Fetched once per app session (the KB schema is static). Falls back to the
+// built-in mirror if the endpoint is unavailable.
+let schemaPromise: Promise<KBSchema> | null = null
+function loadKBSchema(): Promise<KBSchema> {
+  if (!schemaPromise) {
+    schemaPromise = api.getKBSchema().catch(() => FALLBACK_SCHEMA)
+  }
+  return schemaPromise
+}
 
 const TYPE_COLORS: Record<string, string> = {
   // Knowledge tier
@@ -37,6 +95,9 @@ interface KBDetailPanelProps {
   onSwitchToTerminal?: () => void
   onClose: () => void
   onSelectNode: (id: string) => void
+  /** Called after a status change persists so the host can update the graph,
+   *  guide panel and selected entity without waiting for the next poll. */
+  onEntityUpdated?: (updated: KBEntity) => void
 }
 
 function isExternalUrl(value: string): boolean {
@@ -93,13 +154,39 @@ function formatPropKey(key: string): string {
   return key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')
 }
 
-export function KBDetailPanel({ entity, allEntities, encodedPath, projectPath, sessionId, branch, onSwitchToTerminal, onClose, onSelectNode }: KBDetailPanelProps) {
+export function KBDetailPanel({ entity, allEntities, encodedPath, projectPath, sessionId, branch, onSwitchToTerminal, onClose, onSelectNode, onEntityUpdated }: KBDetailPanelProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [loadingContext, setLoadingContext] = useState(false)
   const [contextLoaded, setContextLoaded] = useState(false)
   const [generatingDoc, setGeneratingDoc] = useState(false)
   const [docGenerated, setDocGenerated] = useState(false)
+  const [schema, setSchema] = useState<KBSchema | null>(null)
+  const [savingStatus, setSavingStatus] = useState<string | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    loadKBSchema().then(s => { if (alive) setSchema(s) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
+  // Clear any transient status error when the selected entity changes.
+  useEffect(() => { setStatusError(null) }, [entity?.id])
+
+  const handleStatusChange = async (target: string) => {
+    if (!entity || target === entity.status || savingStatus) return
+    setSavingStatus(target)
+    setStatusError(null)
+    try {
+      const updated = await api.updateKBEntity(projectPath, entity.id, { status: target })
+      onEntityUpdated?.(updated)
+    } catch (err: any) {
+      setStatusError(err?.message || 'Failed to change status')
+    } finally {
+      setSavingStatus(null)
+    }
+  }
 
   if (!entity) return null
 
@@ -207,6 +294,49 @@ After running the command, read each file listed in the "Source Files" section t
       <div className="kb-detail-dates">
         Created {entity.created.split('T')[0]} | Updated {entity.updated.split('T')[0]}
       </div>
+
+      {/* Status selector — move the entity between states. Each click runs the
+          same validated KB mutation as `orka kb update --status`, which logs
+          an entity.updated event in the timeline. */}
+      {(() => {
+        const typeStatuses = schema?.statuses[entity.type] ?? []
+        if (typeStatuses.length <= 1) return null
+        const transMap = schema?.transitions[entity.type]
+        // No transition map for a type (e.g. task) ⇒ lenient: any → any.
+        const reachable = transMap
+          ? new Set(transMap[entity.status] ?? [])
+          : null
+        return (
+          <div className="kb-detail-status-selector">
+            <span className="kb-detail-status-label">Status</span>
+            <div className="kb-detail-status-options">
+              {typeStatuses.map((s) => {
+                const isCurrent = s === entity.status
+                const allowed = isCurrent || (reachable ? reachable.has(s) : true)
+                const isSaving = savingStatus === s
+                return (
+                  <button
+                    key={s}
+                    className={`kb-detail-status-pill${isCurrent ? ' current' : ''}${isSaving ? ' saving' : ''}`}
+                    style={isCurrent ? { borderColor: color, color } : undefined}
+                    disabled={isCurrent || !allowed || savingStatus !== null}
+                    onClick={() => handleStatusChange(s)}
+                    title={
+                      isCurrent ? 'Current status'
+                        : allowed ? `Move to "${s}"`
+                        : `Not allowed from "${entity.status}"`
+                    }
+                  >
+                    {isCurrent && <Circle size={7} fill={color} stroke="none" />}
+                    {s}
+                  </button>
+                )
+              })}
+            </div>
+            {statusError && <div className="kb-detail-status-error">{statusError}</div>}
+          </div>
+        )
+      })()}
 
       {entity.tags.length > 0 && (
         <div className="kb-detail-tags">
