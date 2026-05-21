@@ -14,6 +14,7 @@ import {
   ArrowLeft,
   Settings,
   Terminal,
+  Smartphone,
 } from 'lucide-react'
 import { FolderBrowser } from './FolderBrowser'
 import { usePageTitle } from '../hooks/usePageTitle'
@@ -407,6 +408,9 @@ export function ProjectDashboard() {
           <h1><Link to="/" style={{ color: 'inherit', textDecoration: 'none' }}>Claude Orka</Link></h1>
         </div>
         <div className="header-right">
+          <Link to="/launcher" className="icon-button" title="iPhone-style launcher">
+            <Smartphone size={18} />
+          </Link>
           <button className="icon-button" onClick={loadAllData} title="Refresh">
             <RefreshCw size={18} />
           </button>

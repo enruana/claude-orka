@@ -17,6 +17,7 @@ import { FileViewerPage } from './components/finder'
 import { KBPage } from './components/kb'
 import { AgentCanvasPage } from './pages/AgentCanvasPage'
 import { HomePage } from './pages/HomePage'
+import { IPhoneLauncher } from './components/launcher/IPhoneLauncher'
 import { TaskWidget } from './components/TaskWidget'
 import { QuickAIDialog } from './components/QuickAIDialog'
 import { api, AIQueryContext } from './api/client'
@@ -260,6 +261,7 @@ const router = createBrowserRouter(
     <Route element={<RootLayout />} errorElement={<RouteErrorPage />}>
       <Route path="/" element={<HomePage />} />
       <Route path="/dashboard" element={<ProjectDashboard />} />
+      <Route path="/launcher" element={<IPhoneLauncher />} />
       <Route path="/agents" element={<AgentCanvasPage />} />
       <Route path="/projects/:encodedPath" element={<Navigate to="/dashboard" replace />} />
       <Route path="/projects/:encodedPath/sessions/:sessionId" element={<SessionPage />} />

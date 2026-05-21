@@ -1,0 +1,397 @@
+/* iPhone-style launcher.
+ *
+ * Each project is a folder; each session inside is an "app icon". Pulsing
+ * red badges flag sessions waiting for input. Layout: 4-column grid on
+ * touch / narrow viewports, scaling up to 6+ centered on wider screens.
+ * Uses `100dvh` for the wallpaper layer so iOS Safari's URL bar doesn't
+ * crop the gradient at the bottom of the page.
+ */
+
+.iphone-launcher {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  color: #ecf0fe;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+/* Layered gradient wallpaper. iOS-ish indigo with a hint of warm bloom. */
+.iphone-wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 20%, rgba(137, 180, 250, 0.28), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 85%, rgba(203, 166, 247, 0.22), transparent 60%),
+    radial-gradient(ellipse 70% 60% at 50% 100%, rgba(243, 139, 168, 0.16), transparent 60%),
+    linear-gradient(180deg, #11122a 0%, #0a0b1f 60%, #08091a 100%);
+}
+
+/* --- Header --- */
+
+.iphone-header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px 14px;
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.04));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.iphone-header-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.iphone-header-back,
+.iphone-header-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: #cdd6f4;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.iphone-header-back:hover,
+.iphone-header-add:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* --- Screen / scrollable surface --- */
+
+.iphone-screen {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 22px 22px 80px;
+  overflow-y: auto;
+}
+
+.iphone-loading,
+.iphone-empty,
+.iphone-error,
+.iphone-overlay-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: #a6adc8;
+  font-size: 14px;
+}
+
+.iphone-error { color: #f38ba8; }
+
+.iphone-cta {
+  display: inline-block;
+  margin-top: 10px;
+  color: #89b4fa;
+  text-decoration: none;
+}
+.iphone-cta:hover { text-decoration: underline; }
+
+/* --- Section per project group --- */
+
+.iphone-section { margin-bottom: 28px; }
+
+.iphone-section-label {
+  margin: 0 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* --- Icon grid ---
+   Mobile-first: 4 columns. Wider viewports scale up via min-width hints.
+   Each "iphone-app" is a column-flex stack (icon + label). */
+
+.iphone-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 22px 18px;
+}
+
+@media (min-width: 480px) { .iphone-grid { grid-template-columns: repeat(5, 1fr); } }
+@media (min-width: 640px) { .iphone-grid { grid-template-columns: repeat(6, 1fr); } }
+@media (min-width: 900px) { .iphone-grid { grid-template-columns: repeat(7, 1fr); gap: 26px 22px; } }
+@media (min-width: 1100px) { .iphone-grid { grid-template-columns: repeat(8, 1fr); } }
+
+.iphone-app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  padding: 4px 2px;
+  text-align: center;
+  transition: transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.iphone-app:hover { transform: translateY(-1px); }
+.iphone-app:active { transform: scale(0.96); }
+
+.iphone-app-label {
+  font-size: 12px;
+  line-height: 1.2;
+  color: #ecf0fe;
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  word-break: break-word;
+}
+
+/* --- Squircle base for both folder & single app icons --- */
+
+.iphone-icon {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  /* Apple-ish squircle approximation. */
+  border-radius: 22%;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+@media (min-width: 640px) { .iphone-icon { width: 72px; height: 72px; } }
+
+/* --- Folder icon (project) ---
+   Translucent glassy backdrop holding a 3x3 micro-grid of session minis. */
+
+.iphone-folder {
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 6px;
+}
+
+.iphone-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+}
+
+.iphone-folder-thumb {
+  border-radius: 28%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.7);
+  position: relative;
+}
+
+.iphone-folder-thumb.waiting {
+  /* A small inner glow so the waiting child is visible in the preview. */
+  box-shadow: inset 0 0 0 1.5px #f38ba8;
+}
+
+.iphone-folder-empty {
+  grid-column: 1 / -1;
+  align-self: center;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* --- Single-session app icon (inside a folder overlay) --- */
+
+.iphone-app-icon {
+  background: linear-gradient(135deg, #6c7086, #4c4f6b);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: #fff;
+  font-weight: 700;
+  font-size: 26px;
+  position: relative;
+}
+
+.iphone-app-icon.saved { opacity: 0.7; filter: saturate(0.6); }
+
+.iphone-app-letter {
+  font-size: 26px;
+  font-weight: 700;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.iphone-app-forks {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+
+/* --- Notification badge ---
+   Top-right of the icon, like iOS app badges. Pulses subtly so it's
+   noticeable across a busy grid without being distracting. */
+
+.iphone-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ff3b30; /* iOS red */
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(255, 59, 48, 0.4);
+  animation: iphone-badge-pulse 1.6s ease-out infinite;
+}
+
+.iphone-badge.dot {
+  min-width: 12px;
+  height: 12px;
+  padding: 0;
+  top: -3px;
+  right: -3px;
+}
+
+@keyframes iphone-badge-pulse {
+  0%   { box-shadow: 0 0 0 2px rgba(0,0,0,0.6), 0 0 0 0   rgba(255, 59, 48, 0.55); }
+  70%  { box-shadow: 0 0 0 2px rgba(0,0,0,0.6), 0 0 0 10px rgba(255, 59, 48, 0); }
+  100% { box-shadow: 0 0 0 2px rgba(0,0,0,0.6), 0 0 0 0   rgba(255, 59, 48, 0); }
+}
+
+/* --- Active session pill (small green) under the label --- */
+
+.iphone-active-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.12);
+  border: 1px solid rgba(166, 227, 161, 0.22);
+  margin-top: 2px;
+}
+.iphone-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a6e3a1;
+  display: inline-block;
+}
+
+/* --- Folder open overlay ---
+   Fullscreen blurred backdrop with a centered card holding the project's
+   sessions. Matches the iOS "spotlight" open-folder feel. */
+
+.iphone-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 9, 26, 0.55);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  padding: 30px 16px;
+  animation: iphone-overlay-fade 0.18s ease-out;
+}
+
+@keyframes iphone-overlay-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.iphone-overlay-card {
+  position: relative;
+  width: 100%;
+  max-width: 760px;
+  max-height: 92vh;
+  background: rgba(24, 25, 40, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 28px;
+  padding: 20px 22px 26px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  animation: iphone-overlay-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  overflow: hidden;
+}
+
+@keyframes iphone-overlay-pop {
+  from { transform: scale(0.85); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+.iphone-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.iphone-overlay-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ecf0fe;
+}
+
+.iphone-overlay-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.iphone-overlay-close:hover { background: rgba(255, 255, 255, 0.18); }
+
+.iphone-overlay-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 4px 4px;
+}
