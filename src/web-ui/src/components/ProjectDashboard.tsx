@@ -495,7 +495,7 @@ export function ProjectDashboard() {
                 src={`/terminal/${systemTerminalPort}${window.innerWidth >= 769 ? '?desktop=1' : ''}`}
                 title="System Terminal"
                 className="terminal-iframe"
-                allow="clipboard-read; clipboard-write"
+                allow="clipboard-read; clipboard-write; microphone"
                 onLoad={() => setTerminalLoading(false)}
               />
             </>

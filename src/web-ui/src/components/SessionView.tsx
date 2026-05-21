@@ -772,7 +772,7 @@ export function SessionView({
                     src={getTerminalUrl()}
                     title="Claude Code"
                     className="terminal-iframe"
-                    allow="clipboard-read; clipboard-write"
+                    allow="clipboard-read; clipboard-write; microphone"
                     tabIndex={rightPanelTab === 'terminal' ? 0 : -1}
                     onLoad={() => {
                       setIsTerminalLoading(false)

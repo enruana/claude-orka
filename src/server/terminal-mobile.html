@@ -1675,278 +1675,234 @@
       'paste': '\x16' // Ctrl+V
     };
 
-    // Voice Recorder class
+    // Voice Recorder — Web Audio PCM capture → 16kHz mono WAV.
+    // We deliberately do NOT use MediaRecorder: on iOS Safari it either
+    // delivers no data at all (no timeslice) or a FRAGMENTED mp4 that
+    // ffmpeg refuses ("could not find trex / no tfhd"). Capturing raw
+    // PCM and encoding a WAV in the browser is reliable everywhere.
     class VoiceRecorder {
       constructor(options = {}) {
         this.onTranscribe = options.onTranscribe || (() => {});
         this.onStart = options.onStart || (() => {});
         this.onStop = options.onStop || (() => {});
         this.onError = options.onError || ((err) => console.error(err));
+        this.onLevel = options.onLevel || (() => {});
         this.onPermissionNeeded = options.onPermissionNeeded || (() => {});
 
-        this.mediaRecorder = null;
-        this.chunks = [];
+        this.audioContext = null;
         this.stream = null;
+        this.source = null;
+        this.processor = null;
+        this._mute = null;
+        this.buffers = [];
+        this.recordedSamples = 0;
+        this.sourceSampleRate = 48000;
+        this.targetSampleRate = 16000;
         this.isRecording = false;
-        this.permissionGranted = false;
-      }
-
-      async checkPermission() {
-        try {
-          // Check if permissions API is available
-          if (navigator.permissions && navigator.permissions.query) {
-            const result = await navigator.permissions.query({ name: 'microphone' });
-            console.log('Microphone permission state:', result.state);
-            return result.state;
-          }
-          // Fallback: assume we need to request
-          return 'prompt';
-        } catch (err) {
-          console.log('Permissions API not available:', err);
-          return 'prompt';
-        }
-      }
-
-      async requestPermission() {
-        try {
-          // Request microphone access
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          // Permission granted, stop the test stream
-          stream.getTracks().forEach(track => track.stop());
-          this.permissionGranted = true;
-          console.log('Microphone permission granted');
-          return true;
-        } catch (err) {
-          console.error('Microphone permission denied:', err);
-          this.permissionGranted = false;
-
-          // Determine error type
-          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            this.onError('Microphone access denied. Please allow microphone access in your browser settings.');
-          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-            this.onError('No microphone found. Please connect a microphone.');
-          } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-            this.onError('Microphone is in use by another application.');
-          } else if (err.name === 'OverconstrainedError') {
-            this.onError('Microphone constraints cannot be satisfied.');
-          } else if (err.name === 'SecurityError') {
-            this.onError('Microphone access blocked. Page must be served over HTTPS.');
-          } else {
-            this.onError(`Microphone error: ${err.message || err.name}`);
-          }
-          return false;
-        }
+        this.startedAt = 0;
       }
 
       async start() {
+        if (this.isRecording) return;
         try {
-          // Check if mediaDevices API is available
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            // Check if we're on HTTPS or localhost
             const isSecure = window.location.protocol === 'https:' ||
-                            window.location.hostname === 'localhost' ||
-                            window.location.hostname === '127.0.0.1';
-
-            if (!isSecure) {
-              this.onError('Microphone requires HTTPS. Access this page via localhost or enable HTTPS.');
-            } else {
-              this.onError('Microphone not supported in this browser.');
-            }
+              window.location.hostname === 'localhost' ||
+              window.location.hostname === '127.0.0.1';
+            this.onError(isSecure
+              ? 'Microphone not supported in this browser.'
+              : 'Microphone requires HTTPS. Open via https:// or localhost.');
             return;
           }
 
-          // Check current permission state
-          const permState = await this.checkPermission();
-
-          if (permState === 'denied') {
-            this.onError('Microphone access denied. Please enable it in browser settings and reload the page.');
-            return;
-          }
-
-          // Request permission if needed
-          if (!this.permissionGranted && permState !== 'granted') {
-            this.onPermissionNeeded();
-          }
-
-          // Get microphone access
+          this.onPermissionNeeded();
           this.stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              sampleRate: 16000
-            }
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
           });
 
-          this.permissionGranted = true;
-
-          // Detect supported format (important for iOS)
-          let mimeType = this.getSupportedMimeType();
-          console.log('Using audio format:', mimeType || '(browser default)');
-
-          // If empty, let MediaRecorder pick its own default and read it back
-          this.mediaRecorder = mimeType
-            ? new MediaRecorder(this.stream, { mimeType })
-            : new MediaRecorder(this.stream);
-          // After construction, the actual format is in mediaRecorder.mimeType
-          if (!mimeType) {
-            mimeType = this.mediaRecorder.mimeType || 'audio/webm';
-            console.log('Browser chose format:', mimeType);
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          this.audioContext = new AudioCtx();
+          // iOS suspends freshly created AudioContexts until resumed from
+          // within a user gesture (the mic tap qualifies).
+          if (this.audioContext.state === 'suspended') {
+            try { await this.audioContext.resume(); } catch { /* ignore */ }
           }
-          this.chunks = [];
+          this.sourceSampleRate = this.audioContext.sampleRate || 48000;
 
-          this.mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) {
-              this.chunks.push(e.data);
-            }
+          this.source = this.audioContext.createMediaStreamSource(this.stream);
+          // ScriptProcessor is deprecated but it is the only capture node
+          // that works on every iOS Safari version without shipping a
+          // separate AudioWorklet module file.
+          this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+          this.buffers = [];
+          this.recordedSamples = 0;
+
+          this.processor.onaudioprocess = (e) => {
+            if (!this.isRecording) return;
+            const input = e.inputBuffer.getChannelData(0);
+            const copy = new Float32Array(input.length);
+            copy.set(input); // the engine reuses the source buffer
+            this.buffers.push(copy);
+            this.recordedSamples += copy.length;
+            // Cheap RMS for the live level meter (0..1).
+            let sum = 0, n = 0;
+            for (let i = 0; i < input.length; i += 64) { sum += input[i] * input[i]; n++; }
+            this.onLevel(Math.min(1, Math.sqrt(sum / Math.max(1, n)) * 4));
           };
 
-          this.mediaRecorder.onstop = async () => {
-            this.isRecording = false;
-            this.onStop();
+          this.source.connect(this.processor);
+          // The processor must reach destination or onaudioprocess never
+          // fires in some browsers; a 0-gain node keeps it silent.
+          this._mute = this.audioContext.createGain();
+          this._mute.gain.value = 0;
+          this.processor.connect(this._mute);
+          this._mute.connect(this.audioContext.destination);
 
-            if (this.chunks.length === 0) {
-              this.onError('No audio recorded');
-              return;
-            }
-
-            const blob = new Blob(this.chunks, { type: mimeType });
-            console.log('Audio blob size:', blob.size);
-
-            // Clean up stream
-            this.stream.getTracks().forEach(track => track.stop());
-
-            // Transcribe
-            try {
-              const text = await this.transcribe(blob, mimeType);
-              this.onTranscribe(text);
-            } catch (err) {
-              this.onError(err.message);
-            }
-          };
-
-          this.mediaRecorder.start();
           this.isRecording = true;
+          this.startedAt = Date.now();
           this.onStart();
-          console.log('Recording started');
-
+          console.log('Recording started (Web Audio @', this.sourceSampleRate, 'Hz)');
         } catch (err) {
           console.error('Failed to start recording:', err);
-
-          // Clean up any partial stream
-          if (this.stream) {
-            this.stream.getTracks().forEach(track => track.stop());
-            this.stream = null;
-          }
-
-          // Determine error type and show appropriate message
-          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            this.onError('Microphone access denied. Please allow microphone access and try again.');
-          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-            this.onError('No microphone found. Please connect a microphone.');
-          } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+          this._teardown();
+          const name = err && err.name;
+          if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+            this.onError('Microphone access denied. Allow microphone access and try again.');
+          } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+            this.onError('No microphone found.');
+          } else if (name === 'NotReadableError' || name === 'TrackStartError') {
             this.onError('Microphone is busy. Close other apps using it and try again.');
-          } else if (err.name === 'SecurityError') {
-            this.onError('Microphone blocked. Use HTTPS or localhost.');
           } else {
-            this.onError(`Recording failed: ${err.message || 'Unknown error'}`);
+            this.onError(`Recording failed: ${(err && err.message) || 'Unknown error'}`);
           }
         }
       }
 
-      stop() {
-        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-          this.mediaRecorder.stop();
-          console.log('Recording stopped');
+      _teardown() {
+        try { if (this.processor) this.processor.disconnect(); } catch { /* ignore */ }
+        try { if (this._mute) this._mute.disconnect(); } catch { /* ignore */ }
+        try { if (this.source) this.source.disconnect(); } catch { /* ignore */ }
+        try { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); } catch { /* ignore */ }
+        try { if (this.audioContext && this.audioContext.state !== 'closed') this.audioContext.close(); } catch { /* ignore */ }
+        this.processor = null; this._mute = null; this.source = null;
+        this.stream = null; this.audioContext = null;
+      }
+
+      async stop() {
+        if (!this.isRecording) return;
+        this.isRecording = false;
+        const duration = Date.now() - this.startedAt;
+        const samples = this.buffers;
+        const srcRate = this.sourceSampleRate || 48000;
+        this._teardown();
+        this.onStop();
+
+        if (!samples.length || this.recordedSamples < srcRate * 0.2) {
+          this.onError('No audio recorded. Speak a bit longer before stopping.');
+          return;
+        }
+
+        try {
+          const wav = this._encodeWav(samples, srcRate, this.targetSampleRate);
+          console.log('WAV blob size:', wav.size, 'duration(ms):', duration);
+          const text = await this.transcribe(wav);
+          this.onTranscribe(text);
+        } catch (err) {
+          this.onError((err && err.message) || 'Transcription failed');
         }
       }
 
       cancel() {
-        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-          this.mediaRecorder.stop();
-        }
-        if (this.stream) {
-          this.stream.getTracks().forEach(track => track.stop());
-        }
-        this.chunks = [];
         this.isRecording = false;
+        this._teardown();
+        this.buffers = [];
+        this.recordedSamples = 0;
       }
 
-      getSupportedMimeType() {
-        // iOS Safari only supports MP4/AAC. Other browsers prefer WebM/Opus.
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      _encodeWav(buffers, srcRate, dstRate) {
+        let total = 0;
+        for (const b of buffers) total += b.length;
+        const flat = new Float32Array(total);
+        let off = 0;
+        for (const b of buffers) { flat.set(b, off); off += b.length; }
 
-        const types = isIOS
-          ? ['audio/mp4', 'audio/mp4;codecs=mp4a.40.2', 'audio/aac', 'audio/wav', 'audio/webm']
-          : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/wav'];
-
-        for (const type of types) {
-          try {
-            if (MediaRecorder.isTypeSupported(type)) {
-              return type;
-            }
-          } catch { /* ignore */ }
+        let samples;
+        if (dstRate >= srcRate) {
+          samples = flat;
+          dstRate = srcRate;
+        } else {
+          const ratio = srcRate / dstRate;
+          const newLen = Math.floor(flat.length / ratio);
+          samples = new Float32Array(newLen);
+          for (let i = 0; i < newLen; i++) {
+            const idx = i * ratio;
+            const i0 = Math.floor(idx);
+            const i1 = Math.min(i0 + 1, flat.length - 1);
+            const frac = idx - i0;
+            samples[i] = flat[i0] * (1 - frac) + flat[i1] * frac;
+          }
         }
 
-        // Last-ditch fallback: pass empty string to let browser pick its default
-        return '';
+        const ab = new ArrayBuffer(44 + samples.length * 2);
+        const view = new DataView(ab);
+        const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+        writeStr(0, 'RIFF');
+        view.setUint32(4, 36 + samples.length * 2, true);
+        writeStr(8, 'WAVE');
+        writeStr(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);            // PCM
+        view.setUint16(22, 1, true);            // mono
+        view.setUint32(24, dstRate, true);
+        view.setUint32(28, dstRate * 2, true);  // byte rate
+        view.setUint16(32, 2, true);            // block align
+        view.setUint16(34, 16, true);           // bits/sample
+        writeStr(36, 'data');
+        view.setUint32(40, samples.length * 2, true);
+        let p = 44;
+        for (let i = 0; i < samples.length; i++) {
+          const s = Math.max(-1, Math.min(1, samples[i]));
+          view.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+          p += 2;
+        }
+        return new Blob([view], { type: 'audio/wav' });
       }
 
-      async transcribe(blob, mimeType) {
-        // The /api/transcribe endpoint is async — it returns {jobId} immediately
-        // and we must poll /api/transcribe/job/:id until status is 'completed' or 'error'.
-        const transcribeUrl = `${window.location.origin}/api/transcribe`;
-
-        console.log('Sending audio to:', transcribeUrl, 'size:', blob.size, 'mime:', mimeType);
-
-        const response = await fetch(transcribeUrl, {
+      async transcribe(blob) {
+        const url = `${window.location.origin}/api/transcribe?language=auto`;
+        console.log('Sending WAV to', url, 'size:', blob.size);
+        const response = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': mimeType },
+          headers: { 'Content-Type': 'audio/wav' },
           body: blob,
         });
-
         if (!response.ok) {
           const error = await response.json().catch(() => ({ error: 'Transcription failed' }));
           throw new Error(error.message || error.error || 'Transcription failed');
         }
-
         const initial = await response.json();
-        console.log('Transcription submitted:', initial);
-
-        // Server may either return text immediately (legacy/sync mode) or a jobId.
         if (initial.text && typeof initial.text === 'string') {
           if (!initial.text.trim()) throw new Error('No speech detected');
           return initial.text.trim();
         }
-        if (!initial.jobId) {
-          throw new Error('Unexpected server response (no jobId or text)');
-        }
+        if (!initial.jobId) throw new Error('Unexpected server response (no jobId or text)');
 
-        // Poll for completion (every 2s, up to 10 minutes)
         const jobUrl = `${window.location.origin}/api/transcribe/job/${initial.jobId}`;
-        const maxAttempts = 300;
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        for (let attempt = 0; attempt < 300; attempt++) {
           await new Promise((r) => setTimeout(r, 2000));
           let job;
           try {
             const jobRes = await fetch(jobUrl);
-            if (!jobRes.ok) continue; // transient error, retry
+            if (!jobRes.ok) continue;
             job = await jobRes.json();
-          } catch {
-            continue;
-          }
-
+          } catch { continue; }
           if (job.status === 'completed') {
             const text = (job.text || '').trim();
             if (!text) throw new Error('No speech detected');
             return text;
           }
-          if (job.status === 'error') {
-            throw new Error(job.error || 'Transcription failed');
-          }
-          // status === 'pending' or 'processing' → keep polling
+          if (job.status === 'error') throw new Error(job.error || 'Transcription failed');
         }
-
         throw new Error('Transcription timed out');
       }
     }
@@ -2600,13 +2556,12 @@
         this.voiceRecorder = new VoiceRecorder({
           onStart: () => {
             micBtn.classList.add('recording');
-            recordingIndicator.innerHTML = '<span class="rec-dot"></span> Recording... Release to stop';
-            recordingIndicator.classList.add('visible');
+            recordingIndicator.classList.remove('visible');
+            this.showRecordingState();
           },
           onStop: () => {
             micBtn.classList.remove('recording');
             micBtn.classList.add('transcribing');
-            recordingIndicator.classList.remove('visible');
             this.showProcessingState();
           },
           onTranscribe: (text) => {
@@ -2618,61 +2573,55 @@
             recordingIndicator.classList.remove('visible');
             this.showErrorInModal(error);
           },
-          onPermissionNeeded: () => {
-            recordingIndicator.innerHTML = '<span class="rec-dot"></span> Allow microphone access...';
-            recordingIndicator.classList.add('visible');
-          }
+          onLevel: (lvl) => {
+            const fill = document.getElementById('voice-level-fill');
+            if (fill) fill.style.transform = `scaleX(${Math.max(0.04, lvl).toFixed(3)})`;
+          },
+          onPermissionNeeded: () => {}
         });
 
-        // Hold to record (touch)
-        let recordingStarted = false;
-
-        micBtn.addEventListener('touchstart', (e) => {
+        // Tap to start, tap again (mic button or the in-modal Stop button)
+        // to finish. A single click is a reliable user gesture on iOS for
+        // both getUserMedia and AudioContext.resume(); push-to-talk holds
+        // were fragile (synthesized events, too-short taps).
+        const toggle = (e) => {
           e.preventDefault();
-          recordingStarted = true;
-          this.voiceRecorder.start();
-        }, { passive: false });
-
-        micBtn.addEventListener('touchend', (e) => {
-          e.preventDefault();
-          if (recordingStarted) {
-            recordingStarted = false;
+          e.stopPropagation();
+          if (this.voiceRecorder.isRecording) {
             this.voiceRecorder.stop();
+          } else {
+            this.voiceRecorder.start();
           }
-        });
+        };
+        micBtn.addEventListener('click', toggle);
+      }
 
-        micBtn.addEventListener('touchcancel', (e) => {
+      showRecordingState() {
+        const modal = document.getElementById('input-modal');
+        const modalBody = document.getElementById('modal-body');
+        const modalSend = document.getElementById('modal-send');
+
+        modalBody.innerHTML = `
+          <div class="transcription-status recording">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="rec-dot"></span>
+              <span class="status-text">Recording…</span>
+            </div>
+            <div style="width:100%;height:8px;border-radius:4px;background:rgba(255,255,255,0.12);overflow:hidden;margin:14px 0 6px;">
+              <div id="voice-level-fill" style="height:100%;width:100%;transform:scaleX(0.04);transform-origin:left;background:linear-gradient(90deg,#a6e3a1,#f9e2af,#f38ba8);transition:transform .08s linear;"></div>
+            </div>
+            <span class="status-subtext">Speak, then tap Stop to transcribe</span>
+            <button id="voice-stop-btn" class="modal-btn send" style="margin-top:16px;width:100%;">⏹ Stop &amp; Transcribe</button>
+          </div>
+        `;
+        modalSend.disabled = true;
+        modalSend.style.display = 'none';
+        modal.classList.add('visible');
+
+        const stopBtn = document.getElementById('voice-stop-btn');
+        if (stopBtn) stopBtn.addEventListener('click', (e) => {
           e.preventDefault();
-          if (recordingStarted) {
-            recordingStarted = false;
-            this.voiceRecorder.cancel();
-            micBtn.classList.remove('recording');
-            recordingIndicator.classList.remove('visible');
-          }
-        });
-
-        // Mouse support for desktop
-        micBtn.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          recordingStarted = true;
-          this.voiceRecorder.start();
-        });
-
-        micBtn.addEventListener('mouseup', (e) => {
-          e.preventDefault();
-          if (recordingStarted) {
-            recordingStarted = false;
-            this.voiceRecorder.stop();
-          }
-        });
-
-        micBtn.addEventListener('mouseleave', () => {
-          if (recordingStarted) {
-            recordingStarted = false;
-            this.voiceRecorder.cancel();
-            micBtn.classList.remove('recording');
-            recordingIndicator.classList.remove('visible');
-          }
+          if (this.voiceRecorder) this.voiceRecorder.stop();
         });
       }
 
@@ -2693,15 +2642,25 @@
         const modalTextarea = document.getElementById('modal-textarea');
 
         const closeModal = () => {
+          // Abort an in-progress recording if the user dismisses the modal.
+          if (this.voiceRecorder && this.voiceRecorder.isRecording) {
+            this.voiceRecorder.cancel();
+          }
           modal.classList.remove('visible');
-          modalTextarea.value = '';
+          modalSend.style.display = '';
+          const ta = document.getElementById('modal-textarea');
+          if (ta) ta.value = '';
         };
 
         modalClose.addEventListener('click', closeModal);
         modalCancel.addEventListener('click', closeModal);
 
         modalSend.addEventListener('click', () => {
-          const text = modalTextarea.value.trim();
+          // Always read the CURRENT textarea: showTextInModal / showErrorInModal
+          // replace modal-body's innerHTML, so the textarea captured at setup
+          // time becomes a detached node with a stale (empty) value.
+          const ta = document.getElementById('modal-textarea');
+          const text = ta ? ta.value.trim() : '';
           if (text) {
             this.sendInput(text);
             closeModal();
@@ -2809,6 +2768,7 @@
 
         const newTextarea = document.getElementById('modal-textarea');
         newTextarea.value = text;
+        modalSend.style.display = '';
         modalSend.disabled = false;
         newTextarea.focus();
         newTextarea.setSelectionRange(text.length, text.length);
@@ -2841,6 +2801,7 @@
         `;
 
         const newTextarea = document.getElementById('modal-textarea');
+        modalSend.style.display = '';
         modalSend.disabled = true;
         newTextarea.focus();
 

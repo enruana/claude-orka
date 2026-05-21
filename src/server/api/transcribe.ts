@@ -116,7 +116,11 @@ transcribeRouter.post('/', async (req: Request, res: Response): Promise<void> =>
 
     const timestamp = Date.now()
     tempFilePath = path.join(tempDir, `audio-${timestamp}.${ext}`)
-    wavFilePath = path.join(tempDir, `audio-${timestamp}.wav`)
+    // Output path MUST differ from the input: when the upload is already
+    // WAV (mobile sends 16kHz mono WAV) `ext` is 'wav', so a plain
+    // `audio-TS.wav` output would equal the input and ffmpeg refuses to
+    // edit a file in place ("FFmpeg cannot edit existing files in-place").
+    wavFilePath = path.join(tempDir, `audio-${timestamp}-16k.wav`)
 
     await fs.writeFile(tempFilePath, audioBuffer)
     logger.info(`Saved audio file: ${tempFilePath} (${audioBuffer.length} bytes)`)
