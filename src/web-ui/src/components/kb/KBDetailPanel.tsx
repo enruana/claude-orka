@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain, BookMarked } from 'lucide-react'
+import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain, BookMarked, Calendar } from 'lucide-react'
 import { api, type KBEntity } from '../../api/client'
 
 type KBSchema = {
@@ -269,6 +269,11 @@ After running the command, read each file listed in the "Source Files" section t
   }
 
   const handleOpenUrl = (url: string) => {
+    window.open(url, '_blank', 'noopener')
+  }
+
+  const handleAddToCalendar = () => {
+    const url = buildCalendarUrl(entity, schema, encodedPath, window.location.origin)
     window.open(url, '_blank', 'noopener')
   }
 
@@ -668,6 +673,14 @@ After running the command, read each file listed in the "Source Files" section t
       )}
 
       <div className="kb-detail-actions">
+        <button
+          className="kb-detail-calendar-btn"
+          onClick={handleAddToCalendar}
+          title="Block time in Google Calendar; the event will carry quick-action links back to Orka."
+        >
+          <Calendar size={14} />
+          Add to Google Calendar
+        </button>
         {entity.type === 'project' && (
           <button
             className={`kb-detail-doc-btn ${docGenerated ? 'sent' : ''}`}
@@ -701,6 +714,89 @@ After running the command, read each file listed in the "Source Files" section t
       </div>
     </div>
   )
+}
+
+/**
+ * Build a Google Calendar event-creation URL pre-filled with the entity's
+ * title, a description, and quick-action back-links to Orka.
+ *
+ * The event description lists clickable URLs that hit `/api/kb/quick-action`
+ * on this server — clicking one from the calendar updates the entity's
+ * status and shows a small confirmation page. The base URL is the user's
+ * current origin (Tailscale hostname when accessing remotely), so the links
+ * stay reachable from the same network where Orka is running.
+ *
+ * Default schedule: next quarter-hour, 1-hour block. The user can adjust the
+ * time in Google Calendar's pre-filled form before saving.
+ */
+function buildCalendarUrl(
+  entity: KBEntity,
+  schema: KBSchema | null,
+  encodedPath: string,
+  origin: string,
+  durationMinutes = 60
+): string {
+  // Round start up to the next 15-minute mark for a tidy slot.
+  const now = new Date()
+  const start = new Date(now)
+  start.setSeconds(0, 0)
+  start.setMinutes(Math.ceil((now.getMinutes() + 1) / 15) * 15)
+  const end = new Date(start.getTime() + durationMinutes * 60_000)
+
+  // Google Calendar wants UTC, format YYYYMMDDTHHmmssZ
+  const fmt = (d: Date) =>
+    d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+  const dates = `${fmt(start)}/${fmt(end)}`
+
+  // Allowed status transitions for this entity type (excluding current).
+  const typeStatuses = schema?.statuses[entity.type] ?? []
+  const transMap = schema?.transitions[entity.type]
+  const reachable = transMap ? new Set(transMap[entity.status] ?? []) : null
+  const candidateStatuses = typeStatuses.filter(
+    (s) => s !== entity.status && (reachable ? reachable.has(s) : true)
+  )
+
+  const quickActionUrl = (status: string) =>
+    `${origin}/api/kb/quick-action?project=${encodedPath}` +
+    `&id=${encodeURIComponent(entity.id)}` +
+    `&op=set-status&value=${encodeURIComponent(status)}`
+
+  const viewUrl = `${origin}/projects/${encodedPath}/kb?entity=${encodeURIComponent(entity.id)}`
+
+  const desc = String(
+    entity.properties.description ||
+    entity.properties.summary ||
+    entity.properties.notes ||
+    entity.properties.body ||
+    ''
+  ).trim()
+
+  const lines: string[] = []
+  lines.push(`${entity.type.toUpperCase()} · ${entity.id} · status: ${entity.status}`)
+  if (entity.tags.length > 0) lines.push(`Tags: ${entity.tags.map((t) => '#' + t).join(' ')}`)
+  lines.push('')
+  if (desc) {
+    lines.push(desc)
+    lines.push('')
+  }
+  lines.push(`🔗 Open in Orka:`)
+  lines.push(`   ${viewUrl}`)
+  lines.push('')
+  if (candidateStatuses.length > 0) {
+    lines.push('Quick status changes (click from the calendar event):')
+    for (const s of candidateStatuses) {
+      lines.push(`  • Mark as "${s}":`)
+      lines.push(`    ${quickActionUrl(s)}`)
+    }
+  }
+
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: entity.title,
+    dates,
+    details: lines.join('\n'),
+  })
+  return `https://calendar.google.com/calendar/render?${params.toString()}`
 }
 
 function buildPromptForEntity(entity: KBEntity): string {

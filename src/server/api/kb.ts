@@ -148,6 +148,123 @@ kbRouter.patch('/entities/:id', async (req, res) => {
 })
 
 /**
+ * GET /api/kb/quick-action
+ *
+ * Apply a one-shot mutation on an entity from an EXTERNAL link — e.g. a link
+ * embedded in a Google Calendar event description so the user can flip a
+ * task's status straight from their calendar / Gmail. Returns a small styled
+ * HTML page so it is clickable from anywhere.
+ *
+ * Query params:
+ *   project — base64-encoded project path (same encoding as the rest of /api/kb)
+ *   id      — entity id
+ *   op      — currently only `set-status`
+ *   value   — target status (for `set-status`)
+ */
+kbRouter.get('/quick-action', async (req, res) => {
+  const sendPage = (
+    code: number,
+    opts: { ok: boolean; title: string; message: string; entityId?: string; encodedProject?: string }
+  ): void => {
+    res.status(code).type('html').send(renderQuickActionPage(opts))
+  }
+
+  try {
+    const encodedProject = String(req.query.project || '')
+    const id = String(req.query.id || '')
+    const op = String(req.query.op || '')
+    const value = String(req.query.value || '')
+
+    if (!encodedProject || !id || !op) {
+      sendPage(400, { ok: false, title: 'Missing parameters', message: 'project, id and op are required.' })
+      return
+    }
+
+    const projectPath = decodeProject(encodedProject)
+    const manager = getManager(projectPath)
+
+    if (!manager.isInitialized()) {
+      sendPage(404, { ok: false, title: 'KB not initialized', message: `No KB found at ${projectPath}.` })
+      return
+    }
+
+    if (op === 'set-status') {
+      if (!value) {
+        sendPage(400, { ok: false, title: 'Missing value', message: 'A target status is required for set-status.' })
+        return
+      }
+      const entity = await manager.updateEntity(id, { status: value, actor: 'calendar-link' })
+      sendPage(200, {
+        ok: true,
+        title: `Status → ${entity.status}`,
+        message: `${entity.title} is now marked as "${entity.status}".`,
+        entityId: entity.id,
+        encodedProject,
+      })
+      return
+    }
+
+    sendPage(400, { ok: false, title: 'Unknown operation', message: `Operation "${op}" is not supported.` })
+  } catch (error: any) {
+    logger.error('KB quick-action error:', error)
+    res.status(500).type('html').send(renderQuickActionPage({
+      ok: false,
+      title: 'Action failed',
+      message: error?.message || 'Unknown error',
+    }))
+  }
+})
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string)
+  )
+}
+
+function renderQuickActionPage(opts: {
+  ok: boolean
+  title: string
+  message: string
+  entityId?: string
+  encodedProject?: string
+}): string {
+  const back = opts.encodedProject && opts.entityId
+    ? `<a class="orka-back" href="/projects/${escapeHtml(opts.encodedProject)}/kb?entity=${encodeURIComponent(opts.entityId)}">Open in Orka →</a>`
+    : `<a class="orka-back" href="/dashboard">Back to dashboard →</a>`
+
+  const accent = opts.ok ? '#a6e3a1' : '#f38ba8'
+  const badge = opts.ok ? '✓ Done' : '⚠ Error'
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(opts.title)} · Orka</title>
+<style>
+  body { background:#1e1e2e; color:#cdd6f4; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:32px 20px; min-height:100vh; box-sizing:border-box; display:flex; align-items:center; justify-content:center; }
+  .card { background:#181825; border:1px solid #313244; border-radius:12px; padding:28px 26px; max-width:440px; width:100%; box-shadow:0 8px 30px rgba(0,0,0,0.4); }
+  .badge { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; background:${accent}22; color:${accent}; border:1px solid ${accent}55; margin-bottom:14px; letter-spacing:0.3px; }
+  h1 { margin:0 0 8px; font-size:22px; }
+  p { margin:0 0 18px; color:#bac2de; line-height:1.45; }
+  .orka-back { display:inline-block; color:#89b4fa; text-decoration:none; font-weight:500; }
+  .orka-back:hover { text-decoration:underline; }
+  .footer { margin-top:22px; padding-top:14px; border-top:1px solid #313244; font-size:12px; color:#7f849c; }
+</style>
+</head>
+<body>
+<div class="card">
+  <span class="badge">${badge}</span>
+  <h1>${escapeHtml(opts.title)}</h1>
+  <p>${escapeHtml(opts.message)}</p>
+  ${back}
+  <div class="footer">Triggered from an external link · Orka Knowledge Base</div>
+</div>
+</body>
+</html>`
+}
+
+/**
  * POST /api/kb/edges - Create edge
  */
 kbRouter.post('/edges', async (req, res) => {

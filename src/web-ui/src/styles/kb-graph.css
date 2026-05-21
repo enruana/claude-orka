@@ -1604,6 +1604,32 @@
   border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
+.kb-detail-calendar-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(166, 227, 161, 0.22);
+  background: rgba(166, 227, 161, 0.08);
+  color: #a6e3a1;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.kb-detail-calendar-btn:hover {
+  background: rgba(166, 227, 161, 0.16);
+  border-color: rgba(166, 227, 161, 0.4);
+}
+
+.kb-detail-calendar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .kb-detail-action-btn {
   display: flex;
   align-items: center;
