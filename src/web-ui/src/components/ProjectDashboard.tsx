@@ -330,15 +330,23 @@ export function ProjectDashboard() {
             return (
               <div
                 key={session.id}
-                className={`pcard-session ${session.status}`}
+                className={`pcard-session ${session.status}${session.waitingForInput ? ' waiting' : ''}`}
                 onClick={() => { if (!isResuming) handleResumeSession(project.path, session) }}
+                title={session.waitingForInput && session.waitingMessage ? session.waitingMessage : undefined}
               >
                 {isResuming ? (
                   <span className="spinner-small" />
+                ) : session.waitingForInput ? (
+                  <span className="pcard-session-dot waiting" aria-label="Waiting for input" />
                 ) : (
                   <span className={`pcard-session-dot ${session.status}`} />
                 )}
                 <span className="pcard-session-name">{session.name || 'Unnamed'}</span>
+                {session.waitingForInput && (
+                  <span className="pcard-session-waiting-badge" title={session.waitingMessage || 'Waiting for input'}>
+                    needs input
+                  </span>
+                )}
                 {session.forks.length > 0 && (
                   <span className="pcard-session-forks">
                     <GitBranch size={11} /> {session.forks.length}

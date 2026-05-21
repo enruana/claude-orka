@@ -49,6 +49,22 @@ export interface Session {
    *  is recreated on session resume. Content/shell state is not preserved —
    *  recreated panes just re-cd into the saved path. */
   untrackedPanes?: UntrackedPane[]
+
+  /** True when Claude Code emitted a Notification that we classify as
+   *  needing the user (permission prompt, decision request, etc.). Set by
+   *  the session-watcher hook receiver and cleared on UserPromptSubmit /
+   *  PreToolUse or when the user opens this session in the UI. */
+  waitingForInput?: boolean
+
+  /** ISO timestamp marking when the wait started. */
+  waitingSince?: string
+
+  /** Last Notification `message` that triggered the wait flag. */
+  waitingMessage?: string
+
+  /** Which branch is the one waiting — 'main' or a fork id. Lets the UI
+   *  point the user at the right pane. */
+  waitingBranch?: string
 }
 
 /** A tmux pane the user created manually (not a Claude fork) */

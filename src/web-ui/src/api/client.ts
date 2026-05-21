@@ -29,6 +29,14 @@ export interface Session {
   }
   forks: Fork[]
   nodePositions?: Record<string, { x: number; y: number }>
+
+  /** True when Claude is blocked on user input (permission/decision prompt).
+   *  Updated by the session-watcher hook receiver and cleared on resume or
+   *  manual ack from the UI. */
+  waitingForInput?: boolean
+  waitingSince?: string
+  waitingMessage?: string
+  waitingBranch?: string
 }
 
 export interface Fork {
@@ -379,6 +387,21 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
     const data = await res.json()
     return data.activeBranch
+  },
+
+  /** Clear the `waitingForInput` flag for a session. Called when the user
+   *  opens the session in the UI, complementing the automatic clear via
+   *  UserPromptSubmit / PreToolUse hooks. Fire-and-forget; errors are
+   *  swallowed because the flag will also clear on the next Claude event. */
+  async acknowledgeWaiting(projectPath: string, sessionId: string): Promise<void> {
+    try {
+      await fetch(
+        `${API_BASE}/sessions/${sessionId}/acknowledge-waiting?project=${encodeProjectPath(projectPath)}`,
+        { method: 'POST' }
+      )
+    } catch {
+      /* non-critical */
+    }
   },
 
   // File operations

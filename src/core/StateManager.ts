@@ -4,6 +4,8 @@ import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { ProjectState, ProjectTask, ProjectComment, Session, Fork, SessionFilters } from '../models'
 import { logger } from '../utils'
+import { installSessionWatcherHooks } from '../server/session-watcher-hooks'
+import { getGlobalStateManager } from './GlobalStateManager'
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url)
@@ -110,7 +112,23 @@ export class StateManager {
       await this.save(initialState)
     }
 
+    // Install Claude Code session-watcher hooks so the Orka server can track
+    // when a session is blocked on user input. Idempotent + non-throwing.
+    await this.installWatcherHooks()
+
     logger.debug('StateManager initialized')
+  }
+
+  /** Install the session-watcher hooks targeting the current Orka server.
+   *  Looks up the live port from the global config; failures are swallowed
+   *  inside the installer so they cannot block init/reinit. */
+  private async installWatcherHooks(): Promise<void> {
+    try {
+      const global = await getGlobalStateManager()
+      await installSessionWatcherHooks(this.projectPath, global.getServerPort())
+    } catch (err: any) {
+      logger.debug(`session-watcher install skipped: ${err?.message || err}`)
+    }
   }
 
   /**
@@ -178,6 +196,10 @@ export class StateManager {
       await this.save(initialState)
       logger.info(`Project initialized fresh at v${currentVersion}`)
     }
+
+    // (Re)install the session-watcher hooks against the current Orka port
+    // so an old install with a stale port gets refreshed via the sync flow.
+    await this.installWatcherHooks()
   }
 
   /**

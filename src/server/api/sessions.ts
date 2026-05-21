@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { ClaudeOrka } from '../../core/ClaudeOrka'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
+import { StateManager } from '../../core/StateManager'
 import { logger } from '../../utils'
 
 export const sessionsRouter = Router()
@@ -35,6 +36,158 @@ sessionsRouter.get('/', async (req, res) => {
     res.status(500).json({ error: error.message })
   }
 })
+
+/**
+ * POST /api/sessions/hook
+ *
+ * Receiver for Claude Code session-watcher hooks. Installed in every
+ * Orka-managed project's `.claude/settings.json` (see
+ * `src/server/session-watcher-hooks.ts`). Claude POSTs its hook payload as
+ * raw JSON; we map `session_id` back to one of our Orka sessions and update
+ * the persisted `waitingForInput` flag so the dashboard knows which session
+ * is blocked on the user.
+ *
+ * Hook events handled (`?event=<name>` and/or payload `hook_event_name`):
+ *   - Notification     → may set the flag (filtered by message content)
+ *   - UserPromptSubmit → clears the flag (user just sent input)
+ *   - PreToolUse       → clears the flag (Claude resumed work)
+ *
+ * Always responds 200 — we never want a hook failure to surface back into
+ * Claude's session and disturb the user.
+ */
+sessionsRouter.post('/hook', async (req, res) => {
+  try {
+    const payload = (req.body || {}) as Record<string, unknown>
+    const event = String(req.query.event || payload.hook_event_name || payload.event_type || '')
+    const claudeSessionId = typeof payload.session_id === 'string' ? payload.session_id : ''
+    const cwd = typeof payload.cwd === 'string' ? payload.cwd : ''
+    const message = typeof payload.message === 'string' ? payload.message : undefined
+
+    if (!event || !claudeSessionId) {
+      res.json({ ok: true, skipped: 'missing event or session_id' })
+      return
+    }
+
+    const target = await findSessionByClaudeId(claudeSessionId, cwd)
+    if (!target) {
+      // Not every Claude session belongs to an Orka session — silently ignore.
+      res.json({ ok: true, skipped: 'no matching session' })
+      return
+    }
+
+    const { sm, sessionId, branch } = target
+    if (event === 'Notification') {
+      if (isUserBlockingMessage(message)) {
+        await sm.updateSession(sessionId, {
+          waitingForInput: true,
+          waitingSince: new Date().toISOString(),
+          waitingMessage: message,
+          waitingBranch: branch,
+        })
+      }
+      // Non-blocking notifications (idle 60s reminders) are intentionally
+      // ignored to avoid false positives.
+    } else if (event === 'UserPromptSubmit' || event === 'PreToolUse') {
+      await sm.updateSession(sessionId, {
+        waitingForInput: false,
+        waitingSince: undefined,
+        waitingMessage: undefined,
+        waitingBranch: undefined,
+      })
+    }
+
+    res.json({ ok: true })
+  } catch (error: any) {
+    // Never propagate to Claude — log and ack.
+    logger.warn(`session-watcher hook: ${error?.message || error}`)
+    res.json({ ok: true, error: error?.message || String(error) })
+  }
+})
+
+/**
+ * POST /api/sessions/:sessionId/acknowledge-waiting?project=<base64>
+ *
+ * Manual ack: the user opened the session in the UI, so clear the
+ * `waitingForInput` flag regardless of whether Claude has resumed yet.
+ */
+sessionsRouter.post('/:sessionId/acknowledge-waiting', async (req, res) => {
+  try {
+    const encodedPath = req.query.project as string | undefined
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+    const projectPath = decodeProjectPath(encodedPath)
+    const sm = new StateManager(projectPath)
+    await sm.updateSession(req.params.sessionId, {
+      waitingForInput: false,
+      waitingSince: undefined,
+      waitingMessage: undefined,
+      waitingBranch: undefined,
+    })
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.warn(`acknowledge-waiting: ${error?.message || error}`)
+    res.status(500).json({ error: error?.message || String(error) })
+  }
+})
+
+/** Heuristic: only treat Notification events that look like a real
+ *  permission/decision prompt as "waiting for input". Filters out the
+ *  60-second idle reminder which would otherwise produce false positives. */
+function isUserBlockingMessage(message?: string): boolean {
+  if (!message) return true // be conservative if Claude omits text
+  const m = message.toLowerCase()
+  return (
+    m.includes('permission') ||
+    m.includes('needs your') ||
+    m.includes('needs input') ||
+    m.includes('approve') ||
+    m.includes('approval') ||
+    m.includes('decision') ||
+    m.includes('decide') ||
+    m.includes('waiting for') ||
+    m.includes('confirm')
+  )
+}
+
+/** Find which Orka project + session owns a given Claude session id.
+ *  Uses cwd as a fast prefix-match shortcut when present, otherwise scans
+ *  all registered projects. Returns the StateManager so the caller can
+ *  persist updates without re-loading. */
+async function findSessionByClaudeId(
+  claudeSessionId: string,
+  cwd: string
+): Promise<{ sm: StateManager; sessionId: string; branch: string } | null> {
+  const global = await getGlobalStateManager()
+  const projects = global.getProjects()
+
+  // Prioritize the project whose path is an ancestor of cwd (cheap & precise).
+  const ordered = [...projects].sort((a, b) => {
+    const ac = cwd && cwd.startsWith(a.path) ? 1 : 0
+    const bc = cwd && cwd.startsWith(b.path) ? 1 : 0
+    return bc - ac
+  })
+
+  for (const project of ordered) {
+    try {
+      const sm = new StateManager(project.path)
+      const sessions = await sm.getAllSessions()
+      for (const session of sessions) {
+        if (session.main.claudeSessionId === claudeSessionId) {
+          return { sm, sessionId: session.id, branch: 'main' }
+        }
+        const fork = session.forks.find((f) => f.claudeSessionId === claudeSessionId)
+        if (fork) {
+          return { sm, sessionId: session.id, branch: fork.id }
+        }
+      }
+    } catch {
+      // Project state may be unreadable mid-init — skip and continue.
+    }
+  }
+  return null
+}
 
 /**
  * POST /api/sessions

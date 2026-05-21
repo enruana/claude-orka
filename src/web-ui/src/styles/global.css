@@ -3554,6 +3554,37 @@ body {
 .pcard-session-dot.active { background: var(--accent-green); }
 .pcard-session-dot.saved { background: var(--text-tertiary); }
 
+/* Waiting-for-input indicator — pulsing amber to draw the eye without being
+   as alarming as red. Pairs with the `.pcard-session.waiting` row tint and
+   the small "needs input" pill on the right side of the row. */
+.pcard-session-dot.waiting {
+  background: #f9e2af;
+  box-shadow: 0 0 0 0 rgba(249, 226, 175, 0.7);
+  animation: pcard-waiting-pulse 1.6s ease-out infinite;
+}
+.pcard-session.waiting {
+  background: rgba(249, 226, 175, 0.06);
+  border-color: rgba(249, 226, 175, 0.22);
+}
+.pcard-session-waiting-badge {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #f9e2af;
+  background: rgba(249, 226, 175, 0.12);
+  border: 1px solid rgba(249, 226, 175, 0.3);
+  white-space: nowrap;
+}
+@keyframes pcard-waiting-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(249, 226, 175, 0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(249, 226, 175, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(249, 226, 175, 0); }
+}
+
 .pcard-session-name {
   font-size: 13px;
   font-weight: 500;

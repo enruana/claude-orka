@@ -72,6 +72,13 @@ export function SessionPage() {
         const sessionData = await api.getSession(projectPath, sessionId)
         setSession(sessionData)
         setLoading(false)
+
+        // Manual ack: the user just opened this session, so clear the
+        // "waiting for input" flag right away (hooks will also clear it
+        // when Claude resumes; this is the human-in-the-loop signal).
+        if (sessionData.waitingForInput) {
+          void api.acknowledgeWaiting(projectPath, sessionId)
+        }
       } catch (err: any) {
         setError(err.message)
         setLoading(false)
