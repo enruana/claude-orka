@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { api, RegisteredProject, Session, Fork } from '../api/client'
+import { api, RegisteredProject, Session, Fork, SessionLayout } from '../api/client'
 import {
   ArrowLeft,
   Home,
@@ -18,6 +18,10 @@ import {
   GitBranch,
   FolderOpen,
   Share2,
+  LayoutGrid,
+  Columns3,
+  Rows3,
+  PanelLeft,
 } from 'lucide-react'
 import { SessionCodeEditor } from './code-editor'
 import { FinderExplorer } from './finder'
@@ -61,6 +65,7 @@ export function SessionView({
 }: SessionViewProps) {
   const [session, setSession] = useState<Session>(initialSession)
   const [selectedNode, setSelectedNode] = useState<string>('main')
+  const [activeLayout, setActiveLayout] = useState<SessionLayout | undefined>(initialSession.layout)
   const [error, setError] = useState<string | null>(null)
   const [showForkDialog, setShowForkDialog] = useState(false)
   const [forkNameInput, setForkNameInput] = useState('')
@@ -254,6 +259,44 @@ export function SessionView({
     }
   }
 
+  // Keep the layout highlight in sync if another client / a resume changes
+  // it underneath us (session is re-fetched every 3s).
+  useEffect(() => {
+    setActiveLayout(session.layout)
+  }, [session.layout])
+
+  // Change the tmux pane arrangement. Optimistic — highlight updates
+  // immediately; the server applies `tmux select-layout` and persists it.
+  const handleLayoutChange = async (layout: SessionLayout) => {
+    if (layout === activeLayout) return
+    setActiveLayout(layout)
+    try {
+      await api.setSessionLayout(project.path, session.id, layout)
+    } catch (err: any) {
+      console.error('Failed to set layout:', err)
+    }
+  }
+
+  // Double-click a thread node to rename its tmux pane label. The pane
+  // border updates immediately; the tree node label refreshes on the next
+  // session poll. Renaming a fork persists into fork.name, main into
+  // main.label (see SessionManager.renamePaneLabel).
+  const handleNodeRename = async (nodeId: string) => {
+    const isMain = nodeId === 'main'
+    const fork = isMain ? null : session.forks.find((f) => f.id === nodeId)
+    const current = isMain ? (session.main.label || 'main') : (fork?.name || nodeId)
+    const paneId = isMain ? session.main.tmuxPaneId : fork?.tmuxPaneId
+    const next = window.prompt('Rename pane:', current)
+    if (next === null) return
+    const clean = next.trim()
+    if (!clean || clean === current) return
+    try {
+      await api.renamePaneLabel(project.path, session.id, clean, paneId)
+    } catch (err: any) {
+      console.error('Failed to rename pane:', err)
+    }
+  }
+
   const handleCreateFork = () => {
     const activeChildrenCount = session.forks.filter(
       (f) => f.parentId === selectedNode && f.status === 'active'
@@ -429,6 +472,8 @@ export function SessionView({
           <div
             className={`thread-tree-node ${node.status} ${isSelected ? 'selected' : ''} ${node.isClickable ? 'clickable' : ''}`}
             onClick={() => node.isClickable && handleNodeClick(node.id)}
+            onDoubleClick={() => node.isClickable && handleNodeRename(node.id)}
+            title={node.isClickable ? 'Click to select · double-click to rename' : undefined}
           >
             {/* Tree lines */}
             <div className="thread-tree-lines">
@@ -565,6 +610,26 @@ export function SessionView({
                 </div>
               </div>
             )}
+          </div>
+          {/* Pane layout selector — applies a tmux layout to the session
+              window and persists it (re-applied on every resume). */}
+          <div className="layout-selector" title="Pane arrangement">
+            {([
+              { id: 'tiled', icon: LayoutGrid, label: 'Grid' },
+              { id: 'even-horizontal', icon: Columns3, label: 'Columns' },
+              { id: 'even-vertical', icon: Rows3, label: 'Rows' },
+              { id: 'main-vertical', icon: PanelLeft, label: 'Main' },
+            ] as const).map(({ id, icon: Icon, label }) => (
+              <button
+                key={id}
+                className={`layout-selector-btn ${activeLayout === id ? 'active' : ''}`}
+                onClick={() => handleLayoutChange(id)}
+                title={`${label} layout`}
+                aria-label={`${label} layout`}
+              >
+                <Icon size={15} />
+              </button>
+            ))}
           </div>
           <button className="icon-button" onClick={refreshSession} title="Refresh">
             <RefreshCw size={18} />

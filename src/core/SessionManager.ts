@@ -1,6 +1,6 @@
 import { StateManager } from './StateManager'
 import { getGlobalStateManager } from './GlobalStateManager'
-import { Session, Fork, SessionFilters } from '../models'
+import { Session, Fork, SessionFilters, SessionLayout } from '../models'
 import {
   TmuxCommands,
   logger,
@@ -104,8 +104,8 @@ export class SessionManager {
     const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
     logger.debug(`Main pane ID: ${paneId}`)
 
-    // 2.5. Set pane title for main branch
-    await TmuxCommands.setPaneTitle(paneId, `🎭 MAIN`)
+    // 2.5. Set a stable orka label for the main pane
+    await TmuxCommands.setPaneLabel(paneId, 'main')
 
     // 3. Inicializar Claude - nueva sesión o continuar desde existente
     let claudeSessionId: string
@@ -247,8 +247,8 @@ export class SessionManager {
     // 2. Get pane ID
     const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
 
-    // 2.5. Set pane title for main branch
-    await TmuxCommands.setPaneTitle(paneId, `🎭 MAIN`)
+    // 2.5. Re-apply the main pane's stable orka label
+    await TmuxCommands.setPaneLabel(paneId, session.main.label || 'main')
 
     // 3. Validate Claude session exists before resuming
     const claudeSessionId = session.main.claudeSessionId
@@ -327,6 +327,13 @@ export class SessionManager {
     //    restore the pane layout so the user's workspace looks familiar.
     await this.recreateUntrackedPanes(sessionId)
 
+    // 7. Re-apply the saved tmux layout so the window keeps the arrangement
+    //    the user chose (grid / columns / rows / main) instead of the
+    //    cascade of vertical splits the recreation produces.
+    if (session.layout) {
+      await TmuxCommands.selectLayout(session.tmuxSessionId, session.layout)
+    }
+
     logger.info(`Session resumed: ${session.name}`)
 
     return session
@@ -348,11 +355,16 @@ export class SessionManager {
       try {
         const cwd = pane.currentPath || this.projectPath
         const newPaneId = await TmuxCommands.splitPaneWithCwd(session.tmuxSessionId, cwd, false)
+        // Re-apply the saved label so renamed panes survive a resume.
+        if (pane.label) {
+          await TmuxCommands.setPaneLabel(newPaneId, pane.label)
+        }
         updated.push({
           tmuxPaneId: newPaneId,
           currentPath: pane.currentPath,
           currentCommand: pane.currentCommand,
           createdAt: pane.createdAt,
+          label: pane.label,
         })
       } catch (err: any) {
         logger.warn(`Failed to recreate untracked pane: ${err.message}`)
@@ -716,8 +728,8 @@ export class SessionManager {
     const forkPaneId = newPanes[0]
     logger.debug(`Fork pane ID (new pane detected): ${forkPaneId}`)
 
-    // 2.5. Set pane title to show fork name
-    await TmuxCommands.setPaneTitle(forkPaneId, `🔀 ${forkName}`)
+    // 2.5. Set the fork pane's stable orka label
+    await TmuxCommands.setPaneLabel(forkPaneId, forkName)
 
     // 3. Start Claude fork con session ID pre-generado (no need to detect!)
     await this.initializeClaude(forkPaneId, {
@@ -741,6 +753,12 @@ export class SessionManager {
     session.forks.push(fork)
     session.lastActivity = new Date().toISOString()
     await this.stateManager.replaceSession(session)
+
+    // Re-apply the chosen layout so the freshly-added pane fits the grid /
+    // columns / rows arrangement instead of shrinking the previous split.
+    if (session.layout) {
+      await TmuxCommands.selectLayout(session.tmuxSessionId, session.layout)
+    }
 
     logger.info(`Fork created: ${forkName} (${forkId}) with Claude session ${forkClaudeSessionId}`)
     return fork
@@ -796,8 +814,8 @@ export class SessionManager {
     const forkPaneId = newPanes[0]
     logger.debug(`Fork pane ID (resume, new pane detected): ${forkPaneId}`)
 
-    // 4. Set pane title to show fork name
-    await TmuxCommands.setPaneTitle(forkPaneId, `🔀 ${fork.name}`)
+    // 4. Re-apply the fork pane's stable orka label
+    await TmuxCommands.setPaneLabel(forkPaneId, fork.name)
 
     // 5. Validate fork session exists before resuming
     const forkSessionExists = await claudeSessionFileExists(this.projectPath, fork.claudeSessionId)
@@ -1257,20 +1275,45 @@ Analyze the content and help me integrate the changes and learnings from the for
         if (fork.tmuxPaneId) knownPaneIds.add(fork.tmuxPaneId)
       }
 
-      const untracked = panes
-        .filter((p) => !knownPaneIds.has(p.paneId))
-        .map((p) => {
-          // Preserve createdAt if we had this pane before
-          const existing = (session.untrackedPanes || []).find(
-            (u) => u.tmuxPaneId === p.paneId
-          )
-          return {
-            tmuxPaneId: p.paneId,
-            currentPath: p.currentPath,
-            currentCommand: p.currentCommand,
-            createdAt: existing?.createdAt || new Date().toISOString(),
-          }
+      // Backfill @orka_label on the main + fork panes when missing. Panes
+      // created before this feature existed (or any that lost the option)
+      // get their label restored here without needing a session resume.
+      for (const p of panes) {
+        if (p.label) continue
+        if (p.paneId === session.main.tmuxPaneId) {
+          await TmuxCommands.setPaneLabel(p.paneId, session.main.label || 'main')
+        } else {
+          const fork = session.forks.find((f) => f.tmuxPaneId === p.paneId)
+          if (fork) await TmuxCommands.setPaneLabel(p.paneId, fork.name)
+        }
+      }
+
+      const untracked: NonNullable<typeof session.untrackedPanes> = []
+      for (const p of panes.filter((p) => !knownPaneIds.has(p.paneId))) {
+        // Preserve createdAt + label if we had this pane before
+        const existing = (session.untrackedPanes || []).find(
+          (u) => u.tmuxPaneId === p.paneId
+        )
+        // Label precedence: the live tmux @orka_label wins (it reflects any
+        // rename done via the API/UI), then a previously-persisted label,
+        // then a default derived from the working directory.
+        const defaultLabel = p.currentPath
+          ? p.currentPath.split('/').filter(Boolean).pop() || 'shell'
+          : 'shell'
+        const label = p.label || existing?.label || defaultLabel
+        // If tmux doesn't have the label yet, apply it so the pane border
+        // shows something meaningful for manually-created panes too.
+        if (!p.label && label) {
+          await TmuxCommands.setPaneLabel(p.paneId, label)
+        }
+        untracked.push({
+          tmuxPaneId: p.paneId,
+          currentPath: p.currentPath,
+          currentCommand: p.currentCommand,
+          createdAt: existing?.createdAt || new Date().toISOString(),
+          label,
         })
+      }
 
       session.untrackedPanes = untracked
       await this.stateManager.replaceSession(session)
@@ -1279,6 +1322,72 @@ Analyze the content and help me integrate the changes and learnings from the for
       // tmux session probably gone — leave any previously-saved untrackedPanes intact
       logger.debug(`syncUntrackedPanes skipped: ${error.message}`)
     }
+  }
+
+  /**
+   * Rename a tmux pane's label — the `@orka_label` user option rendered in
+   * the pane border. Persists the new label to state.json so it survives a
+   * session resume: into `main.label`, `fork.name`, or the matching
+   * `untrackedPanes` entry, depending on which branch owns the pane.
+   *
+   * @param sessionId Orka session id
+   * @param paneId    tmux pane id (e.g. %3); when omitted the currently
+   *                  active pane of the session is used
+   * @param label     new label text (trimmed; must be non-empty)
+   * @returns the pane id that was relabeled
+   */
+  async renamePaneLabel(sessionId: string, paneId: string | undefined, label: string): Promise<string> {
+    const session = await this.getSession(sessionId)
+    if (!session) throw new Error(`Session ${sessionId} not found`)
+
+    const clean = label.trim()
+    if (!clean) throw new Error('Label cannot be empty')
+
+    const targetPane = paneId || await TmuxCommands.getActivePane(session.tmuxSessionId)
+    if (!targetPane) throw new Error('Could not resolve a target pane')
+
+    await TmuxCommands.setPaneLabel(targetPane, clean)
+
+    // Persist to whichever branch owns this pane.
+    if (session.main.tmuxPaneId === targetPane) {
+      session.main.label = clean
+    } else {
+      const fork = session.forks.find((f) => f.tmuxPaneId === targetPane)
+      if (fork) {
+        fork.name = clean
+      } else {
+        const up = (session.untrackedPanes || []).find((u) => u.tmuxPaneId === targetPane)
+        if (up) up.label = clean
+        // If the pane isn't in state yet (freshly-created untracked pane),
+        // the tmux label is still applied; the next syncUntrackedPanes will
+        // read it back from @orka_label and persist it.
+      }
+    }
+    await this.stateManager.replaceSession(session)
+    logger.info(`Pane ${targetPane} relabeled to "${clean}"`)
+    return targetPane
+  }
+
+  /**
+   * Change a session's tmux pane layout (grid / columns / rows / main) and
+   * persist the choice to state.json so it is re-applied on every resume.
+   * Applies immediately when the tmux session is running.
+   *
+   * @param sessionId Orka session id
+   * @param layout    one of the SessionLayout values
+   */
+  async setSessionLayout(sessionId: string, layout: SessionLayout): Promise<void> {
+    const session = await this.getSession(sessionId)
+    if (!session) throw new Error(`Session ${sessionId} not found`)
+
+    session.layout = layout
+    await this.stateManager.replaceSession(session)
+
+    // Apply live if the tmux session exists; harmless no-op otherwise.
+    if (await TmuxCommands.sessionExists(session.tmuxSessionId)) {
+      await TmuxCommands.selectLayout(session.tmuxSessionId, layout)
+    }
+    logger.info(`Session ${sessionId} layout set to "${layout}"`)
   }
 
   /**

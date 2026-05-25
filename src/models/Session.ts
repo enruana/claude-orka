@@ -9,6 +9,16 @@ export interface NodePosition {
 }
 
 /**
+ * tmux pane arrangement for a session's window. Values map 1:1 to
+ * `tmux select-layout` names:
+ *  - tiled           → Grid
+ *  - even-horizontal → Columns (panes side by side)
+ *  - even-vertical   → Rows (panes stacked)
+ *  - main-vertical   → Main (one large pane + a side column)
+ */
+export type SessionLayout = 'tiled' | 'even-horizontal' | 'even-vertical' | 'main-vertical'
+
+/**
  * Representa una sesión de Claude Code
  */
 export interface Session {
@@ -50,6 +60,10 @@ export interface Session {
    *  recreated panes just re-cd into the saved path. */
   untrackedPanes?: UntrackedPane[]
 
+  /** Chosen tmux pane arrangement. Re-applied after panes are recreated on
+   *  resume and after each new fork, so the window keeps its shape. */
+  layout?: SessionLayout
+
   /** True when Claude Code emitted a Notification that we classify as
    *  needing the user (permission prompt, decision request, etc.). Set by
    *  the session-watcher hook receiver and cleared on UserPromptSubmit /
@@ -77,6 +91,9 @@ export interface UntrackedPane {
   currentCommand?: string
   /** When this pane was first detected */
   createdAt: string
+  /** User-assigned pane label (shown in the tmux pane border via
+   *  `@orka_label`). Persisted so it survives a session resume. */
+  label?: string
 }
 
 /**
@@ -85,6 +102,10 @@ export interface UntrackedPane {
 export interface MainBranch {
   /** Claude session ID (UUID) */
   claudeSessionId: string
+
+  /** User-assigned label for the main pane (shown in the tmux pane border
+   *  via `@orka_label`). Defaults to 'main' when unset. */
+  label?: string
 
   /** ID del pane tmux (solo si status = 'active') */
   tmuxPaneId?: string

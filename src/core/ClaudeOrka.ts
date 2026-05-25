@@ -1,5 +1,5 @@
 import { SessionManager, CreateSessionOptions } from './SessionManager'
-import { Session, Fork, SessionFilters, ProjectSummary, SessionSummary, ForkSummary } from '../models'
+import { Session, Fork, SessionFilters, ProjectSummary, SessionSummary, ForkSummary, SessionLayout } from '../models'
 import { logger, listClaudeSessions, ClaudeSessionSummary } from '../utils'
 
 /**
@@ -389,5 +389,22 @@ export class ClaudeOrka {
    */
   async getActiveBranch(sessionId: string): Promise<string | null> {
     return await this.sessionManager.getActiveBranch(sessionId)
+  }
+
+  /**
+   * Rename a tmux pane's label (shown in the pane border). When `paneId` is
+   * omitted the session's active pane is used. Persisted across resumes.
+   * @returns the pane id that was relabeled
+   */
+  async renamePaneLabel(sessionId: string, paneId: string | undefined, label: string): Promise<string> {
+    return await this.sessionManager.renamePaneLabel(sessionId, paneId, label)
+  }
+
+  /**
+   * Change a session's tmux pane layout (tiled / even-horizontal /
+   * even-vertical / main-vertical). Persisted and re-applied on resume.
+   */
+  async setSessionLayout(sessionId: string, layout: SessionLayout): Promise<void> {
+    return await this.sessionManager.setSessionLayout(sessionId, layout)
   }
 }

@@ -125,7 +125,11 @@ export class StateManager {
   private async installWatcherHooks(): Promise<void> {
     try {
       const global = await getGlobalStateManager()
-      await installSessionWatcherHooks(this.projectPath, global.getServerPort())
+      await installSessionWatcherHooks(
+        this.projectPath,
+        global.getServerPort(),
+        global.getServerProtocol()
+      )
     } catch (err: any) {
       logger.debug(`session-watcher install skipped: ${err?.message || err}`)
     }
@@ -287,12 +291,38 @@ export class StateManager {
   }
 
   /**
-   * Save state
+   * Save state — atomic write via temp file + rename.
+   *
+   * A plain `fs.writeFile` was racy: two concurrent saves (e.g. the
+   * throttled syncUntrackedPanes firing alongside an updateSession call)
+   * could interleave their open/write syscalls, leaving the trailing
+   * bytes of the longer payload glued onto the shorter one. The end
+   * state was a `state.json` that parsed up to the JSON's closing brace
+   * and then had garbage like `}` or `[]\n}` tacked on — every call to
+   * `JSON.parse` after that throws "Unexpected non-whitespace…" and the
+   * project's sessions silently disappear from the dashboard / launcher.
+   *
+   * POSIX `rename(2)` is atomic on the same filesystem: readers see
+   * either the old file or the new one, never a partial. Concurrent
+   * writers each rename their own temp file and the last one wins
+   * cleanly, no torn bytes.
    */
   async save(state: ProjectState): Promise<void> {
     try {
       state.lastUpdated = new Date().toISOString()
-      await fs.writeFile(this.statePath, JSON.stringify(state, null, 2), 'utf-8')
+      const json = JSON.stringify(state, null, 2)
+      // Unique temp name per pid + timestamp + random tail so two
+      // concurrent writers in the same process don't pick the same tmp.
+      const tmp = `${this.statePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`
+      await fs.writeFile(tmp, json, 'utf-8')
+      try {
+        await fs.rename(tmp, this.statePath)
+      } catch (err) {
+        // Best-effort cleanup if rename failed for any reason — don't
+        // leave the temp file behind.
+        await fs.remove(tmp).catch(() => {})
+        throw err
+      }
       logger.debug('State saved')
     } catch (error: any) {
       logger.error('Failed to save state:', error)

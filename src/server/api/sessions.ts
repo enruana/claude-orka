@@ -64,6 +64,7 @@ sessionsRouter.post('/hook', async (req, res) => {
     const message = typeof payload.message === 'string' ? payload.message : undefined
 
     if (!event || !claudeSessionId) {
+      logger.warn(`hook: missing event or session_id (event=${event}, sid=${claudeSessionId})`)
       res.json({ ok: true, skipped: 'missing event or session_id' })
       return
     }
@@ -71,9 +72,12 @@ sessionsRouter.post('/hook', async (req, res) => {
     const target = await findSessionByClaudeId(claudeSessionId, cwd)
     if (!target) {
       // Not every Claude session belongs to an Orka session — silently ignore.
+      logger.debug(`hook: ${event} for ${claudeSessionId.slice(0, 8)}… (no matching Orka session)`)
       res.json({ ok: true, skipped: 'no matching session' })
       return
     }
+
+    logger.info(`hook: ${event} for session ${target.sessionId.slice(0, 8)}… (${target.branch})${message ? ` — "${message.slice(0, 80)}"` : ''}`)
 
     const { sm, sessionId, branch } = target
     if (event === 'Notification') {
@@ -615,6 +619,77 @@ sessionsRouter.get('/:sessionId/active-branch', async (req, res) => {
     res.json({ activeBranch })
   } catch (error: any) {
     logger.error('Failed to get active branch:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/sessions/:sessionId/pane-label
+ * Rename a tmux pane's label (the `@orka_label` shown in the pane border).
+ * Body: { project: string (base64), label: string, paneId?: string }
+ * When `paneId` is omitted the session's active pane is relabeled.
+ */
+sessionsRouter.post('/:sessionId/pane-label', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const { project: encodedPath, label, paneId } = req.body || {}
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project is required (base64 encoded path)' })
+      return
+    }
+    if (typeof label !== 'string' || !label.trim()) {
+      res.status(400).json({ error: 'label is required and must be non-empty' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    const relabeledPane = await orka.renamePaneLabel(
+      sessionId,
+      typeof paneId === 'string' && paneId ? paneId : undefined,
+      label
+    )
+
+    res.json({ ok: true, paneId: relabeledPane, label: label.trim() })
+  } catch (error: any) {
+    logger.error('Failed to set pane label:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/sessions/:sessionId/layout
+ * Change the session's tmux pane arrangement. Applied immediately and
+ * persisted so it is re-applied on every resume.
+ * Body: { project: string (base64), layout: SessionLayout }
+ */
+const VALID_LAYOUTS = ['tiled', 'even-horizontal', 'even-vertical', 'main-vertical']
+sessionsRouter.post('/:sessionId/layout', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const { project: encodedPath, layout } = req.body || {}
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project is required (base64 encoded path)' })
+      return
+    }
+    if (!VALID_LAYOUTS.includes(layout)) {
+      res.status(400).json({ error: `layout must be one of: ${VALID_LAYOUTS.join(', ')}` })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    await orka.setSessionLayout(sessionId, layout)
+
+    res.json({ ok: true, layout })
+  } catch (error: any) {
+    logger.error('Failed to set session layout:', error)
     res.status(500).json({ error: error.message })
   }
 })

@@ -13,6 +13,9 @@ export interface RegisteredProject {
   activeSessions?: number
 }
 
+/** tmux pane arrangement — mirrors `tmux select-layout` names. */
+export type SessionLayout = 'tiled' | 'even-horizontal' | 'even-vertical' | 'main-vertical'
+
 export interface Session {
   id: string
   name: string
@@ -29,6 +32,10 @@ export interface Session {
   }
   forks: Fork[]
   nodePositions?: Record<string, { x: number; y: number }>
+
+  /** tmux pane arrangement — one of tiled / even-horizontal /
+   *  even-vertical / main-vertical. */
+  layout?: SessionLayout
 
   /** True when Claude is blocked on user input (permission/decision prompt).
    *  Updated by the session-watcher hook receiver and cleared on resume or
@@ -387,6 +394,39 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
     const data = await res.json()
     return data.activeBranch
+  },
+
+  /** Change the session's tmux pane arrangement (grid / columns / rows /
+   *  main). Persisted server-side and re-applied on every resume. */
+  async setSessionLayout(
+    projectPath: string,
+    sessionId: string,
+    layout: SessionLayout
+  ): Promise<{ ok: boolean; layout: SessionLayout }> {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/layout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: encodeProjectPath(projectPath), layout }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Rename a tmux pane's label (shown in the pane border). When `paneId`
+   *  is omitted, the session's currently-active pane is relabeled. */
+  async renamePaneLabel(
+    projectPath: string,
+    sessionId: string,
+    label: string,
+    paneId?: string
+  ): Promise<{ ok: boolean; paneId: string; label: string }> {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/pane-label`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: encodeProjectPath(projectPath), label, paneId }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
   },
 
   /** Clear the `waitingForInput` flag for a session. Called when the user

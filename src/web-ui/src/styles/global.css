@@ -818,6 +818,39 @@ body {
   color: var(--text-primary);
 }
 
+/* Pane layout selector — segmented group of 4 icon buttons in the session
+   header. The active layout is highlighted. */
+.layout-selector {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+}
+
+.layout-selector-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 5px 7px;
+  border-radius: calc(var(--radius-sm) - 2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.layout-selector-btn:hover {
+  color: var(--text-primary);
+}
+
+.layout-selector-btn.active {
+  background: var(--accent-blue, #89b4fa);
+  color: #1e1e2e;
+}
+
 .session-title {
   display: flex;
   align-items: center;

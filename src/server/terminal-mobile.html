@@ -16,6 +16,11 @@
       height: 100%;
       width: 100%;
       overflow: hidden;
+      /* Kill pull-to-refresh / rubber-band overscroll. Without this a
+         downward swipe inside the terminal chains up to the browser
+         (or the parent document, when embedded in the launcher modal)
+         and triggers a page reload instead of scrolling the terminal. */
+      overscroll-behavior: none;
       background: #1e1e2e;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
@@ -45,6 +50,9 @@
 
     #terminal-container .xterm-viewport {
       overflow-y: auto !important;
+      /* Contain scroll so reaching the top/bottom of the terminal
+         buffer does not bounce-chain to the page. */
+      overscroll-behavior: contain;
     }
 
     /* Drag and drop visual feedback */
@@ -396,6 +404,14 @@
 
     .quick-action-item .action-icon.copy-terminal {
       background: linear-gradient(135deg, #f9e2af 0%, #fab387 100%);
+    }
+
+    .quick-action-item .action-icon.zoom-pane {
+      background: linear-gradient(135deg, #74c7ec 0%, #89b4fa 100%);
+    }
+
+    .quick-action-item .action-icon.rename-pane {
+      background: linear-gradient(135deg, #cba6f7 0%, #f5c2e7 100%);
     }
 
     .quick-action-item .action-icon svg {
@@ -1347,23 +1363,16 @@
               </span>
               <span class="action-text">Open Keyboard</span>
             </button>
-            <button class="quick-action-item" data-action="tasks" id="tasks-action-item">
-              <span class="action-icon tasks">
+            <button class="quick-action-item" data-action="zoom-pane">
+              <span class="action-icon zoom-pane">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3"/>
+                  <path d="M21 8V5a2 2 0 0 0-2-2h-3"/>
+                  <path d="M3 16v3a2 2 0 0 0 2 2h3"/>
+                  <path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
                 </svg>
               </span>
-              <span class="action-text">Tasks</span>
-              <span class="action-badge" id="tasks-badge" style="display:none">0</span>
-            </button>
-            <button class="quick-action-item" data-action="comments" id="comments-action-item">
-              <span class="action-icon comments">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-              </span>
-              <span class="action-text">Comments</span>
-              <span class="action-badge" id="comments-badge" style="display:none">0</span>
+              <span class="action-text">Zoom / Unzoom Pane</span>
             </button>
             <button class="quick-action-item" data-action="upload">
               <span class="action-icon upload">
@@ -1582,21 +1591,23 @@
           </span>
           <span class="action-text">Upload File</span>
         </button>
-        <button class="quick-action-item" data-action="tasks">
+        <button class="quick-action-item" data-action="tasks" id="tasks-action-item">
           <span class="action-icon tasks">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
             </svg>
           </span>
           <span class="action-text">Tasks</span>
+          <span class="action-badge" id="tasks-badge" style="display:none">0</span>
         </button>
-        <button class="quick-action-item" data-action="comments">
+        <button class="quick-action-item" data-action="comments" id="comments-action-item">
           <span class="action-icon comments">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
           </span>
           <span class="action-text">Comments</span>
+          <span class="action-badge" id="comments-badge" style="display:none">0</span>
         </button>
         <button class="quick-action-item" data-action="copy-terminal">
           <span class="action-icon copy-terminal">
@@ -1606,6 +1617,26 @@
             </svg>
           </span>
           <span class="action-text">Copy from Terminal</span>
+        </button>
+        <button class="quick-action-item" data-action="zoom-pane">
+          <span class="action-icon zoom-pane">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3"/>
+              <path d="M21 8V5a2 2 0 0 0-2-2h-3"/>
+              <path d="M3 16v3a2 2 0 0 0 2 2h3"/>
+              <path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+            </svg>
+          </span>
+          <span class="action-text">Zoom Pane</span>
+        </button>
+        <button class="quick-action-item" data-action="rename-pane">
+          <span class="action-icon rename-pane">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.4 2.4 0 0 0 3.4 0l6.58-6.58a2.4 2.4 0 0 0 0-3.4z"/>
+              <circle cx="7.5" cy="7.5" r="1.5"/>
+            </svg>
+          </span>
+          <span class="action-text">Rename Pane</span>
         </button>
         <button class="quick-action-item" data-action="scroll-top">
           <span class="action-icon scroll-top">
@@ -2470,22 +2501,24 @@
       }
 
       showCopyToast(charCount) {
+        this.showToast(`Copied ${charCount} character${charCount !== 1 ? 's' : ''}`);
+      }
+
+      /** Generic transient toast — reuses the #copy-toast element. */
+      showToast(message) {
         const toast = document.getElementById('copy-toast');
         if (!toast) return;
 
-        // Clear any existing timeout
         if (this.copyToastTimeout) {
           clearTimeout(this.copyToastTimeout);
         }
 
-        toast.textContent = `Copied ${charCount} character${charCount !== 1 ? 's' : ''}`;
+        toast.textContent = message;
         toast.classList.remove('fade-out');
         toast.classList.add('visible');
 
-        // Start fade out after 1.5s
         this.copyToastTimeout = setTimeout(() => {
           toast.classList.add('fade-out');
-          // Remove after transition
           setTimeout(() => {
             toast.classList.remove('visible', 'fade-out');
           }, 200);
@@ -4036,9 +4069,69 @@
           case 'copy-terminal':
             this.openCopyFromTerminal();
             break;
+          case 'zoom-pane':
+            this.toggleZoomPane();
+            break;
+          case 'rename-pane':
+            this.openRenamePane();
+            break;
           case 'all-actions':
             document.getElementById('all-actions-modal').classList.add('visible');
             break;
+        }
+      }
+
+      /**
+       * Toggle tmux pane zoom on the active pane — the mobile equivalent of
+       * right-click → Zoom/Unzoom (or the `prefix + z` keybind). Sends the
+       * tmux prefix (Ctrl-B = 0x02) followed by `z` straight into the
+       * terminal stream; tmux owns the PTY so it intercepts the sequence
+       * and zooms/unzooms whichever pane currently has focus. The orka
+       * tmux theme keeps the default Ctrl-B prefix, so 0x02 is correct.
+       */
+      toggleZoomPane() {
+        this.sendInput('\x02z');
+        this.showToast('Pane zoom toggled');
+      }
+
+      /**
+       * Rename the active tmux pane's label (the @orka_label shown in the
+       * pane border). Targets whichever pane currently has focus — tap the
+       * pane you want first, then run this. The server resolves the active
+       * pane and persists the label so it survives a session resume.
+       */
+      async openRenamePane() {
+        const params = new URLSearchParams(window.location.search);
+        const projectEncoded = params.get('project');
+        const sessionId = params.get('session');
+        if (!projectEncoded || !sessionId) {
+          this.showToast('No session context for rename');
+          return;
+        }
+        const label = window.prompt('New name for the active pane:');
+        if (label === null) return; // cancelled
+        const clean = label.trim();
+        if (!clean) {
+          this.showToast('Name cannot be empty');
+          return;
+        }
+        try {
+          const res = await fetch(
+            `${window.location.origin}/api/sessions/${sessionId}/pane-label`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ project: projectEncoded, label: clean }),
+            }
+          );
+          if (res.ok) {
+            this.showToast(`Pane renamed to "${clean}"`);
+          } else {
+            const err = await res.json().catch(() => ({}));
+            this.showToast(err.error || 'Rename failed');
+          }
+        } catch (e) {
+          this.showToast('Rename failed');
         }
       }
 

@@ -320,26 +320,33 @@ export class TmuxCommands {
    * Separator is a unit separator (0x1F) to avoid collisions with path/command content.
    */
   static async listPanesDetailed(sessionName: string): Promise<
-    Array<{ paneId: string; currentPath: string; currentCommand: string; active: boolean }>
+    Array<{ paneId: string; currentPath: string; currentCommand: string; active: boolean; label: string }>
   > {
     try {
-      const sep = '\x1f'
+      // Separator: a TAB. The previous choice (0x1f / unit-separator) was
+      // broken — tmux serializes raw control bytes in -F output as a
+      // literal octal escape (the 4-char text "\037"), so split() never
+      // matched and every field collapsed into pane_id. Tab is passed
+      // through verbatim by tmux and never appears in pane ids, commands,
+      // the active flag, or (realistically) project paths / labels.
+      const sep = '\t'
       const { stdout } = await execa('tmux', [
         'list-panes',
         '-t', sessionName,
-        '-F', `#{pane_id}${sep}#{pane_current_path}${sep}#{pane_current_command}${sep}#{pane_active}`,
+        '-F', `#{pane_id}${sep}#{pane_current_path}${sep}#{pane_current_command}${sep}#{pane_active}${sep}#{@orka_label}`,
       ])
       return stdout
         .trim()
         .split('\n')
         .filter(Boolean)
         .map((line) => {
-          const [paneId, currentPath, currentCommand, active] = line.split(sep)
+          const [paneId, currentPath, currentCommand, active, label] = line.split(sep)
           return {
             paneId: paneId || '',
             currentPath: currentPath || '',
             currentCommand: currentCommand || '',
             active: active === '1',
+            label: label || '',
           }
         })
     } catch (error: any) {
@@ -364,6 +371,38 @@ export class TmuxCommands {
     } catch (error: any) {
       // Don't fail if title setting fails
       logger.warn(`Failed to set pane title: ${error.message}`)
+    }
+  }
+
+  /**
+   * Set a stable orka label on a pane via the `@orka_label` user option.
+   * Unlike `pane_title` (which the program inside the pane overwrites with
+   * OSC escape sequences), a pane user option is owned by tmux and sticks.
+   * The orka tmux theme's `pane-border-format` renders `@orka_label`.
+   * @param paneId Pane id (e.g. %3)
+   * @param label Label text — pass '' to clear it
+   */
+  static async setPaneLabel(paneId: string, label: string): Promise<void> {
+    try {
+      await execa('tmux', ['set-option', '-p', '-t', paneId, '@orka_label', label])
+      logger.debug(`Pane label set for ${paneId}: ${label}`)
+    } catch (error: any) {
+      // Non-fatal — labels are cosmetic.
+      logger.warn(`Failed to set pane label: ${error.message}`)
+    }
+  }
+
+  /**
+   * Apply a tmux layout to a session's active window. Accepts any value
+   * `tmux select-layout` understands (tiled, even-horizontal,
+   * even-vertical, main-vertical, main-horizontal). Non-fatal on failure.
+   */
+  static async selectLayout(sessionName: string, layout: string): Promise<void> {
+    try {
+      await execa('tmux', ['select-layout', '-t', sessionName, layout])
+      logger.debug(`Applied layout "${layout}" to ${sessionName}`)
+    } catch (error: any) {
+      logger.warn(`Failed to apply layout "${layout}": ${error.message}`)
     }
   }
 
