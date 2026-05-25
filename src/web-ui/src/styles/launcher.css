@@ -297,29 +297,6 @@
   100% { box-shadow: 0 0 0 2px rgba(0,0,0,0.6), 0 0 0 0   rgba(255, 59, 48, 0); }
 }
 
-/* --- Active session pill (small green) under the label --- */
-
-.iphone-active-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  color: #a6e3a1;
-  background: rgba(166, 227, 161, 0.12);
-  border: 1px solid rgba(166, 227, 161, 0.22);
-  margin-top: 2px;
-}
-.iphone-active-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #a6e3a1;
-  display: inline-block;
-}
-
 /* --- Folder open overlay ---
    Fullscreen blurred backdrop with a centered card holding the project's
    sessions. Matches the iOS "spotlight" open-folder feel. */
@@ -394,4 +371,189 @@
   flex: 1;
   overflow-y: auto;
   padding: 4px 4px 4px;
+}
+
+/* --- Full-screen app-style session modal (mobile only) ---
+   Slides up from the bottom; iframe-fills the viewport; X to close.
+   Uses 100dvh so iOS Safari's URL bar doesn't crop the bottom. The header
+   respects safe-area-inset-top so the close button doesn't sit under the
+   notch / dynamic island on iPhone. */
+
+.iphone-session-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: #0a0b1f;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  animation: iphone-modal-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  /* Prevent swipes inside the modal from chaining to the page and
+     triggering pull-to-refresh. (No `touch-action: none` here — that
+     would also block the terminal iframe from scrolling on touch.) */
+  overscroll-behavior: none;
+}
+
+@keyframes iphone-modal-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.iphone-session-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.25));
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  z-index: 1;
+}
+
+.iphone-session-modal-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s;
+}
+.iphone-session-modal-close:hover,
+.iphone-session-modal-close:active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.iphone-session-modal-titles {
+  flex: 1;
+  text-align: center;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.iphone-session-modal-project {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.2;
+}
+
+.iphone-session-modal-session {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ecf0fe;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+}
+
+.iphone-session-modal-spacer {
+  /* Mirrors the close button width so the title block stays centered. */
+  width: 32px;
+  flex-shrink: 0;
+}
+
+.iphone-session-modal-body {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.iphone-session-modal-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #0a0b1f;
+}
+
+.iphone-session-modal-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: #cdd6f4;
+}
+.iphone-session-modal-loading p {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.iphone-session-modal-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.12);
+  border-top-color: #89b4fa;
+  animation: iphone-spin 0.9s linear infinite;
+}
+@keyframes iphone-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- Desktop full-screen session popup ---
+   Embeds the regular SessionView (with all its tabs) inside a slide-up
+   full-bleed surface. SessionView brings its own header/back button —
+   we just provide the modal shell + a floating Esc-style close button
+   visible during the loading state. */
+
+.iphone-desktop-session-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--bg-primary, #0a0b1f);
+  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
+  animation: iphone-modal-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Make SessionView fill the modal viewport. SessionView's outermost
+   container relies on its parent supplying the height. */
+.iphone-desktop-session-modal > .session-view-container {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Floating close in the top-right corner — visible during loading and
+   as a reliable escape hatch independent of SessionView's own header. */
+.iphone-desktop-session-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(20, 22, 40, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #cdd6f4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.iphone-desktop-session-modal-close:hover {
+  background: rgba(40, 44, 70, 0.9);
 }

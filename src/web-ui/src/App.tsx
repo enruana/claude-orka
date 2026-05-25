@@ -164,7 +164,7 @@ function GlobalProjectWidgets() {
   )
 }
 
-function QuickAIDialogWrapper({
+export function QuickAIDialogWrapper({
   contextType,
   contextLabel,
   getContext,
