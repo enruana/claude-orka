@@ -227,6 +227,28 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
     }
 
     const protocol = (server instanceof https.Server) ? 'https' : 'http'
+
+    // Persist the live scheme + port so the session-watcher hook installer
+    // emits curl commands that can actually reach this server, and refresh
+    // hooks for every registered project so they pick up scheme/port
+    // changes between restarts without requiring the user to click Sync.
+    void (async () => {
+      try {
+        const { getGlobalStateManager } = await import('../core/GlobalStateManager')
+        const { installSessionWatcherHooks } = await import('./session-watcher-hooks')
+        const global = await getGlobalStateManager()
+        await global.setServerProtocol(protocol)
+        await global.setServerPort(port)
+        const projects = global.getProjects()
+        for (const p of projects) {
+          await installSessionWatcherHooks(p.path, port, protocol)
+        }
+        logger.info(`session-watcher: refreshed hooks for ${projects.length} project(s) → ${protocol}://localhost:${port}`)
+      } catch (err: any) {
+        logger.warn(`session-watcher startup refresh failed: ${err?.message || err}`)
+      }
+    })()
+
     server.listen(port, () => {
       logger.info(`Orka server running at ${protocol}://localhost:${port}`)
       console.log(`

@@ -26,6 +26,11 @@ export interface SystemTerminalInfo {
 export interface GlobalConfig {
   projects: RegisteredProject[]
   serverPort: number
+  /** http | https — set by the server on startup; read by the hook
+   *  installer so the curl commands emitted into .claude/settings.json use
+   *  the right scheme. Default 'http' for the first run before any server
+   *  has booted. */
+  serverProtocol?: 'http' | 'https'
   ttydBasePort: number
   lastUpdated: string
   systemTerminal?: SystemTerminalInfo
@@ -205,6 +210,18 @@ export class GlobalStateManager {
    */
   async setServerPort(port: number): Promise<void> {
     this.config!.serverPort = port
+    await this.save()
+  }
+
+  /** Scheme the running server is using (http when no certs, https with
+   *  certs). Used by the hook installer to emit a curl that can actually
+   *  reach the local server. */
+  getServerProtocol(): 'http' | 'https' {
+    return this.getConfig().serverProtocol || 'http'
+  }
+
+  async setServerProtocol(protocol: 'http' | 'https'): Promise<void> {
+    this.config!.serverProtocol = protocol
     await this.save()
   }
 

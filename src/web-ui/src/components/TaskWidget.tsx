@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, X, Check, Trash2, ClipboardList, Mic, ListTodo, MessageSquare, Terminal, Copy as CopyIcon } from 'lucide-react'
 import { AnsiUp } from 'ansi_up'
@@ -9,8 +9,35 @@ import './task-widget.css'
 
 type ActivePanel = 'none' | 'menu' | 'tasks' | 'voice' | 'comments' | 'copy-terminal'
 
+/**
+ * The captured terminal `<pre>` lives behind `React.memo` so it does NOT
+ * re-render when the parent re-renders with stable html/plain props
+ * (e.g. when the launcher modal's 2s poll triggers a cascade). Without
+ * the memo, React would reconcile a fresh `dangerouslySetInnerHTML`
+ * object literal on each parent render and could touch the underlying
+ * DOM nodes — collapsing any active text selection the user was making.
+ *
+ * Also: `highlightTerminalDom` mutates this `<pre>`'s innerHTML after
+ * the initial render. Re-rendering would overwrite those mutations with
+ * the original __html and erase the syntax-style coloring on top of
+ * what ansi_up already produced.
+ */
+const TerminalPre = memo(function TerminalPre({
+  html, plain,
+}: { html: string; plain: string }) {
+  if (html) {
+    return <pre className="copy-terminal-pre" dangerouslySetInnerHTML={{ __html: html }} />
+  }
+  return <pre className="copy-terminal-pre">{plain}</pre>
+})
+
 interface TaskWidgetProps {
   projectPath: string
+  /** Explicit session id — wins over URL extraction. Required when the
+   *  widget is mounted from a route that does not carry the canonical
+   *  `/projects/:enc/sessions/:id` path (e.g. inside the launcher modal,
+   *  which keeps the user on `/launcher` while showing a session). */
+  sessionId?: string
 }
 
 interface FabPosition {
@@ -146,7 +173,7 @@ function highlightTerminalDom(root: HTMLElement): void {
   }
 }
 
-export function TaskWidget({ projectPath }: TaskWidgetProps) {
+export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidgetProps) {
   const [active, setActive] = useState<ActivePanel>('none')
   const [tasks, setTasks] = useState<ProjectTask[]>([])
   const [newTitle, setNewTitle] = useState('')
@@ -379,7 +406,10 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
     setTerminalCaptureHtml('')
     setCopyFeedback(false)
     try {
-      const sessionId = getSessionIdFromUrl()
+      // Prefer the prop (used by the launcher modal, where the URL stays
+      // on /launcher); fall back to URL parse for the canonical
+      // /projects/.../sessions/... route.
+      const sessionId = sessionIdProp || getSessionIdFromUrl()
       if (!sessionId) {
         setTerminalCapture('(No active session found in URL)')
         return
@@ -708,13 +738,8 @@ export function TaskWidget({ projectPath }: TaskWidgetProps) {
                   <div className="spinner" />
                   <span>Capturing terminal…</span>
                 </div>
-              ) : terminalCaptureHtml ? (
-                <pre
-                  className="copy-terminal-pre"
-                  dangerouslySetInnerHTML={{ __html: terminalCaptureHtml }}
-                />
               ) : (
-                <pre className="copy-terminal-pre">{terminalCapture}</pre>
+                <TerminalPre html={terminalCaptureHtml} plain={terminalCapture} />
               )}
             </div>
             <div className="copy-terminal-modal-footer">

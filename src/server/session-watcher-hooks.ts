@@ -59,11 +59,18 @@ async function writeSettings(projectPath: string, settings: ClaudeSettings): Pro
   await fs.writeJson(p, settings, { spaces: 2 })
 }
 
-function buildCommand(host: string, port: number, event: string): string {
+function buildCommand(host: string, port: number, event: string, protocol: 'http' | 'https'): string {
   // `?event=` is a redundant hint — the Claude Code payload carries
   // `hook_event_name`, but the query string makes the server log readable
   // and gives us a fallback if the payload field name ever changes.
-  return `curl -s -X POST 'http://${host}:${port}${SESSION_WATCHER_PATH}?event=${event}' ` +
+  //
+  // `-k` (insecure) is required when protocol=https because the server
+  // uses a Tailscale-issued cert whose SAN is the *.ts.net hostname, not
+  // `localhost` — strict verification would reject the local hit. Hook
+  // payloads do not contain secrets we'd care to protect against MITM on
+  // a loopback connection, so this is safe.
+  const insecure = protocol === 'https' ? '-k ' : ''
+  return `curl -s ${insecure}-X POST '${protocol}://${host}:${port}${SESSION_WATCHER_PATH}?event=${event}' ` +
     `-H 'Content-Type: application/json' --data-binary @-`
 }
 
@@ -77,6 +84,7 @@ function buildCommand(host: string, port: number, event: string): string {
 export async function installSessionWatcherHooks(
   projectPath: string,
   orkaPort: number,
+  protocol: 'http' | 'https' = 'http',
   host: string = 'localhost'
 ): Promise<void> {
   try {
@@ -90,13 +98,13 @@ export async function installSessionWatcherHooks(
         (group) => !group.hooks.some((h) => h.command.includes(SESSION_WATCHER_PATH))
       )
       filtered.push({
-        hooks: [{ type: 'command', command: buildCommand(host, orkaPort, event) }],
+        hooks: [{ type: 'command', command: buildCommand(host, orkaPort, event, protocol) }],
       })
       settings.hooks[event] = filtered
     }
 
     await writeSettings(projectPath, settings)
-    logger.debug(`session-watcher: installed hooks for ${projectPath} → port ${orkaPort}`)
+    logger.debug(`session-watcher: installed hooks for ${projectPath} → ${protocol}://${host}:${orkaPort}`)
   } catch (err: any) {
     logger.warn(`session-watcher: failed to install hooks for ${projectPath}: ${err?.message || err}`)
   }

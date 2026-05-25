@@ -126,8 +126,20 @@ export function ProjectDashboard() {
 
   useEffect(() => { loadAllData() }, [loadAllData])
   useEffect(() => {
-    const interval = setInterval(loadAllData, 5000)
-    return () => clearInterval(interval)
+    // Poll at 2s (was 5s) so the per-session waitingForInput flag is
+    // visible to the user even when Claude only blocks for a couple of
+    // seconds before they approve in the terminal — a 5s window misses
+    // those entirely. Refetch on tab refocus too because browsers
+    // throttle background-tab setInterval to >=1min, so a notification
+    // arriving while the tab is hidden would otherwise be invisible
+    // until the user manually reloads.
+    const interval = setInterval(loadAllData, 2000)
+    const onVisible = () => { if (document.visibilityState === 'visible') loadAllData() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [loadAllData])
 
   // Group projects
