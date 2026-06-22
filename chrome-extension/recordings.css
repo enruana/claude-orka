@@ -228,6 +228,40 @@ body {
   margin-bottom: 16px;
 }
 
+/* Transcribe button + language selector grouped together so the picker is
+   visually attached to the button it modifies (segmented-control style). */
+.transcribe-group {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.transcribe-group .btn-primary {
+  border-radius: 8px 0 0 8px;
+  border-right: none;
+}
+.lang-select {
+  border-radius: 0 8px 8px 0;
+  border: 1px solid #313244;
+  border-left: 1px solid rgba(17, 17, 27, 0.6);
+  background: #1e1e2e;
+  color: #cdd6f4;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 28px 0 10px;
+  cursor: pointer;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'><path d='M1 1l4 4 4-4' stroke='%23cdd6f4' stroke-width='1.5' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: background-color 0.15s;
+}
+.lang-select:hover { background-color: #313244; }
+.lang-select:focus { outline: none; background-color: #313244; }
+
 /* Processing status */
 .processing-status {
   display: flex; align-items: center; justify-content: center;

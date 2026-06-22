@@ -4619,6 +4619,27 @@ body {
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* Spinner shown in place of the status dot while a click triggered a
+   server-side resume (tmux + ttyd revival) before navigation. */
+.dock-status-spinner {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--accent-orange, #ff9f0a);
+  border-radius: 50%;
+  animation: dock-spin 0.7s linear infinite;
+}
+
+.dock-session-btn.resuming {
+  opacity: 0.85;
+  cursor: progress;
+}
+
+@keyframes dock-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Dock hide button & separator */
 .dock-hide-btn {
   display: flex;

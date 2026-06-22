@@ -22,6 +22,7 @@ import {
   Columns3,
   Rows3,
   PanelLeft,
+  Pencil,
 } from 'lucide-react'
 import { SessionCodeEditor } from './code-editor'
 import { FinderExplorer } from './finder'
@@ -631,6 +632,23 @@ export function SessionView({
               </button>
             ))}
           </div>
+          {/* Rename the currently-selected thread/pane. Mirrors the
+              "Rename pane" quick action available in the mobile keyboard;
+              `selectedNode` tracks the active tmux pane so this targets
+              whatever the user is looking at. Discoverable counterpart to
+              the existing double-click-on-thread-node gesture. */}
+          <button
+            className="icon-button"
+            onClick={() => handleNodeRename(selectedNode)}
+            title={`Rename pane (${
+              selectedNode === 'main'
+                ? session.main.label || 'main'
+                : session.forks.find((f) => f.id === selectedNode)?.name || selectedNode
+            })`}
+            aria-label="Rename current pane"
+          >
+            <Pencil size={16} />
+          </button>
           <button className="icon-button" onClick={refreshSession} title="Refresh">
             <RefreshCw size={18} />
           </button>

@@ -212,9 +212,12 @@ export async function claudeSessionFileExists(
 }
 
 /**
- * Entry in Claude's sessions-index.json
+ * Per-session metadata used by Orka's id-recovery logic. Despite the name
+ * (historical), it is now sourced by scanning per-session `.jsonl` files
+ * directly (see `listProjectSessions`) — Claude Code stopped maintaining
+ * the original `sessions-index.json`.
  */
-interface SessionsIndexEntry {
+export interface SessionsIndexEntry {
   sessionId: string
   fullPath: string
   fileMtime: number
@@ -286,88 +289,180 @@ export async function getSessionContextSummary(
 }
 
 /**
- * Find the most recent Claude session for a project from sessions-index.json.
- * Useful as fallback when the original session JSONL no longer exists
- * (e.g., after /clear which creates a new session).
- * @param projectPath Absolute project path
- * @param excludeSessionId Optional session ID to exclude from results
- * @returns The most recent session entry or null
+ * Scan every `<sessionId>.jsonl` file in the project's Claude folder and
+ * return one entry per session, enriched with the JSONL's first-record
+ * metadata (so we know `cwd` of the session) and the file's mtime.
+ *
+ * Replaces the older `sessions-index.json` strategy. That file was removed
+ * by recent Claude Code versions, which broke the lookups that depended
+ * on it — `findLatestSessionFromIndex` / `findLatestUnassignedSession` /
+ * `syncSessionIds` would all silently return null. Reading the `.jsonl`
+ * directories is slightly slower but always available.
+ */
+export async function listProjectSessions(projectPath: string): Promise<SessionsIndexEntry[]> {
+  const encoded = encodeProjectPath(projectPath)
+  const projectDir = path.join(CLAUDE_PROJECTS_PATH, encoded)
+  if (!(await fs.pathExists(projectDir))) return []
+
+  let files: string[]
+  try {
+    files = (await fs.readdir(projectDir)).filter((f) => f.endsWith('.jsonl'))
+  } catch {
+    return []
+  }
+
+  const entries: SessionsIndexEntry[] = []
+  for (const file of files) {
+    const sessionId = file.slice(0, -'.jsonl'.length)
+    const full = path.join(projectDir, file)
+    let stat
+    try {
+      stat = await fs.stat(full)
+    } catch {
+      continue
+    }
+
+    // Read the first non-meta entry to capture the session's cwd. The very
+    // first line is usually `type=mode` with no cwd; the actual content
+    // lines carry cwd. Read up to the first 20 lines to be safe — bails
+    // early as soon as we have what we need.
+    let cwd = ''
+    let firstPrompt = ''
+    let isSidechain = false
+    try {
+      const text = await fs.readFile(full, 'utf-8')
+      const lines = text.split('\n')
+      for (let i = 0; i < Math.min(lines.length, 20); i++) {
+        const line = lines[i]
+        if (!line) continue
+        try {
+          const obj = JSON.parse(line) as Record<string, unknown>
+          if (typeof obj.cwd === 'string' && !cwd) cwd = obj.cwd
+          if (obj.isSidechain === true) isSidechain = true
+          if (obj.type === 'user' && typeof obj.message === 'object' && obj.message !== null) {
+            const msg = obj.message as { content?: unknown }
+            if (typeof msg.content === 'string' && !firstPrompt) firstPrompt = msg.content
+          }
+          if (cwd && firstPrompt) break
+        } catch {
+          // skip malformed line
+        }
+      }
+    } catch {
+      // unreadable; still keep the bare entry so the heuristic can fall
+      // back to mtime alone
+    }
+
+    entries.push({
+      sessionId,
+      fullPath: full,
+      fileMtime: stat.mtimeMs,
+      firstPrompt: firstPrompt.slice(0, 200),
+      summary: '',
+      messageCount: 0, // unknown without scanning the whole file; not used by callers
+      created: new Date(stat.birthtimeMs || stat.mtimeMs).toISOString(),
+      modified: new Date(stat.mtimeMs).toISOString(),
+      projectPath: cwd || projectPath,
+      isSidechain,
+    })
+  }
+
+  // Most-recent first — every downstream consumer wants this order.
+  entries.sort((a, b) => b.fileMtime - a.fileMtime)
+  return entries
+}
+
+/**
+ * Find the most recent Claude session for a project. Useful as fallback
+ * when the original session JSONL no longer exists (e.g., after `/clear`
+ * which creates a new session).
  */
 export async function findLatestSessionFromIndex(
   projectPath: string,
   excludeSessionId?: string
 ): Promise<SessionsIndexEntry | null> {
-  const encoded = encodeProjectPath(projectPath)
-  const indexPath = path.join(CLAUDE_PROJECTS_PATH, encoded, 'sessions-index.json')
-
-  try {
-    if (!(await fs.pathExists(indexPath))) {
-      return null
-    }
-
-    const indexData = await fs.readJson(indexPath)
-    const entries: SessionsIndexEntry[] = (indexData.entries || [])
-      .filter((e: SessionsIndexEntry) => !e.isSidechain)
-      .filter((e: SessionsIndexEntry) => !excludeSessionId || e.sessionId !== excludeSessionId)
-
-    if (entries.length === 0) return null
-
-    // Sort by modified date descending
-    entries.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime())
-
-    return entries[0]
-  } catch (error) {
-    logger.debug(`Could not read sessions-index.json: ${error}`)
-    return null
-  }
+  const entries = (await listProjectSessions(projectPath))
+    .filter((e) => !e.isSidechain)
+    .filter((e) => !excludeSessionId || e.sessionId !== excludeSessionId)
+  return entries[0] ?? null
 }
 
 /**
- * Find the latest Claude session for a project that is NOT already tracked by Orka.
- * Used for runtime detection: if the user does /clear, a new session appears
- * that isn't in our tracked set — that's the replacement.
+ * Find the latest Claude session for a project that is NOT already tracked
+ * by Orka. Used for runtime detection: when the user does `/clear`, a new
+ * session appears that isn't in our tracked set — that's the replacement.
  *
  * @param projectPath Absolute project path
- * @param trackedSessionIds Set of all Claude session IDs currently tracked by Orka
- * @param afterTimestamp Only consider sessions created/modified after this ISO timestamp
- * @returns The most recent untracked session entry or null
+ * @param trackedSessionIds Set of all Claude session IDs currently tracked
+ * @param afterTimestamp Only consider sessions modified after this ISO ts
  */
 export async function findLatestUnassignedSession(
   projectPath: string,
   trackedSessionIds: Set<string>,
   afterTimestamp?: string
 ): Promise<SessionsIndexEntry | null> {
-  const encoded = encodeProjectPath(projectPath)
-  const indexPath = path.join(CLAUDE_PROJECTS_PATH, encoded, 'sessions-index.json')
+  const afterMs = afterTimestamp ? new Date(afterTimestamp).getTime() : 0
+  const entries = (await listProjectSessions(projectPath))
+    .filter((e) => !e.isSidechain)
+    .filter((e) => !trackedSessionIds.has(e.sessionId))
+    .filter((e) => e.fileMtime > afterMs)
+  return entries[0] ?? null
+}
 
-  try {
-    if (!(await fs.pathExists(indexPath))) {
-      return null
+/**
+ * Pair each Orka branch (main + active forks) with the freshest unassigned
+ * Claude session on disk, using a greedy newest-first match. Sessions
+ * already assigned to OTHER branches are skipped. Returns a map from
+ * `branchKey` ('main' or fork id) to the chosen session entry, or an
+ * empty map if no rotations were detected.
+ *
+ * `existingIds` is the set of currently-stored claudeSessionIds across
+ * ALL Orka branches in the project (across every Orka session) — so we
+ * don't reassign an id that's already in use by a sibling branch.
+ *
+ * @param projectPath  Absolute project path
+ * @param branchKeys   Ordered list of branches to assign (main first, then
+ *                     forks sorted by createdAt asc). Order matters: the
+ *                     greedy algorithm hands the newest sessions to the
+ *                     earliest entries in this list.
+ * @param existingIds  Already-tracked claudeSessionIds (skipped in matching)
+ */
+export async function discoverBranchSessions(
+  projectPath: string,
+  branchKeys: Array<{ key: string; storedId: string; storedMtime: number | null; activitySince: string }>,
+  existingIds: Set<string>
+): Promise<Map<string, SessionsIndexEntry>> {
+  // Available pool: every non-sidechain jsonl for this project, MINUS the
+  // sessions already owned by branches in OTHER Orka sessions. We allow
+  // our own incoming branches' stored ids to remain in the pool so the
+  // matcher can re-pick them if they truly are the freshest.
+  const ownStoredIds = new Set(branchKeys.map((b) => b.storedId))
+  const available = (await listProjectSessions(projectPath))
+    .filter((e) => !e.isSidechain)
+    .filter((e) => !existingIds.has(e.sessionId) || ownStoredIds.has(e.sessionId))
+
+  // Pure greedy: each branch claims the newest unclaimed jsonl whose mtime
+  // is fresher than `activitySince` (so we never assign a session that
+  // predates the branch — that would be data theft from history).
+  //
+  // The previous logic tried to "pin" a stored id if it still existed on
+  // disk, but that masked stale ids: a year-old jsonl still exists too,
+  // and would block the rotation onto a freshly-modified one. With pure
+  // greedy + caller-controlled ordering (most-recently-active branches
+  // first), the freshest jsonl always lands on the branch that needs it.
+  const result = new Map<string, SessionsIndexEntry>()
+  const claimed = new Set<string>()
+  for (const b of branchKeys) {
+    const afterMs = new Date(b.activitySince).getTime()
+    const candidate = available.find(
+      (e) => !claimed.has(e.sessionId) && e.fileMtime > afterMs
+    )
+    if (candidate) {
+      result.set(b.key, candidate)
+      claimed.add(candidate.sessionId)
     }
-
-    const indexData = await fs.readJson(indexPath)
-    let entries: SessionsIndexEntry[] = (indexData.entries || [])
-      .filter((e: SessionsIndexEntry) => !e.isSidechain)
-      .filter((e: SessionsIndexEntry) => !trackedSessionIds.has(e.sessionId))
-
-    // Filter by timestamp if provided
-    if (afterTimestamp) {
-      const afterMs = new Date(afterTimestamp).getTime()
-      entries = entries.filter(
-        (e) => new Date(e.created).getTime() > afterMs || new Date(e.modified).getTime() > afterMs
-      )
-    }
-
-    if (entries.length === 0) return null
-
-    // Sort by modified date descending (most recent first)
-    entries.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime())
-
-    return entries[0]
-  } catch (error) {
-    logger.debug(`Could not search for unassigned sessions: ${error}`)
-    return null
   }
+  return result
 }
 
 /**

@@ -33,6 +33,24 @@ document.getElementById('btn-import').addEventListener('click', () => document.g
 document.getElementById('file-input').addEventListener('change', handleImport)
 document.getElementById('btn-refresh-status').addEventListener('click', checkServerStatus)
 document.getElementById('btn-transcribe').addEventListener('click', () => transcribeSelected())
+
+// Language picker — remember the last choice across sessions so the user
+// doesn't re-pick it on every recording. Defaults to "auto" on first run.
+const LANG_KEY = 'orka-transcribe-language'
+const langSelect = document.getElementById('transcribe-language')
+const savedLang = localStorage.getItem(LANG_KEY)
+if (savedLang && ['auto', 'en', 'es'].includes(savedLang)) {
+  langSelect.value = savedLang
+}
+langSelect.addEventListener('change', () => {
+  localStorage.setItem(LANG_KEY, langSelect.value)
+})
+
+/** Returns 'auto' | 'en' | 'es'. Single source of truth for both the
+ *  detail-panel button and the inline transcribe button in each card. */
+function getSelectedLanguage() {
+  return langSelect.value || 'auto'
+}
 document.getElementById('btn-download-audio').addEventListener('click', () => downloadAudio())
 document.getElementById('btn-generate-report').addEventListener('click', () => generateReport())
 document.getElementById('btn-report-from-tab').addEventListener('click', () => generateReport())
@@ -148,6 +166,13 @@ function selectRecording(id) {
   detailNameEl.textContent = rec.name
   detailMetaEl.textContent = `${formatDuration(rec.duration)} \u00B7 ${formatFileSize(rec.size)} \u00B7 ${formatDate(rec.createdAt)}`
 
+  // If this recording was already transcribed in a specific language, snap
+  // the picker to that \u2014 the user is most likely to re-transcribe in the
+  // same language. New recordings keep whatever the user last chose.
+  if (rec.transcriptionLanguage && ['auto', 'en', 'es'].includes(rec.transcriptionLanguage)) {
+    langSelect.value = rec.transcriptionLanguage
+  }
+
   const hasTranscript = rec.transcriptionStatus === 'completed' && rec.transcription
   const hasReport = !!rec.report
   const isProcessing = rec.transcriptionStatus === 'processing'
@@ -194,9 +219,19 @@ async function transcribeSelected() {
   selectRecording(rec.id)
   renderList()
 
+  // Capture the picker value at submit time — if the user changes the
+  // dropdown mid-job we don't want to retroactively change what the server
+  // was asked. Stored on the recording so future re-transcribes have a
+  // sensible default (the user typically transcribes the same recording
+  // in the same language they spoke it in).
+  const language = getSelectedLanguage()
+
   try {
-    // Step 1: Upload audio - server responds immediately with jobId
-    const uploadRes = await fetch(`${SERVER}/api/transcribe`, {
+    // Step 1: Upload audio - server responds immediately with jobId.
+    // `?language=` is forwarded to Whisper as `-l <lang>`. Skipping the
+    // param means the server picks 'auto', so we always send it explicitly
+    // for log clarity.
+    const uploadRes = await fetch(`${SERVER}/api/transcribe?language=${encodeURIComponent(language)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'audio/webm' },
       body: rec.blob,
@@ -231,7 +266,16 @@ async function transcribeSelected() {
       if (result.status === 'completed') {
         rec.transcription = result.text
         rec.transcriptionStatus = 'completed'
-        await updateRecording(rec.id, { transcription: result.text, transcriptionStatus: 'completed' })
+        // Persist the language we requested + whatever Whisper resolved to
+        // (server echoes the effective lang on the job result — defaults to
+        // the requested value when not auto-detected). Useful for diagnostics
+        // and a future "re-transcribe with same settings" affordance.
+        await updateRecording(rec.id, {
+          transcription: result.text,
+          transcriptionStatus: 'completed',
+          transcriptionLanguage: result.language || language,
+        })
+        rec.transcriptionLanguage = result.language || language
         renderList()
         selectRecording(rec.id)
         generateReport()

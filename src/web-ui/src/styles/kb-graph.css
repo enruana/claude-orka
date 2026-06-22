@@ -33,13 +33,53 @@
   min-height: 0;
 }
 
-/* Force ReactFlow to fill its container */
+/* Force ReactFlow to fill its container (kept for any legacy fallback). */
 .kb-graph-canvas .react-flow {
   position: absolute !important;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
+}
+
+/* 3D scene (Kb3DGraph) — the react-three-fiber Canvas needs an explicit
+   size since its parent uses flex sizing. */
+.kb-graph-canvas canvas {
+  display: block;
+}
+
+/* Floating label rendered via Drei <Html> above the hovered / selected
+   node. Pointer-events disabled so it does not eat hover. */
+.kb3d-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(8, 10, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color: #ecf0fe;
+  font-size: 11px;
+  white-space: nowrap;
+  max-width: 280px;
+  transform: translateY(-22px);
+  user-select: none;
+}
+.kb3d-label-type {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  opacity: 0.85;
+}
+.kb3d-label-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
 }
 
 .kb-graph-empty {

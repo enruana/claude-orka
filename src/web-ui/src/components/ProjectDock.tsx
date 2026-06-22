@@ -31,6 +31,10 @@ export function ProjectDock({ currentProjectPath, currentSessionId }: ProjectDoc
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [expandedProject, setExpandedProject] = useState<string | null>(null)
   const [hidden, setHidden] = useState(() => localStorage.getItem(DOCK_HIDDEN_KEY) === '1')
+  // Session id currently being resumed before navigation — drives the inline
+  // spinner so the user has feedback during the (sometimes multi-second)
+  // tmux + ttyd revival on a killed session.
+  const [resumingSessionId, setResumingSessionId] = useState<string | null>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
 
   const toggleHidden = useCallback(() => {
@@ -121,9 +125,27 @@ export function ProjectDock({ currentProjectPath, currentSessionId }: ProjectDoc
     }
   }
 
-  const handleSessionClick = (projectPath: string, sessionId: string) => {
+  const handleSessionClick = async (projectPath: string, sessionId: string) => {
     // Don't navigate to current session
     if (projectPath === currentProjectPath && sessionId === currentSessionId) return
+    // Guard against a double-tap firing two resumes
+    if (resumingSessionId) return
+
+    // Resume on the server first. resumeSession is idempotent: if the tmux
+    // session is alive it reconnects (and revives a dead ttyd if needed);
+    // if the tmux session was killed externally it recreates it from the
+    // stored claude session id. Without this step, navigating to a session
+    // whose tmux process is gone lands the user on a broken terminal page.
+    setResumingSessionId(sessionId)
+    try {
+      await api.resumeSession(projectPath, sessionId)
+    } catch (err) {
+      // Don't block navigation on a resume failure — SessionPage will show
+      // its own error UI if the session is truly unreachable.
+      console.error('ProjectDock resume failed:', err)
+    } finally {
+      setResumingSessionId(null)
+    }
 
     const encoded = encodeProjectPath(projectPath)
     navigate(`/projects/${encoded}/sessions/${sessionId}`)
@@ -180,16 +202,22 @@ export function ProjectDock({ currentProjectPath, currentSessionId }: ProjectDoc
                       ) : (
                         project.sessions.map(sess => {
                           const isCurrent = project.path === currentProjectPath && sess.id === currentSessionId
+                          const isResuming = resumingSessionId === sess.id
                           return (
                             <button
                               key={sess.id}
-                              className={`dock-session-btn ${isCurrent ? 'current' : ''} ${sess.status}`}
+                              className={`dock-session-btn ${isCurrent ? 'current' : ''} ${sess.status} ${isResuming ? 'resuming' : ''}`}
                               onClick={() => handleSessionClick(project.path, sess.id)}
-                              title={`${sess.name || sess.id} (${sess.status})`}
+                              disabled={isResuming}
+                              title={isResuming
+                                ? `Starting ${sess.name || sess.id}…`
+                                : `${sess.name || sess.id} (${sess.status})`}
                             >
                               <Terminal size={12} />
                               <span className="dock-session-name">{sess.name || sess.id}</span>
-                              <span className={`dock-status-dot ${sess.status}`} />
+                              {isResuming
+                                ? <span className="dock-status-spinner" />
+                                : <span className={`dock-status-dot ${sess.status}`} />}
                             </button>
                           )
                         })

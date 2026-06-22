@@ -7,8 +7,8 @@ import {
   claudeSessionFileExists,
   getSessionContextSummary,
   findLatestSessionFromIndex,
-  findLatestUnassignedSession,
   getSessionFileMtime,
+  discoverBranchSessions,
 } from '../utils'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
@@ -159,6 +159,17 @@ export class SessionManager {
    * Restaurar una sesión guardada
    */
   async resumeSession(sessionId: string, openTerminal = true): Promise<Session> {
+    // Refresh stored claudeSessionIds BEFORE we read the session, so any
+    // mid-conversation rotations (/clear, /compact, etc.) that happened
+    // since the last save are reflected in the `claude --resume <id>`
+    // calls below. This is the single most important step for preventing
+    // context loss across reboots — see SessionManager.syncSessionIds.
+    try {
+      await this.syncSessionIds(sessionId)
+    } catch (err: any) {
+      logger.warn(`[resumeSession] syncSessionIds failed (non-fatal): ${err?.message || err}`)
+    }
+
     const session = await this.getSession(sessionId)
     if (!session) {
       throw new Error(`Session ${sessionId} not found`)
@@ -580,92 +591,125 @@ export class SessionManager {
   }
 
   /**
-   * Sync session IDs for an active session.
-   * Detects when Claude session IDs change at runtime (e.g., user did /clear,
-   * Claude crashed and restarted, etc.) and updates Orka state accordingly.
+   * Sync session IDs for an Orka session by pairing each branch (main +
+   * active forks) with the freshest Claude session JSONL on disk.
    *
-   * Detection strategy:
-   *   1. Check if the stored session's JSONL has been modified recently
-   *   2. Look for untracked sessions in sessions-index.json (newer ones not in Orka state)
-   *   3. If found, update the Orka session's claudeSessionId
+   * Why this exists: Claude Code rotates its session id on `/clear`,
+   * `/compact`, and a few other internal triggers, but Orka's
+   * `claudeSessionId` never gets refreshed unless this runs. After a
+   * reboot, `claude --resume <stored-id>` then loads an ancient snapshot
+   * and the user perceives this as "lost context".
    *
-   * @returns Object describing what changed, or null if nothing changed
+   * Strategy:
+   *  - Build an ordered list of branches to assign: main first, then
+   *    forks oldest-first (so the freshest unassigned session goes to
+   *    main, the next to the oldest fork, etc — matches the typical
+   *    pattern where the user does `/clear` on main most often).
+   *  - Hand that list to `discoverBranchSessions` which scans every
+   *    `<sessionId>.jsonl` in the project's Claude folder, sorts by
+   *    mtime, and matches greedily — preferring to keep a branch's
+   *    stored id if it's still the freshest, otherwise promoting the
+   *    newest unclaimed session.
+   *  - For any branch whose chosen id differs from the stored one,
+   *    update state.json and log the rotation.
+   *
+   * Safe to call repeatedly; idempotent. Replaces the older heuristic
+   * that depended on `sessions-index.json`, which Claude Code removed.
    */
   async syncSessionIds(sessionId: string): Promise<{ mainChanged: boolean; forksChanged: string[] } | null> {
-    const session = await this.getSession(sessionId)
-    if (!session || session.status !== 'active') return null
-
-    // Collect all Claude session IDs tracked by ALL Orka sessions in this project
+    // Project-wide sync: build the branch list from EVERY Orka session in
+    // the project and match them in one greedy pass. Ordering by session
+    // `lastActivity` (most recent first) ensures the active session
+    // claims the freshest jsonls before dormant ones get a chance —
+    // critical when many Orka sessions share a project (e.g. MoxiWorks
+    // with Execution + Tracking + Learning).
     const allSessions = await this.listSessions()
-    const trackedIds = new Set<string>()
-    for (const s of allSessions) {
-      trackedIds.add(s.main.claudeSessionId)
-      for (const f of s.forks) {
-        trackedIds.add(f.claudeSessionId)
-      }
+    if (allSessions.length === 0) return null
+
+    type Entry = {
+      session: Session
+      branchKey: 'main' | string
+      storedId: string
+      activitySince: string
+      isMain: boolean
     }
 
-    let mainChanged = false
-    const forksChanged: string[] = []
-
-    // Check main session
-    const mainMtime = await getSessionFileMtime(this.projectPath, session.main.claudeSessionId)
-    const sessionLastActivity = new Date(session.lastActivity).getTime()
-
-    // Look for unassigned sessions created/modified after our last known activity
-    const unassigned = await findLatestUnassignedSession(
-      this.projectPath,
-      trackedIds,
-      session.lastActivity
+    const orderedSessions = [...allSessions].sort(
+      (a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
     )
 
-    if (unassigned) {
-      const unassignedModified = new Date(unassigned.modified).getTime()
-
-      // If the unassigned session is newer than our current session's file,
-      // and our file hasn't been updated since lastActivity, it's likely a replacement
-      const isNewer = mainMtime ? unassignedModified > mainMtime : true
-      const mainIsStale = mainMtime ? mainMtime < sessionLastActivity : true
-
-      if (isNewer || mainIsStale) {
-        const oldId = session.main.claudeSessionId
-        session.main.claudeSessionId = unassigned.sessionId
-        session.main.lastContextSummary = unassigned.summary || session.main.lastContextSummary
-        trackedIds.add(unassigned.sessionId) // Track the new ID
-        mainChanged = true
-        logger.info(`[syncSessionIds] Main session ID updated: ${oldId} → ${unassigned.sessionId} (${unassigned.summary || 'no summary'})`)
+    const branchKeys: Array<{ key: string; storedId: string; storedMtime: number | null; activitySince: string }> = []
+    const entries: Entry[] = []
+    for (const s of orderedSessions) {
+      // main first within a session — most rotations happen there
+      const mainKey = `${s.id}::main`
+      entries.push({ session: s, branchKey: 'main', storedId: s.main.claudeSessionId, activitySince: s.createdAt, isMain: true })
+      branchKeys.push({
+        key: mainKey,
+        storedId: s.main.claudeSessionId,
+        storedMtime: await getSessionFileMtime(this.projectPath, s.main.claudeSessionId),
+        activitySince: s.createdAt,
+      })
+      const forks = s.forks
+        .filter((f) => f.status === 'active' || f.status === 'saved')
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      for (const f of forks) {
+        const forkKey = `${s.id}::${f.id}`
+        entries.push({ session: s, branchKey: f.id, storedId: f.claudeSessionId, activitySince: f.createdAt, isMain: false })
+        branchKeys.push({
+          key: forkKey,
+          storedId: f.claudeSessionId,
+          storedMtime: await getSessionFileMtime(this.projectPath, f.claudeSessionId),
+          activitySince: f.createdAt,
+        })
       }
     }
 
-    // Check active forks
-    for (const fork of session.forks) {
-      if (fork.status !== 'active') continue
+    // existingIds is empty here — the pool is the whole project. The
+    // matcher uses `branchKeys` directly to know which ids are ours.
+    const matches = await discoverBranchSessions(this.projectPath, branchKeys, new Set())
 
-      const forkMtime = await getSessionFileMtime(this.projectPath, fork.claudeSessionId)
-      if (forkMtime === null) {
-        // Fork session file doesn't exist at all - look for unassigned replacement
-        const forkReplacement = await findLatestUnassignedSession(
-          this.projectPath,
-          trackedIds,
-          fork.createdAt
-        )
-        if (forkReplacement) {
-          const oldForkId = fork.claudeSessionId
-          fork.claudeSessionId = forkReplacement.sessionId
-          fork.lastContextSummary = forkReplacement.summary || fork.lastContextSummary
-          trackedIds.add(forkReplacement.sessionId)
-          forksChanged.push(fork.id)
-          logger.info(`[syncSessionIds] Fork "${fork.name}" session ID updated: ${oldForkId} → ${forkReplacement.sessionId}`)
+    // Apply matches per-session, saving each session at most once.
+    const dirtySessions = new Set<string>()
+    let requestedMainChanged = false
+    const requestedForksChanged: string[] = []
+
+    for (const e of entries) {
+      const key = e.isMain ? `${e.session.id}::main` : `${e.session.id}::${e.branchKey}`
+      const m = matches.get(key)
+      if (!m || m.sessionId === e.storedId) continue
+
+      if (e.isMain) {
+        if (e.session.main.claudeSessionId !== m.sessionId) {
+          logger.info(`[syncSessionIds] ${e.session.name} main: ${e.storedId.slice(0, 8)}… → ${m.sessionId.slice(0, 8)}…`)
+          e.session.main.claudeSessionId = m.sessionId
+          if (m.summary) e.session.main.lastContextSummary = m.summary
+          dirtySessions.add(e.session.id)
+          if (e.session.id === sessionId) requestedMainChanged = true
+        }
+      } else {
+        const fork = e.session.forks.find((f) => f.id === e.branchKey)
+        if (fork && fork.claudeSessionId !== m.sessionId) {
+          logger.info(`[syncSessionIds] ${e.session.name} fork "${fork.name}": ${fork.claudeSessionId.slice(0, 8)}… → ${m.sessionId.slice(0, 8)}…`)
+          fork.claudeSessionId = m.sessionId
+          if (m.summary) fork.lastContextSummary = m.summary
+          dirtySessions.add(e.session.id)
+          if (e.session.id === sessionId) requestedForksChanged.push(fork.id)
         }
       }
     }
 
-    if (mainChanged || forksChanged.length > 0) {
-      session.lastActivity = new Date().toISOString()
-      await this.stateManager.replaceSession(session)
-      return { mainChanged, forksChanged }
+    // Persist each session whose ids we touched.
+    for (const sid of dirtySessions) {
+      const s = orderedSessions.find((x) => x.id === sid)
+      if (!s) continue
+      s.lastActivity = new Date().toISOString()
+      await this.stateManager.replaceSession(s)
     }
 
+    if (dirtySessions.has(sessionId)) {
+      return { mainChanged: requestedMainChanged, forksChanged: requestedForksChanged }
+    }
     return null
   }
 

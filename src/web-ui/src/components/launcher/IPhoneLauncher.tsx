@@ -157,22 +157,24 @@ export function IPhoneLauncher() {
     const isMobile = isMobileViewport()
 
     // Open the modal immediately with whatever we know; the modal handles
-    // a loading state while we (maybe) resume. Saved sessions need a
-    // resume to get a fresh ttydPort before the terminal can render;
-    // active sessions already have it and skip the round-trip.
+    // a loading state while we resume.
     setSessionModal({ project, session, isMobile })
 
-    const needsResume = session.status !== 'active' || !session.ttydPort
-    if (needsResume) {
-      setResumingSession(true)
-      try {
-        const resumed = await api.resumeSession(project.path, session.id)
-        setSessionModal({ project, session: resumed, isMobile })
-      } catch (err) {
-        console.error('Failed to resume session for launcher modal:', err)
-      } finally {
-        setResumingSession(false)
-      }
+    // Always call resume — it's idempotent on the server side. If the tmux
+    // session is alive it just reconnects (and revives a dead ttyd if
+    // needed); if the tmux session was killed externally — by a reboot, a
+    // manual `tmux kill-server`, etc. — it recreates it from the stored
+    // claude session id. Skipping the resume on `status === active` is
+    // unsafe because the in-memory status drifts from the actual process
+    // state, which lands the user on a broken terminal with no terminal.
+    setResumingSession(true)
+    try {
+      const resumed = await api.resumeSession(project.path, session.id)
+      setSessionModal({ project, session: resumed, isMobile })
+    } catch (err) {
+      console.error('Failed to resume session for launcher modal:', err)
+    } finally {
+      setResumingSession(false)
     }
   }
 

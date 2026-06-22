@@ -56,7 +56,14 @@
 
           <!-- Actions -->
           <div class="detail-actions">
-            <button id="btn-transcribe" class="btn btn-primary">Transcribe</button>
+            <div class="transcribe-group">
+              <button id="btn-transcribe" class="btn btn-primary">Transcribe</button>
+              <select id="transcribe-language" class="lang-select" title="Source language of the recording (helps Whisper pick the right phonetics)">
+                <option value="auto">Auto-detect</option>
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+              </select>
+            </div>
             <button id="btn-download-audio" class="btn btn-secondary">Download Audio</button>
             <button id="btn-generate-report" class="btn btn-accent hidden">Generate Report</button>
           </div>
