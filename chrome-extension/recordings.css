@@ -199,14 +199,15 @@ body {
 
 /* The visible detail body needs to be a flex column so the inner
    .tabs-area (which is flex: 1) actually claims the remaining height.
-   Without this the parent was a block element, flex: 1 didn't apply,
-   and the tabs bar — including Copy/Download — drifted up or down
-   depending on whether the content-text below it had grown. */
-#detail-content {
+   Without `display: flex` here the .tabs-bar drifted up or down
+   depending on whether the content-text below it had grown.
+   Note: NO `min-height: 0` — .detail-panel only carries `min-height`
+   from the page grid, not a real height, so adding min-height: 0 here
+   would let every flex child collapse to zero and hide the panel. */
+#detail-content:not(.hidden) {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
 }
 
 .no-selection {
