@@ -160,7 +160,11 @@ function selectRecording(id) {
     el.classList.toggle('selected', el.dataset.id === id)
   })
 
-  noSelectionEl.classList.remove('hidden')
+  // Hide the empty-state placeholder once a recording is selected — without
+  // this both .no-selection and #detail-content end up visible inside the
+  // same flex column, with the placeholder eating all the vertical space
+  // and pushing the real content down to the bottom of the panel.
+  noSelectionEl.classList.add('hidden')
   detailContentEl.classList.remove('hidden')
 
   detailNameEl.textContent = rec.name
