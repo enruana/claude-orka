@@ -213,11 +213,63 @@ document.querySelectorAll('.copy-btn').forEach((btn) => {
   })
 })
 
-// Copy rendered HTML
+/**
+ * Copy the rendered preview as rich content. The previous version wrote
+ * `innerHTML` as plain text, so pasting anywhere produced literal
+ * `<h1>...</h1>` strings — useless. Instead we write a ClipboardItem
+ * carrying BOTH `text/html` (rich) and `text/plain` (the markdown source
+ * we already have on screen, since the user typically wants the markdown
+ * when pasting into a code editor and the rendered version when pasting
+ * into Notes / Slack / docs).
+ *
+ * Fallback for browsers without ClipboardItem support: select the
+ * rendered div and run `document.execCommand('copy')` — same path the
+ * user was taking manually, captures rich text the same way Cmd+C does.
+ */
+async function copyRendered() {
+  const rendered = els.mdRendered
+  const html = rendered.innerHTML
+  if (!html) return false
+  const md = els.mdSource?.textContent || rendered.innerText || ''
+
+  // Preferred path — secure context + Clipboard API supports multiple
+  // MIME types. Pastes formatted in rich-text targets, markdown in plain.
+  if (window.isSecureContext && typeof ClipboardItem !== 'undefined'
+      && navigator.clipboard && navigator.clipboard.write) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([md], { type: 'text/plain' }),
+        }),
+      ])
+      return true
+    } catch {
+      // fall through to execCommand
+    }
+  }
+
+  // Fallback: programmatic selection + execCommand. Whatever was selected
+  // before is preserved.
+  try {
+    const sel = window.getSelection()
+    const prev = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null
+    const range = document.createRange()
+    range.selectNodeContents(rendered)
+    sel.removeAllRanges()
+    sel.addRange(range)
+    const ok = document.execCommand('copy')
+    sel.removeAllRanges()
+    if (prev) sel.addRange(prev)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 if (els.mdCopyHtml) {
+  els.mdCopyHtml.title = 'Copy formatted (rich text + markdown fallback)'
   els.mdCopyHtml.addEventListener('click', async () => {
-    const html = els.mdRendered.innerHTML
-    if (!html) return
-    if (await copyText(html)) flashCopied(els.mdCopyHtml)
+    if (await copyRendered()) flashCopied(els.mdCopyHtml)
   })
 }
