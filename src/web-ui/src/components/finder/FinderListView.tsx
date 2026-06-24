@@ -2,9 +2,18 @@ import { useState } from 'react'
 import { Folder } from 'lucide-react'
 import { FileListItem } from '../../api/client'
 import { getFileIcon, getFileKind, formatFileSize, formatRelativeTime } from '../../utils/fileTypes'
+import { useLongPress } from '../code-editor/ContextMenu'
 
 type SortKey = 'name' | 'modifiedAt' | 'size' | 'kind'
 type SortDir = 'asc' | 'desc'
+
+// Touch detection runs at module scope — desktops with touchscreens won't
+// match, which is fine: long-press is additive (right-click still works
+// alongside it), so a stray touch device won't lose anything.
+const IS_TOUCH = typeof window !== 'undefined' && (
+  'ontouchstart' in window ||
+  (navigator as any).maxTouchPoints > 0
+)
 
 interface FinderListViewProps {
   items: FileListItem[]
@@ -12,6 +21,8 @@ interface FinderListViewProps {
   onSelect: (path: string) => void
   onOpen: (item: FileListItem) => void
   onContextMenu: (e: React.MouseEvent, item: FileListItem) => void
+  /** Touch long-press handler — mobile substitute for right-click. */
+  onLongPress?: (e: React.TouchEvent | React.MouseEvent, item: FileListItem) => void
   onMoveFile: (fromPath: string, toDirectory: string) => void
   onUploadFiles: (files: File[], destination: string) => void
 }
@@ -22,6 +33,7 @@ export function FinderListView({
   onSelect,
   onOpen,
   onContextMenu,
+  onLongPress,
   onMoveFile,
   onUploadFiles,
 }: FinderListViewProps) {
@@ -136,17 +148,19 @@ export function FinderListView({
           const isDragOver = dragOverPath === item.path
 
           return (
-            <div
+            <FinderListRow
               key={item.path}
-              className={`finder-list-row ${isSelected ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''}`}
-              onClick={() => onSelect(item.path)}
-              onDoubleClick={() => onOpen(item)}
-              onContextMenu={(e) => onContextMenu(e, item)}
-              draggable
-              onDragStart={(e) => handleDragStart(e, item)}
-              onDragOver={(e) => handleDragOver(e, item)}
+              item={item}
+              isSelected={isSelected}
+              isDragOver={isDragOver}
+              onSelect={onSelect}
+              onOpen={onOpen}
+              onContextMenu={onContextMenu}
+              onLongPress={onLongPress}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, item)}
+              onDrop={handleDrop}
             >
               <div className="finder-list-col col-name">
                 <span className="finder-item-icon">
@@ -166,10 +180,71 @@ export function FinderListView({
               <div className="finder-list-col col-kind">
                 {getFileKind(item.extension)}
               </div>
-            </div>
+            </FinderListRow>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/**
+ * One row, isolated into its own component so `useLongPress` can hook in
+ * once per item (hooks can't run inside a `.map` callback in the parent).
+ * Acts as a thin wrapper that merges long-press handlers when on touch
+ * devices and otherwise forwards the same DOM events the row had before.
+ */
+interface FinderListRowProps {
+  item: FileListItem
+  isSelected: boolean
+  isDragOver: boolean
+  onSelect: (path: string) => void
+  onOpen: (item: FileListItem) => void
+  onContextMenu: (e: React.MouseEvent, item: FileListItem) => void
+  onLongPress?: (e: React.TouchEvent | React.MouseEvent, item: FileListItem) => void
+  onDragStart: (e: React.DragEvent, item: FileListItem) => void
+  onDragOver: (e: React.DragEvent, item: FileListItem) => void
+  onDragLeave: (e: React.DragEvent) => void
+  onDrop: (e: React.DragEvent, item: FileListItem) => void
+  children: React.ReactNode
+}
+
+function FinderListRow({
+  item,
+  isSelected,
+  isDragOver,
+  onSelect,
+  onOpen,
+  onContextMenu,
+  onLongPress,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  children,
+}: FinderListRowProps) {
+  const longPressHandlers = useLongPress(
+    (e) => { if (onLongPress) onLongPress(e, item) },
+    { delay: 500, onPress: () => onSelect(item.path) }
+  )
+
+  return (
+    <div
+      className={`finder-list-row ${isSelected ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''}`}
+      // On touch devices long-press handles selection (via the hook's
+      // onPress) AND opens the context menu. Skip the bare onClick so
+      // we don't fire selection twice.
+      onClick={IS_TOUCH ? undefined : () => onSelect(item.path)}
+      onDoubleClick={() => onOpen(item)}
+      onContextMenu={(e) => onContextMenu(e, item)}
+      draggable
+      onDragStart={(e) => onDragStart(e, item)}
+      onDragOver={(e) => onDragOver(e, item)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => onDrop(e, item)}
+      {...(IS_TOUCH && onLongPress ? longPressHandlers : {})}
+    >
+      {children}
     </div>
   )
 }

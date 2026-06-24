@@ -61,8 +61,11 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
   // Transition animation
   const [transitioning, setTransitioning] = useState(false)
 
-  // Context menu
-  const { contextMenu, hideContextMenu, handleContextMenu } = useContextMenu()
+  // Context menu — handleLongPress mirrors handleContextMenu but is triggered
+  // from a touch long-press (set up per-item in the views). On mobile there
+  // is no right-click, so this is the only way to reach the menu (which is
+  // what surfaces e.g. "Preview in Browser" for HTML files).
+  const { contextMenu, hideContextMenu, handleContextMenu, handleLongPress } = useContextMenu()
 
   // Toast
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
@@ -180,6 +183,16 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
   const handleItemContextMenu = useCallback((e: React.MouseEvent, item: FileListItem) => {
     handleContextMenu(e, { path: item.path, isDirectory: item.type === 'directory' })
   }, [handleContextMenu])
+
+  // Touch long-press → same payload as right-click. Passed down to each
+  // list/grid item; without this, mobile users have no way to reach
+  // "Preview in Browser" / "Copy Path" / "Delete" on a file.
+  const handleItemLongPress = useCallback(
+    (e: React.TouchEvent | React.MouseEvent, item: FileListItem) => {
+      handleLongPress(e, { path: item.path, isDirectory: item.type === 'directory' })
+    },
+    [handleLongPress]
+  )
 
   // Context menu for empty area
   const handleAreaContextMenu = useCallback((e: React.MouseEvent) => {
@@ -487,6 +500,7 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
             onSelect={handleSelect}
             onOpen={handleOpen}
             onContextMenu={handleItemContextMenu}
+            onLongPress={handleItemLongPress}
             onMoveFile={handleMoveFile}
             onUploadFiles={handleUploadFiles}
           />
@@ -497,6 +511,7 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
             onSelect={handleSelect}
             onOpen={handleOpen}
             onContextMenu={handleItemContextMenu}
+            onLongPress={handleItemLongPress}
             onMoveFile={handleMoveFile}
             onUploadFiles={handleUploadFiles}
           />
