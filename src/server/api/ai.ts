@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import execa from 'execa'
 import { TmuxCommands } from '../../utils/tmux'
+import { KnowledgeBaseManager } from '../../core/KnowledgeBaseManager'
 
 export const aiRouter = Router()
 
@@ -348,3 +349,134 @@ Rules:
     res.status(500).json({ error: error.message || 'Failed to generate report' })
   }
 })
+
+/**
+ * POST /api/ai/kb-summary
+ *
+ * Generate a natural-language summary of a single KB entity in the
+ * requested language. The summary is built from the entity itself plus
+ * its 1-hop neighborhood, so the model has enough context to explain
+ * what the item is about, who is involved, and what other knowledge
+ * artifacts surround it.
+ *
+ * Body: { projectPath: string, entityId: string, language: 'es' | 'en' }
+ * Returns: { summary: string }
+ */
+aiRouter.post('/kb-summary', async (req, res) => {
+  try {
+    const { projectPath, entityId, language } = req.body as {
+      projectPath?: string
+      entityId?: string
+      language?: 'es' | 'en'
+    }
+
+    if (!projectPath || !entityId) {
+      res.status(400).json({ error: 'projectPath and entityId are required' })
+      return
+    }
+    const lang: 'es' | 'en' = language === 'es' ? 'es' : 'en'
+
+    const kb = new KnowledgeBaseManager(projectPath)
+    if (!kb.isInitialized()) {
+      res.status(404).json({ error: 'KB not initialized for this project' })
+      return
+    }
+
+    const entity = await kb.getEntity(entityId)
+    if (!entity) {
+      res.status(404).json({ error: `Entity ${entityId} not found` })
+      return
+    }
+
+    // 1-hop neighborhood: outgoing edges (this entity → others) AND
+    // incoming edges (other entities → this one). Provides the model
+    // with the connective tissue needed to explain context.
+    const all = await kb.listEntities()
+    const byId = new Map(all.map((e) => [e.id, e]))
+    const outgoing = entity.edges.map((edge) => ({
+      relation: edge.relation,
+      target: byId.get(edge.target),
+    })).filter((x) => x.target)
+    const incoming: Array<{ from: typeof entity; relation: string }> = []
+    for (const e of all) {
+      if (e.id === entity.id) continue
+      for (const edge of e.edges) {
+        if (edge.target === entity.id) incoming.push({ from: e, relation: edge.relation })
+      }
+    }
+
+    // Render a compact, human-readable dump of everything the model needs.
+    // Stay under ~6000 chars to keep the prompt cheap even for hairy entities.
+    const lines: string[] = []
+    lines.push(`Type: ${entity.type}`)
+    lines.push(`Title: ${entity.title}`)
+    lines.push(`Status: ${entity.status}`)
+    if (entity.tags.length) lines.push(`Tags: ${entity.tags.map((t) => '#' + t).join(' ')}`)
+    lines.push(`Created: ${entity.created}`)
+    lines.push(`Updated: ${entity.updated}`)
+    lines.push('')
+    lines.push('Properties:')
+    for (const [k, v] of Object.entries(entity.properties)) {
+      const value = typeof v === 'string' ? v : JSON.stringify(v)
+      lines.push(`  ${k}: ${value.length > 1200 ? value.slice(0, 1200) + '…' : value}`)
+    }
+    if (outgoing.length) {
+      lines.push('')
+      lines.push('Related entities (this → others):')
+      for (const { relation, target } of outgoing.slice(0, 30)) {
+        if (!target) continue
+        lines.push(`  ${relation} → [${target.type}] ${target.title} (status: ${target.status})`)
+      }
+    }
+    if (incoming.length) {
+      lines.push('')
+      lines.push('Referenced by:')
+      for (const { from, relation } of incoming.slice(0, 30)) {
+        lines.push(`  [${from.type}] ${from.title} —${relation}→ this`)
+      }
+    }
+    let dump = lines.join('\n')
+    if (dump.length > 6000) dump = dump.slice(0, 6000) + '\n…(truncated)'
+
+    const langName = lang === 'es' ? 'Spanish' : 'English'
+    const prompt = `You are summarizing a single item from a project knowledge base. The item's full record is supplied via stdin: its type, properties, tags, related entities (outgoing and incoming references).
+
+Write a clear, useful summary in ${langName} that lets a teammate understand:
+  - What this item IS (in one sentence — type + what it covers)
+  - The key facts: dates, owners, status, decisions, outcomes
+  - How it connects to its surroundings — call out the most important related items by name
+  - Anything that looks unresolved, blocked, or needing attention
+
+Style:
+  - Native ${langName}, professional but warm — not stiff
+  - Use short paragraphs and bullet lists when they help; do NOT wrap in code fences
+  - 150-300 words depending on how much real content there is
+  - If the item has very little content, say so honestly in one or two sentences instead of padding
+  - Do not invent details that aren't in the input
+
+Output ONLY the summary, no preamble or closing remarks.`
+
+    const args = ['-p', prompt, '--model', 'sonnet', '--no-session-persistence']
+
+    const { stdout } = await execa('claude', args, {
+      timeout: 120000,
+      env: { ...process.env, CLAUDECODE: '' },
+      extendEnv: false,
+      input: dump,
+    })
+
+    res.json({ summary: stdout.trim(), language: lang })
+  } catch (error: any) {
+    console.error('Error in AI kb-summary:', error)
+    if (error.code === 'ENOENT') {
+      res.status(500).json({ error: 'Claude CLI not found.' })
+      return
+    }
+    if (error.timedOut) {
+      res.status(500).json({ error: 'Request timed out.' })
+      return
+    }
+    res.status(500).json({ error: error.message || 'Failed to generate summary' })
+  }
+})
+

@@ -761,4 +761,24 @@ export const api = {
     }
     return res.json()
   },
+
+  /** Ask Claude to generate a natural-language summary of a KB entity in
+   *  the requested language. Uses the entity's properties + 1-hop
+   *  neighborhood as context. Returns plain prose (no markdown fences). */
+  async aiKBSummary(
+    projectPath: string,
+    entityId: string,
+    language: 'es' | 'en'
+  ): Promise<{ summary: string; language: 'es' | 'en' }> {
+    const res = await fetch(`${API_BASE}/ai/kb-summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectPath, entityId, language }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'KB summary failed' }))
+      throw new Error(data.error || 'KB summary failed')
+    }
+    return res.json()
+  },
 }

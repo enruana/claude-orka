@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain, BookMarked, Calendar } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain, BookMarked, Calendar, Sparkles, Copy as CopyIcon } from 'lucide-react'
 import { api, type KBEntity } from '../../api/client'
 
 type KBSchema = {
@@ -155,6 +156,15 @@ function formatPropKey(key: string): string {
 }
 
 export function KBDetailPanel({ entity, allEntities, encodedPath, projectPath, sessionId, branch, onSwitchToTerminal, onClose, onSelectNode, onEntityUpdated }: KBDetailPanelProps) {
+  // AI summary modal — state lives inside the panel so navigating away
+  // (selecting a different node) discards any in-flight request implicitly.
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryText, setSummaryText] = useState<string>('')
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [summaryLang, setSummaryLang] = useState<'es' | 'en'>('es')
+  const [summaryCopied, setSummaryCopied] = useState(false)
+
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [loadingContext, setLoadingContext] = useState(false)
@@ -255,6 +265,41 @@ After running the command, read each file listed in the "Source Files" section t
       console.error('Failed to generate project doc:', err)
     } finally {
       setGeneratingDoc(false)
+    }
+  }
+
+  /**
+   * Open the AI summary modal and request a summary in the chosen language.
+   * The current entity (id + projectPath) is what the server resolves; the
+   * modal stays open with a spinner until Claude responds (≤120 s timeout
+   * on the server side). Closing the modal mid-request is fine — the
+   * server-side completion just gets discarded.
+   */
+  const handleGenerateSummary = async (lang: 'es' | 'en') => {
+    setSummaryLang(lang)
+    setSummaryOpen(true)
+    setSummaryLoading(true)
+    setSummaryError(null)
+    setSummaryText('')
+    setSummaryCopied(false)
+    try {
+      const { summary } = await api.aiKBSummary(projectPath, entity.id, lang)
+      setSummaryText(summary)
+    } catch (err: any) {
+      setSummaryError(err?.message || 'Failed to generate summary')
+    } finally {
+      setSummaryLoading(false)
+    }
+  }
+
+  const handleCopySummary = async () => {
+    if (!summaryText) return
+    try {
+      await navigator.clipboard.writeText(summaryText)
+      setSummaryCopied(true)
+      setTimeout(() => setSummaryCopied(false), 1500)
+    } catch {
+      /* ignore — clipboard may be unavailable in insecure contexts */
     }
   }
 
@@ -681,6 +726,29 @@ After running the command, read each file listed in the "Source Files" section t
           <Calendar size={14} />
           Add to Google Calendar
         </button>
+
+        {/* AI summary — two stacked language buttons share one row so the
+            user picks ES/EN in a single tap. Each opens the same modal. */}
+        <div className="kb-detail-summary-row">
+          <button
+            className="kb-detail-summary-btn"
+            onClick={() => handleGenerateSummary('es')}
+            disabled={summaryLoading}
+            title="Generate an AI summary in Spanish"
+          >
+            <Sparkles size={13} />
+            Summary · ES
+          </button>
+          <button
+            className="kb-detail-summary-btn"
+            onClick={() => handleGenerateSummary('en')}
+            disabled={summaryLoading}
+            title="Generate an AI summary in English"
+          >
+            <Sparkles size={13} />
+            Summary · EN
+          </button>
+        </div>
         {entity.type === 'project' && (
           <button
             className={`kb-detail-doc-btn ${docGenerated ? 'sent' : ''}`}
@@ -712,6 +780,87 @@ After running the command, read each file listed in the "Source Files" section t
           </button>
         )}
       </div>
+
+      {/* AI summary modal — portalled to <body> to escape the panel's
+          stacking context (the panel is `position: fixed` with its own
+          z-index, which would otherwise trap the overlay underneath). */}
+      {summaryOpen && createPortal(
+        <div
+          className="kb-summary-overlay"
+          onClick={(e) => { if (e.target === e.currentTarget) setSummaryOpen(false) }}
+        >
+          <div className="kb-summary-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="kb-summary-header">
+              <span className="kb-summary-title">
+                <Sparkles size={16} />
+                <span>AI Summary</span>
+                <span className="kb-summary-lang-pill">{summaryLang.toUpperCase()}</span>
+              </span>
+              <div className="kb-summary-header-actions">
+                {summaryText && (
+                  <button
+                    className={`kb-summary-copy-btn ${summaryCopied ? 'done' : ''}`}
+                    onClick={handleCopySummary}
+                    title="Copy summary to clipboard"
+                  >
+                    {summaryCopied ? <><Check size={13} /> Copied</> : <><CopyIcon size={13} /> Copy</>}
+                  </button>
+                )}
+                <button
+                  className="kb-summary-close-btn"
+                  onClick={() => setSummaryOpen(false)}
+                  aria-label="Close summary"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="kb-summary-subtitle">
+              <span className="kb-summary-entity-type" style={{ color }}>{entity.type}</span>
+              <span className="kb-summary-entity-title">{entity.title}</span>
+            </div>
+
+            <div className="kb-summary-body">
+              {summaryLoading && (
+                <div className="kb-summary-loading">
+                  <div className="spinner" />
+                  <p>Generating summary in {summaryLang === 'es' ? 'Spanish' : 'English'}…</p>
+                  <span className="kb-summary-hint">Reads this item and its 1-hop neighbors; takes ~10–30s.</span>
+                </div>
+              )}
+              {!summaryLoading && summaryError && (
+                <div className="kb-summary-error">
+                  <p>{summaryError}</p>
+                </div>
+              )}
+              {!summaryLoading && !summaryError && summaryText && (
+                <div className="kb-summary-text">{summaryText}</div>
+              )}
+            </div>
+
+            {!summaryLoading && (
+              <div className="kb-summary-footer">
+                <button
+                  className={`kb-summary-lang-btn ${summaryLang === 'es' ? 'active' : ''}`}
+                  onClick={() => handleGenerateSummary('es')}
+                  disabled={summaryLoading}
+                >
+                  Regenerate · ES
+                </button>
+                <button
+                  className={`kb-summary-lang-btn ${summaryLang === 'en' ? 'active' : ''}`}
+                  onClick={() => handleGenerateSummary('en')}
+                  disabled={summaryLoading}
+                >
+                  Regenerate · EN
+                </button>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
