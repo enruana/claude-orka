@@ -208,6 +208,13 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* min-height: 0 has to propagate down the flex chain — detail-panel,
+     #detail-content, .tabs-area, .tab-content.active — so the innermost
+     .content-text can actually trigger its `overflow-y: auto`. Without
+     these, flex's default `min-height: auto` makes each container as tall
+     as its content, the scrollbar never appears, and a long transcript
+     overflows past the panel instead of scrolling inside it. */
+  min-height: 0;
 }
 
 /* The visible detail body needs to be a flex column so the inner
@@ -221,6 +228,7 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .no-selection {
@@ -300,6 +308,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 .tabs-bar {
@@ -331,6 +340,7 @@ body {
   display: none;
   flex: 1;
   overflow: hidden;
+  min-height: 0;
   flex-direction: column;
 }
 .tab-content.active {
