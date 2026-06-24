@@ -118,19 +118,32 @@ body {
   display: grid;
   grid-template-columns: 320px 1fr;
   gap: 20px;
-  min-height: calc(100vh - 120px);
+  /* Lock the layout to the viewport height. Was `min-height` only, which
+     meant the grid (and therefore both columns — grid rows are shared) grew
+     as the recordings list grew, dragging the detail panel up with it.
+     `height` caps the grid; the list scrolls internally instead. */
+  height: calc(100vh - 120px);
+  min-height: 0;
 }
 
 /* List panel */
 .list-panel {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .recordings-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* Take the whole column and scroll inside — without this, a long list
+     pushed the grid row taller than the viewport. */
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px; /* keep cards clear of the scrollbar */
 }
 
 .empty-state {
