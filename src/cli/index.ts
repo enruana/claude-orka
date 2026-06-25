@@ -12,6 +12,9 @@ import { mergeCommand } from './commands/merge'
 import { doctorCommand } from './commands/doctor'
 import { prepareCommand } from './commands/prepare'
 import { startCommand } from './commands/start'
+import { stopCommand } from './commands/stop'
+import { restartCommand } from './commands/restart'
+import { logsCommand } from './commands/logs'
 import { telegramCommand } from './commands/telegram'
 import { gitAccountCommand } from './commands/git-account'
 import { awsAccountCommand } from './commands/aws-account'
@@ -42,6 +45,9 @@ program
 
 // Register commands
 program.addCommand(startCommand)
+stopCommand(program)
+restartCommand(program)
+logsCommand(program)
 prepareCommand(program)
 initCommand(program)
 doctorCommand(program)
@@ -56,11 +62,16 @@ kbCommand(program)
 
 // Parse arguments
 program.parseAsync().then(() => {
-  // Exit cleanly after short-lived commands complete
-  // Without this, open handles (execa, fs watchers) keep the process alive
-  // Skip exit for long-running commands like 'start' (the server)
+  // Exit cleanly after short-lived commands complete. The two paths that
+  // own their own event loop are:
+  //  - `orka start --foreground`  (the server)
+  //  - `orka logs` (tail -F in inherit mode keeps stdin alive until the
+  //    user hits Ctrl-C; we let it call process.exit itself with tail's code)
+  // Default `orka start` (daemonized) returns within ~1.5s and should
+  // exit normally here too.
   const command = process.argv[2]
-  if (command !== 'start') {
+  const isForegroundStart = command === 'start' && process.argv.includes('--foreground')
+  if (!isForegroundStart && command !== 'logs') {
     process.exit(0)
   }
 })
