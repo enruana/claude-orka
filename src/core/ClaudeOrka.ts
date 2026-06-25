@@ -407,4 +407,16 @@ export class ClaudeOrka {
   async setSessionLayout(sessionId: string, layout: SessionLayout): Promise<void> {
     return await this.sessionManager.setSessionLayout(sessionId, layout)
   }
+
+  /**
+   * Toggle zoom on a pane (server-side equivalent of `prefix + z`). When
+   * `paneId` is omitted the session's active pane is used. Not persisted —
+   * zoom is treated as an ephemeral focus mode.
+   */
+  async togglePaneZoom(
+    sessionId: string,
+    paneId?: string
+  ): Promise<{ paneId: string; zoomed: boolean }> {
+    return await this.sessionManager.togglePaneZoom(sessionId, paneId)
+  }
 }

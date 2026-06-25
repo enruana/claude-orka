@@ -429,6 +429,23 @@ export const api = {
     return res.json()
   },
 
+  /** Toggle zoom on a tmux pane (server-side `prefix + z`). When `paneId`
+   *  is omitted, the session's active pane is targeted. Response carries
+   *  the new state so the caller can flip its UI icon. */
+  async togglePaneZoom(
+    projectPath: string,
+    sessionId: string,
+    paneId?: string
+  ): Promise<{ ok: boolean; paneId: string; zoomed: boolean }> {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/pane-zoom`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: encodeProjectPath(projectPath), paneId }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   /** Clear the `waitingForInput` flag for a session. Called when the user
    *  opens the session in the UI, complementing the automatic clear via
    *  UserPromptSubmit / PreToolUse hooks. Fire-and-forget; errors are

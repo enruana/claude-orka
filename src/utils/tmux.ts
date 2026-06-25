@@ -407,6 +407,31 @@ export class TmuxCommands {
   }
 
   /**
+   * Toggle zoom on a pane (server-side equivalent of `prefix + z`).
+   * `tmux resize-pane -Z` is a toggle — calling it once zooms the pane to
+   * fill its window, calling it again restores the previous layout.
+   * Works regardless of which client/iframe has focus.
+   *
+   * Returns the new zoom state ('zoomed' | 'unzoomed') by inspecting
+   * `#{window_zoomed_flag}` after the toggle, so callers can give
+   * feedback. Non-fatal on failure.
+   */
+  static async togglePaneZoom(paneId: string): Promise<'zoomed' | 'unzoomed' | null> {
+    try {
+      await execa('tmux', ['resize-pane', '-Z', '-t', paneId])
+      const { stdout } = await execa('tmux', [
+        'display-message', '-p', '-t', paneId, '#{window_zoomed_flag}'
+      ])
+      const flag = stdout.trim()
+      logger.debug(`Toggled zoom on ${paneId} (flag=${flag})`)
+      return flag === '1' ? 'zoomed' : 'unzoomed'
+    } catch (error: any) {
+      logger.warn(`Failed to toggle pane zoom: ${error.message}`)
+      return null
+    }
+  }
+
+  /**
    * Cerrar un pane específico
    */
   static async killPane(paneId: string): Promise<void> {

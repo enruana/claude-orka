@@ -1413,6 +1413,33 @@ Analyze the content and help me integrate the changes and learnings from the for
   }
 
   /**
+   * Toggle zoom on a pane. When `paneId` is omitted the session's active
+   * pane is targeted — same resolution rule as renamePaneLabel.
+   *
+   * Zoom is ephemeral (not persisted): users typically zoom to focus on
+   * one pane for a moment and unzoom right after. tmux's `resize-pane -Z`
+   * is a real toggle, so calling this twice returns to the original
+   * layout without us tracking state.
+   *
+   * @returns { paneId, zoomed } — caller uses `zoomed` to flip the UI
+   *   icon and toast wording without a follow-up round-trip.
+   */
+  async togglePaneZoom(
+    sessionId: string,
+    paneId?: string
+  ): Promise<{ paneId: string; zoomed: boolean }> {
+    const session = await this.getSession(sessionId)
+    if (!session) throw new Error(`Session ${sessionId} not found`)
+
+    const targetPane = paneId || await TmuxCommands.getActivePane(session.tmuxSessionId)
+    if (!targetPane) throw new Error('Could not resolve a target pane')
+
+    const state = await TmuxCommands.togglePaneZoom(targetPane)
+    if (state === null) throw new Error('Failed to toggle pane zoom')
+    return { paneId: targetPane, zoomed: state === 'zoomed' }
+  }
+
+  /**
    * Change a session's tmux pane layout (grid / columns / rows / main) and
    * persist the choice to state.json so it is re-applied on every resume.
    * Applies immediately when the tmux session is running.

@@ -23,6 +23,8 @@ import {
   Rows3,
   PanelLeft,
   Pencil,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import { SessionCodeEditor } from './code-editor'
 import { FinderExplorer } from './finder'
@@ -67,6 +69,10 @@ export function SessionView({
   const [session, setSession] = useState<Session>(initialSession)
   const [selectedNode, setSelectedNode] = useState<string>('main')
   const [activeLayout, setActiveLayout] = useState<SessionLayout | undefined>(initialSession.layout)
+  // Zoom is a tmux window-level toggle (one pane fills the whole window at
+  // a time), but we track it here so the button icon and tooltip can flip
+  // between Maximize/Minimize without polling tmux every render.
+  const [isZoomed, setIsZoomed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showForkDialog, setShowForkDialog] = useState(false)
   const [forkNameInput, setForkNameInput] = useState('')
@@ -275,6 +281,22 @@ export function SessionView({
       await api.setSessionLayout(project.path, session.id, layout)
     } catch (err: any) {
       console.error('Failed to set layout:', err)
+    }
+  }
+
+  // Web counterpart of the mobile "Zoom / Unzoom Pane" quick action.
+  // Targets the pane behind `selectedNode` (synced with the active tmux
+  // pane). Server uses `tmux resize-pane -Z` which is a real toggle, so
+  // we just flip our `isZoomed` flag with whatever the server reports.
+  const handleToggleZoom = async (nodeId: string) => {
+    const isMain = nodeId === 'main'
+    const fork = isMain ? null : session.forks.find((f) => f.id === nodeId)
+    const paneId = isMain ? session.main.tmuxPaneId : fork?.tmuxPaneId
+    try {
+      const result = await api.togglePaneZoom(project.path, session.id, paneId)
+      setIsZoomed(result.zoomed)
+    } catch (err: any) {
+      console.error('Failed to toggle pane zoom:', err)
     }
   }
 
@@ -632,6 +654,19 @@ export function SessionView({
               </button>
             ))}
           </div>
+          {/* Toggle zoom on the active pane (web counterpart of the
+              mobile "Zoom Pane" quick action). tmux `resize-pane -Z` is a
+              real toggle, so the same button serves both directions; the
+              icon flips between Maximize/Minimize based on the last known
+              state. Tooltip mirrors the action that will happen next. */}
+          <button
+            className={`icon-button ${isZoomed ? 'active' : ''}`}
+            onClick={() => handleToggleZoom(selectedNode)}
+            title={isZoomed ? 'Unzoom pane (restore layout)' : 'Zoom pane (focus)'}
+            aria-label={isZoomed ? 'Unzoom pane' : 'Zoom pane'}
+          >
+            {isZoomed ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
           {/* Rename the currently-selected thread/pane. Mirrors the
               "Rename pane" quick action available in the mobile keyboard;
               `selectedNode` tracks the active tmux pane so this targets

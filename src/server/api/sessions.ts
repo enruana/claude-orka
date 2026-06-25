@@ -661,6 +661,39 @@ sessionsRouter.post('/:sessionId/pane-label', async (req, res) => {
 })
 
 /**
+ * POST /api/sessions/:sessionId/pane-zoom
+ * Toggle zoom on a tmux pane — server-side equivalent of the `prefix + z`
+ * keybind. Body: { project: string (base64), paneId?: string }
+ * When `paneId` is omitted the session's currently-active pane is used.
+ * Response: { ok: true, paneId, zoomed: boolean }
+ */
+sessionsRouter.post('/:sessionId/pane-zoom', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const { project: encodedPath, paneId } = req.body || {}
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project is required (base64 encoded path)' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    const result = await orka.togglePaneZoom(
+      sessionId,
+      typeof paneId === 'string' && paneId ? paneId : undefined
+    )
+
+    res.json({ ok: true, ...result })
+  } catch (error: any) {
+    logger.error('Failed to toggle pane zoom:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * POST /api/sessions/:sessionId/layout
  * Change the session's tmux pane arrangement. Applied immediately and
  * persisted so it is re-applied on every resume.
