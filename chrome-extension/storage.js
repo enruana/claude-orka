@@ -15,6 +15,49 @@ function setServerUrl(url) {
   })
 }
 
+/**
+ * Prompt template prepended to a meeting report when the user copies it
+ * for pasting into a Claude session. Editable in Settings and in the
+ * recordings detail panel.
+ *
+ * Keep this string as the source of truth for the default — both the
+ * "Reset to default" buttons and the initial "value not yet set in
+ * storage" fallback read it from here.
+ */
+const DEFAULT_KB_PROMPT = `Load the orka KB skills and register this meeting in the Orka Knowledge Base.
+
+Create only the entities that are relevant to me (Felipe Mantilla) — anything I need to track, follow up on, decide, or own. Skip items that don't involve me.
+
+For each entity you create:
+- Pick the most appropriate type (task, decision, question, meeting, spike, ...)
+- Set an accurate status
+- Link related entities (owned-by me, addresses, part-of a project, ...)
+- Add short, useful tags
+
+At the end, summarize what you created (type, id, title, one-line why).
+
+Meeting report follows below.`
+
+function getKbPromptTemplate() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get('kbPromptTemplate', (result) => {
+      resolve(result.kbPromptTemplate || DEFAULT_KB_PROMPT)
+    })
+  })
+}
+
+function setKbPromptTemplate(template) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ kbPromptTemplate: template }, resolve)
+  })
+}
+
+function resetKbPromptTemplate() {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove('kbPromptTemplate', resolve)
+  })
+}
+
 // IndexedDB storage for audio recordings
 const DB_NAME = 'orka-recordings'
 const DB_VERSION = 1

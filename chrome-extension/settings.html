@@ -33,6 +33,24 @@
       </div>
     </section>
 
+    <section class="settings-section">
+      <h2>KB report prompt</h2>
+      <p class="section-desc">
+        Text prepended to a meeting report when you click "Copy for Claude KB"
+        in Recordings. Tune it to match how you want Claude to ingest meetings
+        into your Orka Knowledge Base.
+      </p>
+
+      <div class="field">
+        <label for="kb-prompt">Prompt template</label>
+        <textarea id="kb-prompt" class="kb-prompt-input" spellcheck="false"></textarea>
+        <div class="kb-prompt-actions">
+          <button class="btn btn-secondary" id="btn-kb-reset">Reset to default</button>
+          <button class="btn btn-primary" id="btn-kb-save">Save</button>
+        </div>
+      </div>
+    </section>
+
     <div class="toast hidden" id="toast">
       <span id="toast-text"></span>
     </div>

@@ -86,6 +86,18 @@
               <button id="btn-download-text" class="btn-icon" title="Download">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               </button>
+              <!-- "Copy for Claude KB" — only visible on the Report tab
+                   when a report exists. Copies the editable prompt +
+                   the report markdown to the clipboard as plain text
+                   so the user can paste it straight into a Claude
+                   session. The neighbouring pencil button opens the
+                   prompt editor modal. -->
+              <button id="btn-copy-for-kb" class="btn-icon hidden" title="Copy prompt + report for Claude KB">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3 4 4 0 0 0-4 4 3 3 0 0 0-2 5 3 3 0 0 0 2 5 4 4 0 0 0 4 4 3 3 0 0 0 6 0 4 4 0 0 0 4-4 3 3 0 0 0 2-5 3 3 0 0 0-2-5 4 4 0 0 0-4-4 3 3 0 0 0-3-3z"/><path d="M9 11l3 3 3-3"/></svg>
+              </button>
+              <button id="btn-edit-kb-prompt" class="btn-icon hidden" title="Edit KB prompt template">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              </button>
             </div>
 
             <!-- Transcript tab -->
@@ -106,6 +118,29 @@
               <div id="report-text" class="content-text markdown hidden"></div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KB Prompt editor modal — reusable overlay for editing the template
+       that will be prepended to a report when copying for Claude. -->
+  <div id="kb-prompt-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>KB report prompt</h2>
+        <button class="modal-close" id="kb-prompt-close" title="Close">&times;</button>
+      </div>
+      <p class="modal-desc">
+        This text is prepended to the report when you click "Copy for Claude KB".
+        Edit it freely; changes are saved locally.
+      </p>
+      <textarea id="kb-prompt-textarea" class="modal-textarea" spellcheck="false"></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="kb-prompt-reset">Reset to default</button>
+        <div class="modal-actions-right">
+          <button class="btn btn-secondary" id="kb-prompt-cancel">Cancel</button>
+          <button class="btn btn-primary" id="kb-prompt-save">Save</button>
         </div>
       </div>
     </div>

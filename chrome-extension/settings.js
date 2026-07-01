@@ -72,3 +72,34 @@ function showToast(msg) {
   toastEl.classList.remove('hidden')
   setTimeout(() => toastEl.classList.add('hidden'), 2000)
 }
+
+// -----------------------------------------------------------------------------
+// KB prompt template — mirror of the editor available inside Recordings.
+// Persists via storage.js (chrome.storage.local). Same source of truth,
+// same default. Editing here or there both write to the same key.
+// -----------------------------------------------------------------------------
+const kbPromptTextarea = document.getElementById('kb-prompt')
+const btnKbSave = document.getElementById('btn-kb-save')
+const btnKbReset = document.getElementById('btn-kb-reset')
+
+;(async () => {
+  kbPromptTextarea.value = await getKbPromptTemplate()
+})()
+
+btnKbSave.addEventListener('click', async () => {
+  const value = kbPromptTextarea.value.trim()
+  if (!value) {
+    await resetKbPromptTemplate()
+    kbPromptTextarea.value = await getKbPromptTemplate()
+    showToast('Reset to default')
+    return
+  }
+  await setKbPromptTemplate(value)
+  showToast('Saved')
+})
+
+btnKbReset.addEventListener('click', async () => {
+  await resetKbPromptTemplate()
+  kbPromptTextarea.value = await getKbPromptTemplate()
+  showToast('Reset to default')
+})

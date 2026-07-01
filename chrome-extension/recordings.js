@@ -57,6 +57,8 @@ document.getElementById('btn-report-from-tab').addEventListener('click', () => g
 document.getElementById('btn-copy').addEventListener('click', () => copyActiveTab())
 document.getElementById('btn-download-text').addEventListener('click', () => downloadActiveTab())
 document.getElementById('btn-auto-name').addEventListener('click', () => autoNameSelected())
+document.getElementById('btn-copy-for-kb').addEventListener('click', () => copyReportForKb())
+document.getElementById('btn-edit-kb-prompt').addEventListener('click', () => openPromptEditor())
 
 // Tab switching
 document.querySelectorAll('.tab').forEach(tab => {
@@ -64,8 +66,22 @@ document.querySelectorAll('.tab').forEach(tab => {
     activeTab = tab.dataset.tab
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === activeTab))
     document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + activeTab))
+    refreshKbButtonsVisibility()
   })
 })
+
+/**
+ * The "Copy for KB" + "Edit prompt" buttons only make sense when the user
+ * is looking at the Report tab AND a report actually exists for the
+ * selected recording. Called on tab switch and on recording select.
+ */
+function refreshKbButtonsVisibility() {
+  const rec = recordings.find(r => r.id === selectedId)
+  const hasReport = !!(rec && rec.report)
+  const show = activeTab === 'report' && hasReport
+  document.getElementById('btn-copy-for-kb').classList.toggle('hidden', !show)
+  document.getElementById('btn-edit-kb-prompt').classList.toggle('hidden', !show)
+}
 
 async function checkServerStatus() {
   try {
@@ -207,6 +223,10 @@ function selectRecording(id) {
   } else {
     tabsAreaEl.classList.add('hidden')
   }
+
+  // Keep the KB copy/edit buttons in sync — visibility depends on both
+  // the active tab and whether the current recording has a report.
+  refreshKbButtonsVisibility()
 }
 
 async function transcribeSelected() {
@@ -339,6 +359,7 @@ async function generateReport() {
     reportTextEl.innerHTML = renderMarkdown(data.report)
 
     renderList()
+    refreshKbButtonsVisibility()
   } catch (err) {
     console.error('Report error:', err)
     reportGeneratingEl.classList.add('hidden')
@@ -503,3 +524,109 @@ function renderMarkdown(md) {
   if (!md) return ''
   return marked.parse(md)
 }
+
+// ============================================================
+// Copy report + KB prompt (paste into a Claude session)
+// ============================================================
+
+/**
+ * Compose the current KB prompt template with the selected recording's
+ * report, plain text, and drop it in the clipboard so the user can paste
+ * it straight into a Claude Code session. The prompt template lives in
+ * chrome.storage.local so the user can tweak it once and forget it.
+ */
+async function copyReportForKb() {
+  const rec = recordings.find(r => r.id === selectedId)
+  if (!rec || !rec.report) return
+
+  const prompt = await getKbPromptTemplate()
+  // Separator between the user's instructions and the report body — the
+  // horizontal rule makes it visually obvious in Claude's UI and gives
+  // the model an unambiguous handoff line.
+  const composed = `${prompt}\n\n---\n\n${rec.report}`
+
+  const ok = await copyPlainText(composed)
+  if (ok) {
+    flashButton(document.getElementById('btn-copy-for-kb'))
+  }
+}
+
+/**
+ * Prefer navigator.clipboard.writeText; fall back to a throwaway textarea
+ * + execCommand for the non-secure-context case. Returns true on success.
+ */
+async function copyPlainText(text) {
+  try {
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to execCommand
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+function flashButton(btn) {
+  if (!btn) return
+  const prevColor = btn.style.color
+  btn.style.color = '#a6e3a1'
+  setTimeout(() => { btn.style.color = prevColor }, 1500)
+}
+
+// ============================================================
+// KB prompt editor modal
+// ============================================================
+
+async function openPromptEditor() {
+  const modal = document.getElementById('kb-prompt-modal')
+  const textarea = document.getElementById('kb-prompt-textarea')
+  textarea.value = await getKbPromptTemplate()
+  modal.classList.remove('hidden')
+  // Focus at the end so the user can start editing immediately without
+  // wiping out what's there with an accidental keystroke.
+  setTimeout(() => {
+    textarea.focus()
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+  }, 30)
+}
+
+function closePromptEditor() {
+  document.getElementById('kb-prompt-modal').classList.add('hidden')
+}
+
+document.getElementById('kb-prompt-close').addEventListener('click', closePromptEditor)
+document.getElementById('kb-prompt-cancel').addEventListener('click', closePromptEditor)
+document.getElementById('kb-prompt-modal').addEventListener('click', (e) => {
+  // Click on the backdrop (outside the modal box) closes.
+  if (e.target === e.currentTarget) closePromptEditor()
+})
+
+document.getElementById('kb-prompt-save').addEventListener('click', async () => {
+  const value = document.getElementById('kb-prompt-textarea').value.trim()
+  if (!value) {
+    // Empty save = user probably wants the default back; treat it as reset.
+    await resetKbPromptTemplate()
+  } else {
+    await setKbPromptTemplate(value)
+  }
+  closePromptEditor()
+})
+
+document.getElementById('kb-prompt-reset').addEventListener('click', async () => {
+  await resetKbPromptTemplate()
+  // Reflect the reset in the textarea in case the user wants to keep editing.
+  document.getElementById('kb-prompt-textarea').value = await getKbPromptTemplate()
+})

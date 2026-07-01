@@ -195,3 +195,29 @@ header h1 {
 .hidden {
   display: none !important;
 }
+
+/* KB prompt textarea in Settings */
+.kb-prompt-input {
+  width: 100%;
+  min-height: 240px;
+  padding: 12px 14px;
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  color: #cdd6f4;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.kb-prompt-input:focus { border-color: #fab387; }
+
+.kb-prompt-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
