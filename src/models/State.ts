@@ -27,6 +27,32 @@ export interface ProjectComment {
 }
 
 /**
+ * A KB entity the user has pinned to the floating action button as a
+ * quick shortcut. Denormalized: title/type/folderPath are frozen at pin
+ * time so the FAB can render without hitting the KB on every draw.
+ * Re-pin to refresh.
+ */
+export interface ProjectPin {
+  /** KB entity id (e.g. "prj-0DoR4EtJ"). Doubles as the unpin key. */
+  entityId: string
+
+  /** KB entity title at pin time. */
+  title: string
+
+  /** KB entity type ("project", "initiative", "task", …) — used for the
+   *  chip color/icon. */
+  type: string
+
+  /** Project-relative folder path — where a click on the pin navigates
+   *  to (via `/projects/<encoded>/files?path=<folderPath>`). Resolved
+   *  from the entity's path-like properties at pin time. */
+  folderPath: string
+
+  /** ISO timestamp — pins are rendered most-recent first. */
+  pinnedAt: string
+}
+
+/**
  * Estado global del proyecto almacenado en .claude-orka/state.json
  */
 export interface ProjectState {
@@ -44,6 +70,9 @@ export interface ProjectState {
 
   /** Document review comments */
   comments?: ProjectComment[]
+
+  /** KB entities pinned to the floating action button. */
+  pins?: ProjectPin[]
 
   /** Last state update (ISO timestamp) */
   lastUpdated: string

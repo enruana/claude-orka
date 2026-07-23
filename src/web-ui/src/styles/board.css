@@ -1,0 +1,1358 @@
+/* Board page — Kanban + master drawer + task modal.
+   Colors follow the existing Catppuccin-Mocha palette used across the app. */
+
+.board-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  overflow: hidden;
+}
+
+.board-page.loading {
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* ---------- Header ---------- */
+
+.board-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Legacy alias for `.orka-close-btn` — kept so any external references
+   don't break. Prefer `orka-close-btn` in new code. */
+.board-header-back {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  color: #cdd6f4;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.board-header-title { flex: 1; min-width: 0; }
+.board-header-title h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ecf0fe;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-header-jira {
+  font-size: 12px;
+  color: #89b4fa;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.board-header-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.board-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  cursor: pointer;
+  font-size: 13px;
+}
+.board-header-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.board-header-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---------- Error banner ---------- */
+
+.board-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 22px;
+  background: rgba(243, 139, 168, 0.14);
+  border-bottom: 1px solid rgba(243, 139, 168, 0.35);
+  color: #f38ba8;
+  font-size: 13px;
+}
+.board-error-banner button {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: #f38ba8;
+  cursor: pointer;
+}
+
+/* ---------- Tab bar ---------- */
+
+.board-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 14px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+.board-tabs::-webkit-scrollbar { display: none; }
+
+.board-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  color: #a6adc8;
+  font-size: 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.board-tab:hover {
+  color: #cdd6f4;
+  background: rgba(255, 255, 255, 0.04);
+}
+.board-tab.active {
+  color: #ecf0fe;
+  border-bottom-color: #89b4fa;
+}
+
+/* ---------- Tab content container ---------- */
+
+.board-tab-content {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+.board-tab-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.board-tab-panel.hidden {
+  /* Keep in the DOM (preserve iframe / editor state) but visually and
+     tab-order hidden. Displayed off-screen instead of `display: none`
+     so any resize observers inside still work. */
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.board-tab-panel.visible {
+  position: relative;
+}
+.board-tab-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6c7086;
+  font-size: 13px;
+}
+
+/* ---------- Terminal panel (Master, inline) ---------- */
+
+.board-terminal-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  min-height: 0;
+}
+.board-terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: #1e1e2e;
+  flex-shrink: 0;
+}
+.board-terminal-toolbar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #a6adc8;
+  font-size: 12px;
+}
+.board-terminal-toolbar-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+.board-terminal-toolbar-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.board-terminal-toolbar-btn:hover { background: rgba(255, 255, 255, 0.12); }
+
+.board-terminal-iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #0f172a;
+}
+
+/* Terminal fullscreen overlay — hides the app chrome so the pane takes
+   the entire viewport. Same close pattern (X top-left) as every other
+   fullscreen surface. */
+.board-terminal-fullscreen {
+  position: fixed;
+  inset: 0;
+  background: #0f172a;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+.board-terminal-fullscreen-close {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+}
+
+/* ---------- Kanban ---------- */
+
+.board-kanban {
+  flex: 1;
+  display: flex;
+  gap: 14px;
+  padding: 16px 22px;
+  overflow-x: auto;
+  min-height: 0;
+}
+
+.board-column {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  min-height: 0;
+}
+
+.board-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #a6adc8;
+}
+.board-column-count {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  font-size: 11px;
+}
+
+.board-column-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.board-column-empty {
+  text-align: center;
+  color: #6c7086;
+  font-size: 11px;
+  padding: 16px 0;
+}
+
+/* ---------- Card ---------- */
+
+.board-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: grab;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s, transform 0.15s;
+}
+.board-card:active {
+  cursor: grabbing;
+  /* Subtle press feedback — pairs with the modal's rise animation so
+     the visual thread from card → modal is clearer. */
+  transform: scale(0.97);
+  transition: transform 60ms ease-out;
+}
+.board-card:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+/* While being dragged: dim + subtle tilt so the user can visually
+   confirm which card is "in flight" — HTML5 DnD's default drag image
+   still shows on top, this dims the "source" state underneath. */
+.board-card.dragging {
+  opacity: 0.35;
+  transform: scale(0.98);
+  border-style: dashed;
+  border-color: rgba(137, 180, 250, 0.6);
+}
+
+/* Column drop feedback: dashed border + tinted fill so it's obvious
+   which column will receive the release. `drop-same` (same column as
+   the card's current status) shows a neutral outline instead of the
+   "accept" tint since dropping there is a no-op. */
+.board-column.drop-target {
+  background: rgba(137, 180, 250, 0.08);
+  border-color: rgba(137, 180, 250, 0.48);
+  border-style: dashed;
+  transition: background 0.12s, border-color 0.12s;
+}
+.board-column.drop-target.drop-same {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.board-column.drop-target .board-column-empty {
+  color: #89b4fa;
+}
+
+.board-card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #a6adc8;
+}
+.board-card-key {
+  font-weight: 600;
+  color: #89b4fa;
+  flex: 1;
+}
+.board-card-drift {
+  border: none;
+  background: rgba(249, 226, 175, 0.2);
+  color: #f9e2af;
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.board-card-terminal, .board-card-branch {
+  color: #a6adc8;
+  display: inline-flex;
+  align-items: center;
+}
+/* Live terminal: bright accent with a tiny pulsating dot so the card
+   reads as "session is running right now". */
+.board-card-terminal.live {
+  color: #a6e3a1;
+  position: relative;
+  padding-right: 6px;
+}
+.board-card-terminal.live::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #a6e3a1;
+  box-shadow: 0 0 6px rgba(166, 227, 161, 0.7);
+  animation: cardLivePulse 1.6s ease-in-out infinite;
+}
+@keyframes cardLivePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* History: terminal available to resume but not currently running.
+   Dimmer + a small "restore" dot in the corner (subtle amber) so the
+   user sees "there's history here" without confusing it with live. */
+.board-card-terminal.history {
+  color: #6c7086;
+  position: relative;
+  padding-right: 6px;
+  opacity: 0.9;
+}
+.board-card-terminal.history::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid #f9e2af;
+}
+.board-card-title {
+  font-size: 13px;
+  color: #ecf0fe;
+  line-height: 1.4;
+}
+.board-card-assignee {
+  font-size: 11px;
+  color: #a6adc8;
+}
+.board-card-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.board-card-label {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(203, 166, 247, 0.18);
+  color: #cba6f7;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* ---------- Master drawer ---------- */
+
+.board-master-drawer {
+  position: relative;
+  background: rgba(30, 30, 46, 0.98);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+}
+.board-master-drawer.collapsed {
+  min-height: 40px;
+}
+
+.board-master-resize {
+  height: 6px;
+  cursor: ns-resize;
+  background: rgba(255, 255, 255, 0.04);
+}
+.board-master-resize:hover { background: rgba(255, 255, 255, 0.12); }
+
+.board-master-toggle {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 22px;
+  background: transparent;
+  border: none;
+  color: #cdd6f4;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+.board-master-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.board-master-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #a6adc8;
+  font-size: 12px;
+  flex: 1;
+}
+.board-master-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+.board-master-dot.running { background: #a6e3a1; box-shadow: 0 0 6px rgba(166, 227, 161, 0.6); }
+.board-master-dot.idle { background: #6c7086; }
+.board-master-lastsync { font-family: monospace; }
+
+.board-master-caret { color: #a6adc8; }
+
+.board-master-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.board-master-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.board-master-popout {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  cursor: pointer;
+  font-size: 11px;
+}
+.board-master-iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #0f172a;
+}
+
+/* --- Mobile fullscreen master terminal modal ------------------------ */
+/* On mobile the drawer expansion is replaced by this fullscreen sheet
+   so the terminal has room to breathe AND the mobile terminal page
+   loads its virtual keyboard. Slide-up + fade animation mirrors the
+   BoardTaskModal so the visual language stays consistent. */
+.board-master-mobile-modal {
+  position: fixed;
+  inset: 0;
+  background: #0f172a;
+  color: #cdd6f4;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  transform-origin: center bottom;
+  will-change: opacity, transform;
+}
+.board-master-mobile-modal.entering {
+  animation: board-master-modal-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.board-master-mobile-modal.exiting {
+  animation: board-master-modal-out 200ms cubic-bezier(0.4, 0, 1, 1);
+  pointer-events: none;
+}
+@keyframes board-master-modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(20px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes board-master-modal-out {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 0; transform: scale(0.98) translateY(14px); }
+}
+
+.board-master-mobile-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  padding-top: max(8px, env(safe-area-inset-top, 8px));
+  padding-left: max(12px, env(safe-area-inset-left, 12px));
+  padding-right: max(12px, env(safe-area-inset-right, 12px));
+  background: #1e1e2e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+.board-master-mobile-close,
+.board-master-mobile-popout {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.board-master-mobile-close:hover,
+.board-master-mobile-popout:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.board-master-mobile-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ecf0fe;
+}
+.board-master-mobile-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-master-mobile-iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #0f172a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-master-mobile-modal.entering,
+  .board-master-mobile-modal.exiting {
+    animation-duration: 100ms;
+  }
+  @keyframes board-master-modal-in {
+    from { opacity: 0; transform: none; }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes board-master-modal-out {
+    from { opacity: 1; transform: none; }
+    to   { opacity: 0; transform: none; }
+  }
+}
+
+/* ---------- Task modal (fullscreen) ---------- */
+
+.board-task-modal {
+  position: fixed;
+  inset: 0;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  transform-origin: center bottom;
+  will-change: opacity, transform;
+}
+
+/* Entry: fade in + scale from 96% + rise slightly. Slight vertical
+   translation gives a sense that the panel is "coming up" from the card
+   the user clicked, without needing to know the card's coordinates. The
+   ease-out curve `cubic-bezier(0.16, 1, 0.3, 1)` is the standard iOS-style
+   snappy settle. Duration deliberately short (200ms) so the modal feels
+   responsive, not sluggish. */
+.board-task-modal.entering {
+  animation: board-task-modal-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.board-task-modal.exiting {
+  animation: board-task-modal-out 200ms cubic-bezier(0.4, 0, 1, 1);
+  pointer-events: none;
+}
+
+@keyframes board-task-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(24px);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes board-task-modal-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(16px);
+  }
+}
+
+/* Respect user motion preferences — reduce to a plain fade with no
+   transform so the animation doesn't fight with vestibular sensitivity. */
+@media (prefers-reduced-motion: reduce) {
+  .board-task-modal.entering,
+  .board-task-modal.exiting {
+    animation-duration: 100ms;
+    animation-timing-function: ease;
+  }
+  @keyframes board-task-modal-in {
+    from { opacity: 0; transform: none; }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes board-task-modal-out {
+    from { opacity: 1; transform: none; }
+    to { opacity: 0; transform: none; }
+  }
+}
+
+.board-task-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.board-task-close {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  color: #cdd6f4;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.board-task-title-block { flex: 1; min-width: 0; }
+.board-task-key {
+  font-size: 12px;
+  color: #89b4fa;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+.board-task-title-block h2 {
+  margin: 2px 0 4px;
+  font-size: 18px;
+  color: #ecf0fe;
+}
+.board-task-jira {
+  font-size: 12px;
+  color: #89b4fa;
+  text-decoration: none;
+}
+
+.board-task-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.board-task-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  cursor: pointer;
+  font-size: 13px;
+}
+.board-task-btn.primary {
+  background: rgba(137, 180, 250, 0.18);
+  border-color: rgba(137, 180, 250, 0.5);
+  color: #89b4fa;
+}
+
+.board-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 22px;
+  color: #a6adc8;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.board-task-meta code {
+  font-family: monospace;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.board-task-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Two-panel layout on desktop, single-pane on mobile (tab-switcher).
+   `.info-collapsed` collapses the info panel to zero width so the
+   terminal fills the viewport when the user wants focus. */
+.board-task-body.split {
+  flex-direction: row;
+  overflow: hidden;
+}
+.board-task-body.split.info-collapsed .board-task-info-panel {
+  display: none;
+}
+
+/* Info panel — scrollable, capped width so it never crowds the terminal. */
+.board-task-info-panel {
+  width: 380px;
+  max-width: 42vw;
+  min-width: 260px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.015);
+}
+.board-task-info-title {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #6c7086;
+  margin-bottom: 12px;
+}
+.board-task-info-section-label {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #6c7086;
+  margin: 18px 0 8px;
+}
+
+/* Details grid — dt = label, dd = value. Aligns nicely without a table. */
+.board-task-details-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+.board-task-details-grid dt {
+  color: #6c7086;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 10px;
+  padding-top: 3px;
+}
+.board-task-details-grid dd {
+  margin: 0;
+  color: #cdd6f4;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.board-task-details-grid dd a {
+  color: #89b4fa;
+  text-decoration: none;
+}
+.board-task-details-grid dd code {
+  font-family: monospace;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.board-task-description {
+  font-family: monospace;
+  white-space: pre-wrap;
+  color: #cdd6f4;
+  font-size: 13px;
+  margin: 0;
+}
+.board-task-description-empty { color: #6c7086; font-size: 13px; }
+
+/* Terminal panel — takes the rest of the row. */
+.board-task-terminal-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+}
+.board-task-empty-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #6c7086;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+.board-task-empty-panel p { max-width: 340px; margin: 0; font-size: 12px; }
+
+/* Ghost variant of the header button — used for the collapse toggle. */
+.board-task-btn.ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #a6adc8;
+}
+.board-task-btn.ghost:hover { background: rgba(255, 255, 255, 0.06); color: #cdd6f4; }
+
+/* Warning variant — used for actions that touch Jira / GitHub / KB so
+   the user recognizes them as consequential before clicking. */
+.board-task-btn.warning {
+  background: rgba(249, 226, 175, 0.14);
+  border-color: rgba(249, 226, 175, 0.4);
+  color: #f9e2af;
+}
+.board-task-btn.warning:hover:not(:disabled) {
+  background: rgba(249, 226, 175, 0.24);
+  border-color: rgba(249, 226, 175, 0.6);
+}
+
+/* Mobile tab switcher — sits between header and body. */
+.board-task-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 22px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.board-task-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: #a6adc8;
+  font-size: 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.board-task-tab.active {
+  color: #ecf0fe;
+  border-bottom-color: #89b4fa;
+}
+
+@media (max-width: 768px) {
+  .board-task-body.split { flex-direction: column; }
+  .board-task-info-panel {
+    width: 100%;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  /* Compact header — the desktop layout wastes ~90px on mobile due to
+     the 18px h2 + 12px jira line + roomy vertical padding. Cut those in
+     half, hide the raw Jira URL (the key already links to the ticket in
+     the info panel), and switch action buttons to icon-only so the row
+     always fits on one line. */
+  /* Two-row header: title on top (close + key + h2), actions on the
+     second row (status selector + Restart / Wrap up). The previous
+     one-row layout squeezed the title into the same line as three
+     pill buttons and the selector — nothing fit. */
+  .board-task-header {
+    flex-wrap: wrap;
+    padding: 6px 10px 4px;
+    gap: 6px;
+    row-gap: 6px;
+  }
+  .board-task-close {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+  }
+  .board-task-title-block {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .board-task-title-block h2 {
+    font-size: 14px;
+    margin: 0;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .board-task-key {
+    font-size: 10px;
+    letter-spacing: 0.6px;
+    line-height: 1.1;
+  }
+  /* Jira link duplicates what the key already links to in the info tab.
+     Hide it on mobile to save a whole line. */
+  .board-task-jira { display: none; }
+
+  /* Actions get their own row so they no longer stack on top of the
+     title. Right-aligned and horizontally scrollable if they overflow
+     (e.g., extra actions on a long status label). */
+  .board-task-actions {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-end;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .board-task-actions::-webkit-scrollbar { display: none; }
+  .board-task-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  /* Collapse button labels — icons only on the phone. `.mobile-hide`
+     spans stay in the desktop DOM but disappear here. */
+  .board-task-btn .mobile-hide { display: none; }
+
+  /* Status selector shrinks to content on mobile — no fixed 110px
+     min-width, no need to reserve space for a long column name that
+     usually fits in ~60px. */
+  .board-task-status-select {
+    min-width: auto;
+    padding: 6px 22px 6px 10px;
+    background-size: auto, 8px 8px;
+    background-position: right 8px center;
+    font-size: 11px;
+    max-width: 130px;
+    flex-shrink: 0;
+  }
+
+  /* Tabs sit flush against the header without extra top gap. */
+  .board-task-tabs {
+    padding: 4px 12px 0;
+  }
+  .board-task-tab {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  /* Hide-on-mobile handled by the block at the bottom of this file
+     (see "Mobile-only overrides — must come after base rules"). Keeping
+     the rule out of this media query avoids a source-order collision
+     with `.board-task-terminal-toolbar { display: flex }` which is
+     defined LATER in the file. */
+}
+
+/* Auto-generated helper — makes it possible to mark bits of button
+   labels as mobile-only invisible without extra components. Applied by
+   wrapping the text portion of a button in <span className="mobile-hide">. */
+.board-task-btn .mobile-hide { display: inline; }
+
+/* Status selector — same pill shape as the action buttons so the header
+   reads as a single group of controls. Native <select> gives us the OS-
+   native dropdown on both desktop and mobile without any extra library. */
+.board-task-status-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 6px 26px 6px 12px;
+  border-radius: 999px;
+  background:
+    rgba(255, 255, 255, 0.06)
+    url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a6adc8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")
+    no-repeat right 10px center;
+  background-size: auto, 10px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  font-size: 12px;
+  cursor: pointer;
+  min-width: 110px;
+}
+.board-task-status-select:hover { background-color: rgba(255, 255, 255, 0.12); }
+.board-task-status-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.board-task-status-select option { background: #1e1e2e; color: #cdd6f4; }
+
+/* Quick access links — one per path-like property on the linked KB
+   entity. Icon + friendly label + monospace path + arrow. */
+.board-task-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.board-task-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(137, 180, 250, 0.06);
+  border: 1px solid rgba(137, 180, 250, 0.18);
+  color: #cdd6f4;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+  min-width: 0;
+}
+.board-task-link:hover {
+  background: rgba(137, 180, 250, 0.14);
+  border-color: rgba(137, 180, 250, 0.36);
+}
+.board-task-link > svg:first-child {
+  color: #89b4fa;
+  flex-shrink: 0;
+}
+.board-task-link-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ecf0fe;
+  flex-shrink: 0;
+}
+.board-task-link-path {
+  font-family: monospace;
+  font-size: 11px;
+  color: #a6adc8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.board-task-link-arrow {
+  color: #6c7086;
+  flex-shrink: 0;
+}
+.board-task-link:hover .board-task-link-arrow { color: #89b4fa; }
+
+.board-task-dead {
+  display: flex;
+  gap: 14px;
+  padding: 20px 22px;
+  border-radius: 12px;
+  background: rgba(249, 226, 175, 0.08);
+  border: 1px solid rgba(249, 226, 175, 0.28);
+  color: #f9e2af;
+  align-items: flex-start;
+}
+.board-task-dead strong {
+  display: block;
+  color: #f9e2af;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.board-task-dead p {
+  margin: 0;
+  color: #a6adc8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.board-task-meta-loading {
+  color: #89b4fa;
+  animation: pulseDim 1.4s ease-in-out infinite;
+}
+@keyframes pulseDim {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.board-task-btn .spinning { animation: spin 1s linear infinite; }
+
+.board-task-terminal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.board-task-terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 22px;
+  color: #a6adc8;
+  font-size: 12px;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.board-task-terminal-toolbar > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.board-task-terminal-toolbar button {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.board-task-iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #0f172a;
+}
+
+/* ---------- New Session Modal picker ---------- */
+
+.new-session-modal .ns-picker {
+  display: flex;
+  gap: 12px;
+  margin: 16px 0;
+}
+.new-session-modal .ns-picker-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  color: #cdd6f4;
+  cursor: pointer;
+  text-align: left;
+}
+.new-session-modal .ns-picker-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.new-session-modal .ns-picker-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(137, 180, 250, 0.15);
+  color: #89b4fa;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.new-session-modal .ns-picker-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ecf0fe;
+}
+.new-session-modal .ns-picker-desc {
+  font-size: 12px;
+  color: #a6adc8;
+  line-height: 1.4;
+}
+.new-session-modal .ns-label {
+  display: block;
+  font-size: 11px;
+  color: #a6adc8;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+.new-session-modal .ns-hint {
+  color: #a6adc8;
+  font-size: 11px;
+  margin: 6px 0 0;
+  line-height: 1.45;
+}
+.new-session-modal .modal-error {
+  padding: 8px 10px;
+  background: rgba(243, 139, 168, 0.12);
+  border: 1px solid rgba(243, 139, 168, 0.32);
+  border-radius: 8px;
+  color: #f38ba8;
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+/* ---------- Settings page ---------- */
+
+.board-settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.board-settings-section {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 18px 22px;
+}
+.board-settings-section h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: #ecf0fe;
+}
+.board-settings-hint {
+  color: #a6adc8;
+  font-size: 12px;
+  margin: 0 0 14px;
+}
+.board-settings-hint code {
+  font-family: monospace;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.board-settings-section label {
+  display: block;
+  color: #a6adc8;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+.board-settings-section input {
+  width: 100%;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #cdd6f4;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.board-settings-section input:disabled { opacity: 0.5; }
+
+.board-template-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+.board-template-info { flex: 1; min-width: 0; }
+.board-template-name {
+  color: #ecf0fe;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.board-template-tag {
+  padding: 1px 6px;
+  background: rgba(203, 166, 247, 0.15);
+  color: #cba6f7;
+  border-radius: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.board-template-desc {
+  color: #a6adc8;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.board-template-actions { display: inline-flex; gap: 6px; }
+
+/* ============================================================
+   Mobile-only overrides — LAST in the file so their rules win over
+   any base `.board-task-*` declarations that use `display: flex`
+   or similar. All rules here are scoped to viewports ≤ 768px.
+   ============================================================ */
+@media (max-width: 768px) {
+  /* Redundant "> Terminal [pop-out]" bar under the tab switcher — the
+     tab already labels the pane on mobile, and the pop-out isn't
+     useful on a phone. Kept on desktop by the base rule above. */
+  .board-task-terminal-toolbar { display: none; }
+}

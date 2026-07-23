@@ -19,6 +19,7 @@ import { telegramCommand } from './commands/telegram'
 import { gitAccountCommand } from './commands/git-account'
 import { awsAccountCommand } from './commands/aws-account'
 import { kbCommand } from './commands/kb'
+import { boardCommand } from './commands/board'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -59,6 +60,7 @@ telegramCommand(program)
 gitAccountCommand(program)
 awsAccountCommand(program)
 kbCommand(program)
+boardCommand(program)
 
 // Parse arguments
 program.parseAsync().then(() => {

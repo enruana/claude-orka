@@ -19,11 +19,35 @@ export interface NodePosition {
 export type SessionLayout = 'tiled' | 'even-horizontal' | 'even-vertical' | 'main-vertical'
 
 /**
+ * Distinguisher between "Classic" sessions (a plain Claude session on a
+ * project) and Board-related sessions (a master or a task terminal that
+ * belongs to a Board). Absent = classic — keeps `.claude-orka/state.json`
+ * files written by older Orka versions readable without migration.
+ */
+export type SessionKind = 'classic' | 'board-master' | 'board-task'
+
+/**
+ * Link from a board-* Session back to its Board. Only present when
+ * `kind !== 'classic'`.
+ */
+export interface BoardSessionRef {
+  boardId: string
+  /** Only set on `board-task` sessions — points at the ticket. */
+  taskKey?: string
+}
+
+/**
  * Representa una sesión de Claude Code
  */
 export interface Session {
   /** ID único de la sesión (session-{nanoid}) */
   id: string
+
+  /** Session flavor. Absent = classic (default). */
+  kind?: SessionKind
+
+  /** Board back-reference when `kind` is `board-master` or `board-task`. */
+  boardRef?: BoardSessionRef
 
   /** Descriptive session name */
   name: string
