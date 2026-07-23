@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { api, RegisteredProject, Session } from '../api/client'
+import { api, RegisteredProject, Session, type BoardIndexEntry } from '../api/client'
+import { CopyFromTerminalModal, useCopyFromTerminalShortcut } from './CopyFromTerminalModal'
 import {
   Folder,
   FolderOpen,
@@ -15,8 +16,11 @@ import {
   Settings,
   Terminal,
   Smartphone,
+  Save,
 } from 'lucide-react'
 import { FolderBrowser } from './FolderBrowser'
+import { NewSessionModal } from './NewSessionModal'
+import { GroupPickerModal } from './GroupPickerModal'
 import { usePageTitle } from '../hooks/usePageTitle'
 
 // Helper to encode/decode project paths for URLs
@@ -40,6 +44,7 @@ interface ProjectWithSessions extends RegisteredProject {
   sessions: Session[]
   sessionsLoading: boolean
   versionInfo: VersionInfo | null
+  boards: BoardIndexEntry[]
 }
 
 const UNGROUPED_KEY = '__ungrouped__'
@@ -58,6 +63,10 @@ export function ProjectDashboard() {
   const [resumingSessionId, setResumingSessionId] = useState<string | null>(null)
   const [reinitializingProject, setReinitializingProject] = useState<string | null>(null)
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
+  // Save All state: `isSavingAll` disables the button; `saveAllToast`
+  // shows a short confirmation with the aggregated counts.
+  const [isSavingAll, setIsSavingAll] = useState(false)
+  const [saveAllToast, setSaveAllToast] = useState<string | null>(null)
 
   // Group assignment state
   const [showGroupModal, setShowGroupModal] = useState<string | null>(null)
@@ -72,6 +81,24 @@ export function ProjectDashboard() {
   const [systemTerminalPort, setSystemTerminalPort] = useState<number | null>(null)
   const [terminalLoading, setTerminalLoading] = useState(true)
   const terminalIframeRef = useRef<HTMLIFrameElement>(null)
+  const [copyTerminalOpen, setCopyTerminalOpen] = useState(false)
+
+  // Fetch plain + ANSI captures of the system terminal for the copy modal.
+  const captureSystemTerminal = useCallback(async () => {
+    const [plainRes, ansiRes] = await Promise.all([
+      api.captureSystemTerminal({ lines: 400 }),
+      api.captureSystemTerminal({ lines: 400, ansi: true }),
+    ])
+    return { plain: plainRes.text || '', ansi: ansiRes.text || '' }
+  }, [])
+
+  // Cmd/Ctrl+L (and the postMessage forwarded from inside the terminal
+  // iframe) toggles the Copy from Terminal modal — but only when the
+  // system terminal is actually mounted.
+  useCopyFromTerminalShortcut(
+    !!systemTerminalPort,
+    useCallback(() => setCopyTerminalOpen(prev => !prev), []),
+  )
 
   // Persist activeFolder
   useEffect(() => {
@@ -98,6 +125,7 @@ export function ProjectDashboard() {
         projectList.map(async (project) => {
           let sessions: Session[] = []
           let versionInfo: VersionInfo | null = null
+          let boards: BoardIndexEntry[] = []
 
           try {
             sessions = await api.listSessions(project.path)
@@ -107,11 +135,16 @@ export function ProjectDashboard() {
             versionInfo = await api.checkProjectVersion(project.path)
           } catch {}
 
+          try {
+            boards = await api.listBoards(project.path)
+          } catch {}
+
           return {
             ...project,
             sessions,
             sessionsLoading: false,
             versionInfo,
+            boards,
           }
         })
       )
@@ -179,6 +212,62 @@ export function ProjectDashboard() {
   const hasGroups = groupedProjects.some(g => g.key !== UNGROUPED_KEY)
 
   // Handlers
+
+  /**
+   * Save a lossless snapshot of every session in every registered
+   * project. The backend endpoint is per-project (`POST /save-all?
+   * project=...`), so we fan out client-side and aggregate. Failures on
+   * individual projects don't stop the run — each project either
+   * contributes counts to the toast or an error line.
+   *
+   * This is the "big red safety net": before rebooting, before killing
+   * tmux, or just periodically. Non-destructive — nothing is stopped or
+   * killed.
+   */
+  const handleSaveAll = async () => {
+    if (isSavingAll) return
+    setIsSavingAll(true)
+    setSaveAllToast(null)
+    let totalSaved = 0
+    let totalFailed = 0
+    let totalBranches = 0
+    const projectErrors: string[] = []
+
+    try {
+      // Run projects in parallel — each project has independent state
+      // (its own .claude-orka/state.json) so there's no lock contention.
+      await Promise.all(
+        projects.map(async (p) => {
+          try {
+            const r = await api.saveAllSessions(p.path)
+            totalSaved += r.saved
+            totalFailed += r.failed
+            totalBranches += r.results.reduce((n, s) => n + s.branchesSaved, 0)
+          } catch (err: any) {
+            projectErrors.push(`${p.name}: ${err?.message || err}`)
+          }
+        })
+      )
+
+      const parts: string[] = [`Saved ${totalSaved} session${totalSaved === 1 ? '' : 's'}`]
+      if (totalBranches) parts.push(`${totalBranches} branches`)
+      if (totalFailed) parts.push(`${totalFailed} failed`)
+      const msg = parts.join(' · ')
+      setSaveAllToast(projectErrors.length
+        ? `${msg} · ${projectErrors.length} project error(s)`
+        : msg)
+      // Refresh sessions in the sidebar so any updated lastActivity /
+      // status shows immediately.
+      await loadAllData()
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save all sessions')
+    } finally {
+      setIsSavingAll(false)
+      // Auto-hide the toast after 5s so it doesn't linger.
+      setTimeout(() => setSaveAllToast(null), 5000)
+    }
+  }
+
   const handleReinitialize = async (projectPath: string) => {
     setReinitializingProject(projectPath)
     try {
@@ -312,14 +401,22 @@ export function ProjectDashboard() {
           </div>
           <div className="pcard-badges">
             {project.versionInfo && !project.versionInfo.isOutdated && (
-              <span className="pcard-badge version">v{project.versionInfo.currentVersion}</span>
+              <button
+                className="pcard-badge version"
+                onClick={(e) => { e.stopPropagation(); handleReinitialize(project.path) }}
+                disabled={isReinitializing}
+                title="Refresh skills and re-run project init (no version change)"
+              >
+                <RotateCw size={11} className={isReinitializing ? 'spinning' : ''} />
+                v{project.versionInfo.currentVersion}
+              </button>
             )}
             {project.versionInfo?.isOutdated && (
               <button
                 className="pcard-badge outdated"
                 onClick={(e) => { e.stopPropagation(); handleReinitialize(project.path) }}
                 disabled={isReinitializing}
-                title="Sync version"
+                title={`Sync to Orka v${project.versionInfo.currentVersion} (installs latest skills + tmux theme)`}
               >
                 <RotateCw size={11} className={isReinitializing ? 'spinning' : ''} />
                 Sync
@@ -335,6 +432,26 @@ export function ProjectDashboard() {
             </button>
           </div>
         </div>
+
+        {/* Boards — sit above sessions so a project with a board doesn't
+            hide it below a long session list. Each row opens the board
+            page in this same tab. */}
+        {project.boards.length > 0 && (
+          <div className="pcard-boards">
+            {project.boards.map((b) => (
+              <div
+                key={b.id}
+                className="pcard-board"
+                onClick={() => navigate(`/projects/${encodeProjectPath(project.path)}/boards/${b.id}`)}
+                title={b.jiraUrl}
+              >
+                <span className="pcard-board-dot" />
+                <span className="pcard-board-name">{b.name}</span>
+                <span className="pcard-board-tag">board</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Sessions */}
         <div className="pcard-sessions">
@@ -426,6 +543,23 @@ export function ProjectDashboard() {
           <button className="icon-button" onClick={loadAllData} title="Refresh">
             <RefreshCw size={18} />
           </button>
+          {/* Save All: fans out per-project to /api/sessions/save-all so
+              every session's claudeSessionId, untracked panes and
+              context summary are refreshed and persisted. Safe to click
+              any time — nothing is stopped. */}
+          <button
+            className="save-all-button"
+            onClick={handleSaveAll}
+            disabled={isSavingAll || projects.length === 0}
+            title={
+              projects.length === 0
+                ? 'No projects to save'
+                : 'Save a lossless snapshot of every session in every project'
+            }
+          >
+            <Save size={16} className={isSavingAll ? 'spinning' : ''} />
+            <span className="btn-text">{isSavingAll ? 'Saving…' : 'Save All'}</span>
+          </button>
           <button className="add-button primary" onClick={() => setShowAddProject(true)}>
             <Plus size={16} />
             <span className="btn-text">Add Project</span>
@@ -437,6 +571,13 @@ export function ProjectDashboard() {
         <div className="error-banner">
           {error}
           <button onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
+
+      {saveAllToast && (
+        <div className="save-all-toast">
+          <Save size={14} />
+          {saveAllToast}
         </div>
       )}
 
@@ -543,6 +684,13 @@ export function ProjectDashboard() {
         </button>
       )}
 
+      {/* Copy from Terminal — Cmd+L on the system terminal iframe */}
+      <CopyFromTerminalModal
+        open={copyTerminalOpen}
+        onClose={() => setCopyTerminalOpen(false)}
+        captureFn={captureSystemTerminal}
+      />
+
       {/* Add Project Modal */}
       {showAddProject && (
         <div className="modal-overlay" onClick={() => setShowAddProject(false)}>
@@ -555,94 +703,34 @@ export function ProjectDashboard() {
         </div>
       )}
 
-      {/* New Session Modal */}
+      {/* New Session Modal — unified picker (Classic | Board) */}
       {showNewSession && (
-        <div className="modal-overlay" onClick={() => setShowNewSession(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>New Session</h3>
-            <p className="modal-subtitle">
-              Create a new session in{' '}
-              <strong>{projects.find((p) => p.path === showNewSession)?.name}</strong>
-            </p>
-            <input
-              type="text"
-              value={newSessionName}
-              onChange={(e) => setNewSessionName(e.target.value)}
-              placeholder="Session name (optional)"
-              autoFocus
-              onKeyPress={(e) => e.key === 'Enter' && handleCreateSession(showNewSession)}
-            />
-            <div className="modal-buttons">
-              <button className="button-secondary" onClick={() => setShowNewSession(null)}>
-                Cancel
-              </button>
-              <button
-                className="button-primary"
-                onClick={() => handleCreateSession(showNewSession)}
-                disabled={isCreating}
-              >
-                {isCreating ? 'Creating...' : 'Create'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <NewSessionModal
+          projectPath={showNewSession}
+          projectName={projects.find((p) => p.path === showNewSession)?.name}
+          onCancel={() => setShowNewSession(null)}
+          onCreated={(result) => {
+            setShowNewSession(null)
+            const encoded = encodeProjectPath(showNewSession)
+            if (result.kind === 'classic') {
+              navigate(`/projects/${encoded}/sessions/${result.sessionId}`)
+            } else {
+              navigate(`/projects/${encoded}/boards/${result.boardId}`)
+            }
+            void loadAllData()
+          }}
+        />
       )}
 
-      {/* Group Assignment Modal */}
+      {/* Group / tag picker — shared component with the launcher. */}
       {showGroupModal && (
-        <div className="modal-overlay" onClick={() => { setShowGroupModal(null); setGroupInput('') }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Assign Group</h3>
-            <p className="modal-subtitle">
-              Organize <strong>{projects.find((p) => p.path === showGroupModal)?.name}</strong> into a group
-            </p>
-            <input
-              type="text"
-              value={groupInput}
-              onChange={(e) => setGroupInput(e.target.value)}
-              placeholder="Group name (leave empty to ungroup)"
-              autoFocus
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  handleSetGroup(showGroupModal, groupInput.trim() || null)
-                }
-              }}
-            />
-            {existingGroups.length > 0 && (
-              <div className="group-suggestions">
-                {existingGroups.map((g) => (
-                  <button
-                    key={g}
-                    className={`group-suggestion-btn ${groupInput === g ? 'selected' : ''}`}
-                    onClick={() => setGroupInput(g)}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="modal-buttons">
-              <button className="button-secondary" onClick={() => { setShowGroupModal(null); setGroupInput('') }}>
-                Cancel
-              </button>
-              {projects.find(p => p.path === showGroupModal)?.group && (
-                <button
-                  className="button-secondary"
-                  onClick={() => handleSetGroup(showGroupModal, null)}
-                  style={{ color: 'var(--accent-red)' }}
-                >
-                  Remove Group
-                </button>
-              )}
-              <button
-                className="button-primary"
-                onClick={() => handleSetGroup(showGroupModal, groupInput.trim() || null)}
-              >
-                {groupInput.trim() ? 'Save' : 'Ungroup'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <GroupPickerModal
+          projectName={projects.find((p) => p.path === showGroupModal)?.name || showGroupModal}
+          currentGroup={projects.find((p) => p.path === showGroupModal)?.group || null}
+          existingGroups={existingGroups}
+          onClose={() => { setShowGroupModal(null); setGroupInput('') }}
+          onApply={(value) => handleSetGroup(showGroupModal, value)}
+        />
       )}
     </div>
   )

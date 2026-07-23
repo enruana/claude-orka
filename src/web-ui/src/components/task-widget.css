@@ -147,6 +147,112 @@
   color: #1e1e2e;
 }
 
+.speed-dial-btn.pins {
+  background: linear-gradient(135deg, #f472b6 0%, #a78bfa 100%);
+  color: white;
+}
+
+/* Pin list — one row per pinned KB entity */
+.pin-item {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.pin-item:last-child {
+  border-bottom: none;
+}
+
+.pin-item-open {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  min-width: 0; /* let inner text truncate instead of pushing the × out */
+}
+
+.pin-item-open:hover {
+  background: var(--hover-bg, rgba(255, 255, 255, 0.05));
+  border-color: var(--border-color);
+}
+
+.pin-item-icon {
+  flex-shrink: 0;
+  color: var(--accent-blue);
+}
+
+.pin-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pin-item-title {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.pin-item-type {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(120, 130, 200, 0.18);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.pin-item-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}
+
+.pin-item-unpin {
+  flex-shrink: 0;
+  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.pin-item-unpin:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
 /* Copy from Terminal — fullscreen modal */
 .copy-terminal-overlay {
   position: fixed;

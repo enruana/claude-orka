@@ -1,35 +1,13 @@
-import { useState, useEffect, useRef, useCallback, memo } from 'react'
-import { createPortal } from 'react-dom'
-import { Plus, X, Check, Trash2, ClipboardList, Mic, ListTodo, MessageSquare, Terminal, Copy as CopyIcon } from 'lucide-react'
-import { AnsiUp } from 'ansi_up'
-import { api, ProjectTask } from '../api/client'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Plus, X, Check, Trash2, ClipboardList, Mic, ListTodo, MessageSquare, Terminal, Pin, FolderOpen } from 'lucide-react'
+import { api, ProjectTask, ProjectPin } from '../api/client'
 import { VoiceInputPopover } from './VoiceInputPopover'
 import { CommentWidget } from './CommentWidget'
+import { CopyFromTerminalModal } from './CopyFromTerminalModal'
+import { encodeProjectPath } from './ProjectDashboard'
 import './task-widget.css'
 
-type ActivePanel = 'none' | 'menu' | 'tasks' | 'voice' | 'comments' | 'copy-terminal'
-
-/**
- * The captured terminal `<pre>` lives behind `React.memo` so it does NOT
- * re-render when the parent re-renders with stable html/plain props
- * (e.g. when the launcher modal's 2s poll triggers a cascade). Without
- * the memo, React would reconcile a fresh `dangerouslySetInnerHTML`
- * object literal on each parent render and could touch the underlying
- * DOM nodes — collapsing any active text selection the user was making.
- *
- * Also: `highlightTerminalDom` mutates this `<pre>`'s innerHTML after
- * the initial render. Re-rendering would overwrite those mutations with
- * the original __html and erase the syntax-style coloring on top of
- * what ansi_up already produced.
- */
-const TerminalPre = memo(function TerminalPre({
-  html, plain,
-}: { html: string; plain: string }) {
-  if (html) {
-    return <pre className="copy-terminal-pre" dangerouslySetInnerHTML={{ __html: html }} />
-  }
-  return <pre className="copy-terminal-pre">{plain}</pre>
-})
+type ActivePanel = 'none' | 'menu' | 'tasks' | 'voice' | 'comments' | 'copy-terminal' | 'pins'
 
 interface TaskWidgetProps {
   projectPath: string
@@ -38,6 +16,11 @@ interface TaskWidgetProps {
    *  `/projects/:enc/sessions/:id` path (e.g. inside the launcher modal,
    *  which keeps the user on `/launcher` while showing a session). */
   sessionId?: string
+  /** When present, redirects terminal-related actions (Copy from Terminal
+   *  capture, Cmd+K context) to the board task endpoints instead of the
+   *  classic session ones. Board task terminals aren't stored in
+   *  `state.json` so the classic capture returns 404 for their key. */
+  boardContext?: { boardId: string; taskKey: string }
 }
 
 interface FabPosition {
@@ -94,86 +77,7 @@ function getSessionIdFromUrl(): string | null {
   return match ? match[1] : null
 }
 
-/**
- * Walk a DOM tree and apply regex-based highlighting to text nodes only.
- * Modifies the tree in place — won't double-wrap text already inside an
- * existing colored span from ansi_up, because we skip element node children
- * that already contain inline style colors (they're already visually distinct).
- */
-function highlightTerminalDom(root: HTMLElement): void {
-  const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/g
-  const PATH_RE = /(?<![\w./])(\/[\w.\-/]+(?:\.[a-z0-9]+)?)(?=[\s:,;)\]"'`]|$)/gi
-  const NUM_RE = /\b\d+(?:\.\d+)*\b/g
-  const KEYWORD_ERR_RE = /\b(ERROR|ERR|FAIL|FAILED|WARN|WARNING|DENIED|REJECTED)\b/g
-  const KEYWORD_OK_RE = /\b(SUCCESS|OK|PASS|PASSED|INFO|DEBUG|DONE|READY)\b/g
-  const QUOTED_RE = /(["'`])(?:(?=(\\?))\2.)*?\1/g
-
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  const textNodes: Text[] = []
-  let node: Node | null
-  // Collect first to avoid mutating during iteration
-  while ((node = walker.nextNode())) {
-    textNodes.push(node as Text)
-  }
-
-  for (const textNode of textNodes) {
-    const text = textNode.nodeValue || ''
-    if (!text.trim()) continue
-
-    // Build a list of (start, end, className, href?) replacements, prioritized
-    type Hit = { start: number; end: number; className: string; href?: string }
-    const hits: Hit[] = []
-    const addHits = (re: RegExp, className: string, hrefFn?: (m: string) => string) => {
-      re.lastIndex = 0
-      let m: RegExpExecArray | null
-      while ((m = re.exec(text))) {
-        hits.push({ start: m.index, end: m.index + m[0].length, className, href: hrefFn?.(m[0]) })
-      }
-    }
-    addHits(URL_RE, 'hl-url', (u) => u)
-    addHits(PATH_RE, 'hl-path')
-    addHits(QUOTED_RE, 'hl-string')
-    addHits(KEYWORD_ERR_RE, 'hl-keyword-error')
-    addHits(KEYWORD_OK_RE, 'hl-keyword-ok')
-    addHits(NUM_RE, 'hl-number')
-
-    if (hits.length === 0) continue
-
-    // Resolve overlaps — keep the earliest, longest match
-    hits.sort((a, b) => a.start - b.start || b.end - a.end)
-    const merged: Hit[] = []
-    for (const h of hits) {
-      const last = merged[merged.length - 1]
-      if (!last || h.start >= last.end) merged.push(h)
-    }
-
-    // Replace the text node with a fragment containing highlighted spans
-    const frag = document.createDocumentFragment()
-    let cursor = 0
-    for (const h of merged) {
-      if (h.start > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, h.start)))
-      let el: HTMLElement
-      if (h.href) {
-        const a = document.createElement('a')
-        a.href = h.href
-        a.target = '_blank'
-        a.rel = 'noopener noreferrer'
-        a.className = h.className
-        el = a
-      } else {
-        el = document.createElement('span')
-        el.className = h.className
-      }
-      el.textContent = text.slice(h.start, h.end)
-      frag.appendChild(el)
-      cursor = h.end
-    }
-    if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)))
-    textNode.parentNode?.replaceChild(frag, textNode)
-  }
-}
-
-export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidgetProps) {
+export function TaskWidget({ projectPath, sessionId: sessionIdProp, boardContext }: TaskWidgetProps) {
   const [active, setActive] = useState<ActivePanel>('none')
   const [tasks, setTasks] = useState<ProjectTask[]>([])
   const [newTitle, setNewTitle] = useState('')
@@ -181,14 +85,9 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
   const [terminalAvailable, setTerminalAvailable] = useState(false)
   const [position, setPosition] = useState<FabPosition>(() => loadPosition() || getDefaultPosition())
   const [dragging, setDragging] = useState(false)
-  const [terminalCapture, setTerminalCapture] = useState<string>('')
-  const [terminalCaptureHtml, setTerminalCaptureHtml] = useState<string>('')
-  const [capturing, setCapturing] = useState(false)
-  const [copyFeedback, setCopyFeedback] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const copyTerminalBodyRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef({
     active: false,
     startX: 0,
@@ -200,6 +99,7 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
 
   const pendingCount = tasks.filter(t => !t.completed).length
   const [commentCount, setCommentCount] = useState(0)
+  const [pins, setPins] = useState<ProjectPin[]>([])
 
   // Fetch comment count for badge
   useEffect(() => {
@@ -213,6 +113,43 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
     const interval = setInterval(fetchCount, 5000)
     return () => clearInterval(interval)
   }, [projectPath])
+
+  // Fetch pins — populate the pins panel and drive the badge on the FAB
+  // speed-dial button. Polling every 5s covers the case where the user
+  // pinned in a KB detail panel opened in another tab.
+  useEffect(() => {
+    const fetchPins = async () => {
+      try {
+        const list = await api.listPins(projectPath)
+        setPins(list)
+      } catch { /* ignore — non-critical */ }
+    }
+    fetchPins()
+    const interval = setInterval(fetchPins, 5000)
+    return () => clearInterval(interval)
+  }, [projectPath])
+
+  const encodedProject = encodeProjectPath(projectPath)
+
+  const handleOpenPin = (pin: ProjectPin) => {
+    // Navigate to the Finder rooted at the pinned folder. Same URL shape
+    // `handleOpenFile` in KBDetailPanel uses for a folder target, minus
+    // the `_blank` window flag — the FAB is inside SessionView so we
+    // want the user to stay in the same tab.
+    const url = `/projects/${encodedProject}/files?path=${encodeURIComponent(pin.folderPath)}`
+    window.open(url, '_blank')
+  }
+
+  const handleUnpin = async (entityId: string) => {
+    // Optimistic update — remove locally, roll back on error.
+    const previous = pins
+    setPins(prev => prev.filter(p => p.entityId !== entityId))
+    try {
+      await api.deletePin(projectPath, entityId)
+    } catch {
+      setPins(previous)
+    }
+  }
 
   // Determine which side popovers should open toward
   const fabCenterX = position.x + FAB_SIZE / 2
@@ -312,25 +249,6 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
     }
   }, [active, fetchTasks])
 
-  // Auto-scroll the copy-terminal modal to the bottom when content loads
-  // and apply syntax-like highlighting (URLs, paths, numbers, keywords, strings)
-  // (terminal prompt / most recent output is at the end — user wants to see that first)
-  useEffect(() => {
-    if (active === 'copy-terminal' && !capturing) {
-      const body = copyTerminalBodyRef.current
-      if (body) {
-        requestAnimationFrame(() => {
-          // Apply extra highlighting on top of ansi_up's colors
-          const pre = body.querySelector('pre.copy-terminal-pre') as HTMLElement | null
-          if (pre) {
-            try { highlightTerminalDom(pre) } catch {}
-          }
-          body.scrollTop = body.scrollHeight
-        })
-      }
-    }
-  }, [active, capturing, terminalCapture, terminalCaptureHtml])
-
   // Click outside to close — skipped for copy-terminal which renders via portal
   // and has its own click-outside handler on the overlay. Without this skip,
   // any mousedown inside the portalled modal would close it mid-selection.
@@ -369,7 +287,7 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
         return
       }
       if (active !== 'none' && active !== 'menu') return
-      openCopyTerminal()
+      setActive('copy-terminal')
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -399,61 +317,29 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
     }
   }, [terminalAvailable, active]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openCopyTerminal = async () => {
-    setActive('copy-terminal')
-    setCapturing(true)
-    setTerminalCapture('')
-    setTerminalCaptureHtml('')
-    setCopyFeedback(false)
-    try {
-      // Prefer the prop (used by the launcher modal, where the URL stays
-      // on /launcher); fall back to URL parse for the canonical
-      // /projects/.../sessions/... route.
-      const sessionId = sessionIdProp || getSessionIdFromUrl()
-      if (!sessionId) {
-        setTerminalCapture('(No active session found in URL)')
-        return
-      }
-      // Fetch both plain (for clipboard) and ANSI-colored (for display) versions
+  // Terminal capture — fetches both plain (for clipboard) and ANSI (for
+  // display) from the current session's active pane. When `boardContext`
+  // is set the capture routes through the Board task endpoint (pane info
+  // lives in `.boards/<id>/tasks.json`, not `state.json`); otherwise it
+  // falls back to the classic session flow.
+  const captureSession = useCallback(async () => {
+    if (boardContext) {
       const [plainRes, ansiRes] = await Promise.all([
-        api.captureTerminalPane(projectPath, sessionId, { lines: 400 }),
-        api.captureTerminalPane(projectPath, sessionId, { lines: 400, ansi: true }),
+        api.captureBoardTaskPane(projectPath, boardContext.boardId, boardContext.taskKey, { lines: 400 }),
+        api.captureBoardTaskPane(projectPath, boardContext.boardId, boardContext.taskKey, { lines: 400, ansi: true }),
       ])
-
-      let plain = plainRes.text.replace(/\n+$/, '')
-      if (plain.length > 5000) plain = '…' + plain.slice(-5000)
-      setTerminalCapture(plain)
-
-      try {
-        const converter = new AnsiUp()
-        ;(converter as any).use_classes = false
-        const html = converter.ansi_to_html(ansiRes.text || '')
-        setTerminalCaptureHtml(html)
-      } catch {
-        setTerminalCaptureHtml('')
-      }
-    } catch (err: any) {
-      setTerminalCapture(`(Failed to capture terminal: ${err.message || err})`)
-    } finally {
-      setCapturing(false)
+      return { plain: plainRes.text || '', ansi: ansiRes.text || '' }
     }
-  }
-
-  const handleCopyTerminalText = async () => {
-    if (!terminalCapture) return
-    try {
-      await navigator.clipboard.writeText(terminalCapture)
-    } catch {
-      const ta = document.createElement('textarea')
-      ta.value = terminalCapture
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      document.body.removeChild(ta)
+    const sessionId = sessionIdProp || getSessionIdFromUrl()
+    if (!sessionId) {
+      return { plain: '(No active session found in URL)', ansi: '' }
     }
-    setCopyFeedback(true)
-    setTimeout(() => setCopyFeedback(false), 1500)
-  }
+    const [plainRes, ansiRes] = await Promise.all([
+      api.captureTerminalPane(projectPath, sessionId, { lines: 400 }),
+      api.captureTerminalPane(projectPath, sessionId, { lines: 400, ansi: true }),
+    ])
+    return { plain: plainRes.text || '', ansi: ansiRes.text || '' }
+  }, [projectPath, sessionIdProp, boardContext])
 
   // --- Task CRUD ---
   const handleAdd = async () => {
@@ -592,7 +478,7 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
             <div className="speed-dial-item">
               {opensRight ? (
                 <>
-                  <button className="speed-dial-btn copy-terminal" onClick={openCopyTerminal} title="Copy from Terminal">
+                  <button className="speed-dial-btn copy-terminal" onClick={() => openPanel('copy-terminal')} title="Copy from Terminal">
                     <Terminal size={20} />
                   </button>
                   <span className="speed-dial-label">Copy Terminal</span>
@@ -600,13 +486,34 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
               ) : (
                 <>
                   <span className="speed-dial-label">Copy Terminal</span>
-                  <button className="speed-dial-btn copy-terminal" onClick={openCopyTerminal} title="Copy from Terminal">
+                  <button className="speed-dial-btn copy-terminal" onClick={() => openPanel('copy-terminal')} title="Copy from Terminal">
                     <Terminal size={20} />
                   </button>
                 </>
               )}
             </div>
           )}
+          {/* Pinned KB shortcuts. Badge shows the current count so the user
+              knows at a glance whether there's anything to jump to. */}
+          <div className="speed-dial-item">
+            {opensRight ? (
+              <>
+                <button className="speed-dial-btn pins" onClick={() => openPanel('pins')} title="Pinned shortcuts">
+                  <Pin size={20} />
+                  {pins.length > 0 && <span className="task-count-badge">{pins.length}</span>}
+                </button>
+                <span className="speed-dial-label">Pinned</span>
+              </>
+            ) : (
+              <>
+                <span className="speed-dial-label">Pinned</span>
+                <button className="speed-dial-btn pins" onClick={() => openPanel('pins')} title="Pinned shortcuts">
+                  <Pin size={20} />
+                  {pins.length > 0 && <span className="task-count-badge">{pins.length}</span>}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -696,61 +603,67 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
           projectPath={projectPath}
           onClose={() => setActive('none')}
           popoverStyle={popoverStyle}
+          sessionId={sessionIdProp || getSessionIdFromUrl() || undefined}
         />
       )}
 
-      {/* Copy from Terminal fullscreen modal — rendered via portal to escape
-          ancestor stacking contexts (the FAB container has position:fixed which
-          creates its own context, trapping child z-indexes). */}
-      {active === 'copy-terminal' && createPortal(
-        <div
-          className="copy-terminal-overlay"
-          onMouseDown={(e) => {
-            // Only close when the mousedown (not just mouseup) happened on the overlay.
-            // This prevents closing when the user drags-to-select text starting inside
-            // the modal and releases the mouse over the overlay.
-            if (e.target === e.currentTarget) setActive('none')
-          }}
-        >
-          <div className="copy-terminal-modal" onClick={e => e.stopPropagation()}>
-            <div className="copy-terminal-modal-header">
-              <span className="copy-terminal-modal-title">
-                <Terminal size={18} />
-                Terminal capture
-                {terminalCapture && <span className="copy-terminal-chars">{terminalCapture.length} chars</span>}
-              </span>
-              <div className="copy-terminal-modal-actions">
-                <button
-                  className={`copy-terminal-btn-primary ${copyFeedback ? 'success' : ''}`}
-                  disabled={!terminalCapture || capturing}
-                  onClick={handleCopyTerminalText}
-                >
-                  {copyFeedback ? (<><Check size={14} /> Copied</>) : (<><CopyIcon size={14} /> Copy all</>)}
-                </button>
-                <button className="copy-terminal-btn-close" onClick={() => setActive('none')} title="Close">
-                  <X size={18} />
-                </button>
-              </div>
-            </div>
-            <div className="copy-terminal-modal-body" ref={copyTerminalBodyRef}>
-              {capturing ? (
-                <div className="copy-terminal-loading-fs">
-                  <div className="spinner" />
-                  <span>Capturing terminal…</span>
-                </div>
-              ) : (
-                <TerminalPre html={terminalCaptureHtml} plain={terminalCapture} />
-              )}
-            </div>
-            <div className="copy-terminal-modal-footer">
-              <span className="copy-terminal-hint-fs">
-                Select any text and Cmd+C to copy, or use "Copy all" to grab everything
-              </span>
-            </div>
+      {/* Pinned KB shortcuts popover */}
+      {active === 'pins' && (
+        <div className="task-popover" style={popoverStyle}>
+          <div className="task-popover-header">
+            <span className="task-popover-title">Pinned</span>
+            <button className="task-popover-close" onClick={() => setActive('none')}>
+              <X size={16} />
+            </button>
           </div>
-        </div>,
-        document.body
+
+          <div className="task-list">
+            {pins.length === 0 ? (
+              <div className="task-empty">
+                <div className="task-empty-icon">
+                  <Pin size={32} />
+                </div>
+                No pinned entities yet.
+                <br />
+                Pin one from the KB detail panel.
+              </div>
+            ) : (
+              pins.map(pin => (
+                <div key={pin.entityId} className="pin-item">
+                  <button
+                    className="pin-item-open"
+                    onClick={() => handleOpenPin(pin)}
+                    title={pin.folderPath}
+                  >
+                    <FolderOpen size={16} className="pin-item-icon" />
+                    <span className="pin-item-body">
+                      <span className="pin-item-title">{pin.title}</span>
+                      <span className="pin-item-meta">
+                        <span className={`pin-item-type type-${pin.type}`}>{pin.type}</span>
+                        <span className="pin-item-path">{pin.folderPath}</span>
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    className="pin-item-unpin"
+                    onClick={() => handleUnpin(pin.entityId)}
+                    title="Unpin"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
+
+      {/* Copy from Terminal fullscreen modal */}
+      <CopyFromTerminalModal
+        open={active === 'copy-terminal'}
+        onClose={() => setActive('none')}
+        captureFn={captureSession}
+      />
 
       {/* Main FAB - draggable */}
       <button
@@ -763,8 +676,8 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp }: TaskWidget
         <span className="actions-fab-icon">
           <Plus size={24} />
         </span>
-        {active === 'none' && (pendingCount + commentCount) > 0 && (
-          <span className="actions-fab-badge">{pendingCount + commentCount}</span>
+        {active === 'none' && (pendingCount + commentCount + pins.length) > 0 && (
+          <span className="actions-fab-badge">{pendingCount + commentCount + pins.length}</span>
         )}
       </button>
     </div>

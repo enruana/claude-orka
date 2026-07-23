@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain, BookMarked, Calendar, Sparkles, Copy as CopyIcon } from 'lucide-react'
+import { X, ExternalLink, Circle, FolderOpen, FileText, Globe, Send, Check, Brain, BookMarked, Calendar, Sparkles, Copy as CopyIcon, Pin, PinOff } from 'lucide-react'
 import { api, type KBEntity } from '../../api/client'
 
 type KBSchema = {
@@ -174,12 +174,29 @@ export function KBDetailPanel({ entity, allEntities, encodedPath, projectPath, s
   const [schema, setSchema] = useState<KBSchema | null>(null)
   const [savingStatus, setSavingStatus] = useState<string | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
+  // Pin/unpin state — tracked per selected entity. `isPinned` starts null
+  // until we've fetched the pin list; that avoids a flicker where the
+  // button reads "Pin" for a split second on an already-pinned entity.
+  const [isPinned, setIsPinned] = useState<boolean | null>(null)
+  const [pinBusy, setPinBusy] = useState(false)
 
   useEffect(() => {
     let alive = true
     loadKBSchema().then(s => { if (alive) setSchema(s) }).catch(() => {})
     return () => { alive = false }
   }, [])
+
+  // Fetch pin status whenever the selected entity changes. Cheap — just
+  // reads the project's own pin list (a few dozen items at most). Also
+  // covers the case where the user pinned/unpinned in another tab.
+  useEffect(() => {
+    if (!entity) { setIsPinned(null); return }
+    let alive = true
+    api.listPins(projectPath)
+      .then(pins => { if (alive) setIsPinned(pins.some(p => p.entityId === entity.id)) })
+      .catch(() => { if (alive) setIsPinned(false) })
+    return () => { alive = false }
+  }, [entity?.id, projectPath])
 
   // Clear any transient status error when the selected entity changes.
   useEffect(() => { setStatusError(null) }, [entity?.id])
@@ -203,23 +220,83 @@ export function KBDetailPanel({ entity, allEntities, encodedPath, projectPath, s
   const color = TYPE_COLORS[entity.type] || '#6c7086'
   const { fileLinks, urlLinks, regularProps } = getNavigableProps(entity)
 
+  /**
+   * Send the "discuss" prompt to whichever terminal the user has open.
+   *
+   * Delivery strategy (in order):
+   *  1. postMessage to a `terminal-iframe` in the DOM — works for both
+   *     classic sessions and Board contexts (master iframe, task iframe),
+   *     even when the iframe is on a hidden tab. Matches the CommentWidget
+   *     resolution.
+   *  2. Fallback to `api.sendTextToSession` when we have a classic
+   *     `sessionId` but no iframe reached us (e.g. session on the
+   *     `/sessions/...` route without an embedded iframe).
+   *  3. Fallback to clipboard so the user always has an escape hatch.
+   */
   const handleSendToTerminal = async () => {
-    if (!sessionId || sending) return
+    if (sending) return
     setSending(true)
     setSent(false)
 
     const prompt = buildPromptForEntity(entity)
 
+    // 1. Try the visible terminal iframe first — this is what makes the
+    // button work inside the Board KB tab (master iframe lives in the
+    // Terminal tab, still in the DOM).
+    let delivered = false
     try {
-      await api.sendTextToSession(projectPath, sessionId, prompt, branch)
+      const iframe =
+        (sessionId && (document.querySelector(`iframe[data-orka-session-id="${sessionId}"]`) as HTMLIFrameElement | null)) ||
+        (document.querySelector('[role="dialog"] iframe.terminal-iframe') as HTMLIFrameElement | null) ||
+        (document.querySelector('iframe.terminal-iframe') as HTMLIFrameElement | null)
+      if (iframe?.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'terminal-input', text: prompt }, '*')
+        delivered = true
+      }
+    } catch { /* fall through */ }
+
+    // 2. Classic session API fallback.
+    if (!delivered && sessionId) {
+      try {
+        await api.sendTextToSession(projectPath, sessionId, prompt, branch)
+        delivered = true
+      } catch (err) {
+        console.error('Failed to send to terminal via API:', err)
+      }
+    }
+
+    // 3. Clipboard fallback — no terminal reachable, at least give the
+    // user something to paste.
+    if (!delivered) {
+      try {
+        await navigator.clipboard.writeText(prompt)
+        delivered = true
+      } catch (err) {
+        console.error('Failed to copy prompt to clipboard:', err)
+      }
+    }
+
+    if (delivered) {
       setSent(true)
-      // Switch to terminal tab so the user immediately sees Claude responding
       onSwitchToTerminal?.()
       setTimeout(() => setSent(false), 3000)
+    }
+    setSending(false)
+  }
+
+  /** Explicit "copy this discuss prompt" action — always available, no
+   *  side effects on any terminal. Useful when the user wants to paste
+   *  it somewhere specific or in a different context (e.g. another
+   *  Claude session, a Slack message, etc.). */
+  const [copied, setCopied] = useState(false)
+  const handleCopyPrompt = async () => {
+    const prompt = buildPromptForEntity(entity)
+    try {
+      await navigator.clipboard.writeText(prompt)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     } catch (err) {
-      console.error('Failed to send to terminal:', err)
-    } finally {
-      setSending(false)
+      console.error('Failed to copy prompt:', err)
     }
   }
 
@@ -304,12 +381,76 @@ After running the command, read each file listed in the "Source Files" section t
   }
 
   const handleOpenFile = (filePath: string) => {
-    // Check if it looks like a file (has extension) or a directory
-    const isFile = /\.\w+$/.test(filePath)
-    if (isFile) {
-      window.open(`/projects/${encodedPath}/files/view?path=${encodeURIComponent(filePath)}`, '_blank')
+    const clean = filePath.replace(/^\/+/, '')
+    const isFile = /\.\w+$/.test(clean)
+    // HTML files → direct `/api/files/preview/:enc/*path` so relative
+    // assets in the file resolve against its own URL (no app-chrome
+    // wrapper eating the layout). Everything else stays on the SPA
+    // FileViewer / Finder routes.
+    const isHtml = /\.html?$/i.test(clean)
+    if (isHtml) {
+      const pathSegments = clean.split('/').map((s) => encodeURIComponent(s)).join('/')
+      window.open(`/api/files/preview/${encodedPath}/${pathSegments}?comments=1`, '_blank')
+    } else if (isFile) {
+      window.open(`/projects/${encodedPath}/files/view?path=${encodeURIComponent(clean)}`, '_blank')
     } else {
-      window.open(`/projects/${encodedPath}/files?path=${encodeURIComponent(filePath)}`, '_blank')
+      window.open(`/projects/${encodedPath}/files?path=${encodeURIComponent(clean)}`, '_blank')
+    }
+  }
+
+  /**
+   * Best-effort resolution of a folder path from an entity — the target
+   * a pin click should navigate to. Walks the same PATH_PROPERTIES list
+   * Quick Access uses, preferring `master_doc` when present. If the
+   * chosen value ends up being a file (has an extension), we return
+   * its parent dir so the FAB always lands on a folder view.
+   */
+  function resolvePinFolderPath(e: KBEntity): string | null {
+    // Priority order — same one Quick Access uses.
+    const order = ['master_doc', 'path', 'notes_path', 'profile_path', 'source_path', 'repo_path', 'filePath']
+    for (const key of order) {
+      const raw = e.properties?.[key]
+      if (typeof raw === 'string' && raw.trim()) {
+        const v = raw.trim().replace(/^\/+/, '') // strip any leading /
+        // If it's a file (has extension), keep its parent dir.
+        const isFile = /\.\w+$/.test(v)
+        if (isFile) {
+          const idx = v.lastIndexOf('/')
+          return idx >= 0 ? v.slice(0, idx) : '.'
+        }
+        return v
+      }
+    }
+    return null
+  }
+
+  const canPin = !!entity && resolvePinFolderPath(entity) !== null
+
+  const handleTogglePin = async () => {
+    if (!entity || pinBusy) return
+    setPinBusy(true)
+    try {
+      if (isPinned) {
+        await api.deletePin(projectPath, entity.id)
+        setIsPinned(false)
+      } else {
+        const folderPath = resolvePinFolderPath(entity)
+        if (!folderPath) {
+          setPinBusy(false)
+          return
+        }
+        await api.addPin(projectPath, {
+          entityId: entity.id,
+          title: entity.title,
+          type: entity.type,
+          folderPath,
+        })
+        setIsPinned(true)
+      }
+    } catch (err: any) {
+      console.error('Failed to toggle pin:', err)
+    } finally {
+      setPinBusy(false)
     }
   }
 
@@ -718,6 +859,26 @@ After running the command, read each file listed in the "Source Files" section t
       )}
 
       <div className="kb-detail-actions">
+        {/* Pin / unpin: puts a shortcut to this entity in the floating
+            action button, so a single tap from any session jumps to the
+            entity's folder in the Finder. Disabled when we can't derive
+            a folder path from the entity's properties. */}
+        <button
+          className={`kb-detail-pin-btn ${isPinned ? 'pinned' : ''}`}
+          onClick={handleTogglePin}
+          disabled={pinBusy || (!isPinned && !canPin)}
+          title={
+            isPinned
+              ? 'Remove from floating action button'
+              : canPin
+                ? 'Pin as a shortcut in the floating action button'
+                : "This entity has no path property, so there's nothing to pin"
+          }
+        >
+          {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+          {isPinned ? 'Unpin' : 'Pin'}
+        </button>
+
         <button
           className="kb-detail-calendar-btn"
           onClick={handleAddToCalendar}
@@ -769,16 +930,31 @@ After running the command, read each file listed in the "Source Files" section t
             {loadingContext ? 'Loading...' : contextLoaded ? 'Context loaded' : 'Load project context'}
           </button>
         )}
-        {sessionId && (
-          <button
-            className={`kb-detail-send-btn ${sent ? 'sent' : ''}`}
-            onClick={handleSendToTerminal}
-            disabled={sending}
-          >
-            {sent ? <Check size={14} /> : <Send size={14} />}
-            {sending ? 'Sending...' : sent ? 'Sent to terminal' : 'Discuss in terminal'}
-          </button>
-        )}
+        {/* Discuss in terminal — always visible. Delivery falls back
+            through iframe.postMessage → session API → clipboard so it
+            works in Board contexts (master / task iframes), Classic
+            sessions, and even in the standalone KB page. */}
+        <button
+          className={`kb-detail-send-btn ${sent ? 'sent' : ''}`}
+          onClick={handleSendToTerminal}
+          disabled={sending}
+        >
+          {sent ? <Check size={14} /> : <Send size={14} />}
+          {sending ? 'Sending...' : sent ? 'Sent to terminal' : 'Discuss in terminal'}
+        </button>
+
+        {/* Copy prompt — pure clipboard action, no delivery attempted.
+            The prompt tells Claude to load the entity + its master_doc
+            + related edges before discussing, so pasting it anywhere
+            spins up context on the receiving side. */}
+        <button
+          className={`kb-detail-copy-btn ${copied ? 'copied' : ''}`}
+          onClick={handleCopyPrompt}
+          title="Copy a discuss-this-entity prompt with the entity path and context instructions"
+        >
+          {copied ? <Check size={14} /> : <CopyIcon size={14} />}
+          {copied ? 'Prompt copied' : 'Copy discuss prompt'}
+        </button>
       </div>
 
       {/* AI summary modal — portalled to <body> to escape the panel's
@@ -970,6 +1146,15 @@ function buildPromptForEntity(entity: KBEntity): string {
     ? `Related: ${entity.edges.map(e => `${e.relation} → ${e.target}`).join(', ')}`
     : ''
 
+  // Path-like properties (see PATH_PROPERTIES) — surface them so Claude
+  // knows which files to open before we discuss.
+  const pathKeys = ['master_doc', 'path', 'notes_path', 'profile_path', 'source_path', 'repo_path', 'filePath']
+  const paths: string[] = []
+  for (const k of pathKeys) {
+    const v = entity.properties?.[k]
+    if (typeof v === 'string' && v.trim()) paths.push(`- ${k}: ${v.trim()}`)
+  }
+
   let instruction = ''
   if (entity.type === 'question') {
     instruction = `I want to answer or comment on this open question. Analyze what I tell you and then update the Knowledge Base accordingly using the /kb-track skill. If I resolve the question, mark it as resolved with: orka kb update ${entity.id} --status resolved`
@@ -981,6 +1166,29 @@ function buildPromptForEntity(entity: KBEntity): string {
     instruction = `I want to discuss or update this ${typeLabel}. Analyze what I tell you and update the Knowledge Base using the /kb-track skill.`
   }
 
+  const loadContextSteps = [
+    '## Load context first',
+    '',
+    `Before you respond, load the entity + everything related so we have shared context:`,
+    '',
+    `1. **Read the entity in full**: \`orka kb show ${entity.id}\``,
+    ...(paths.length > 0
+      ? [
+          '2. **Open the linked files** (main doc + notes + folder):',
+          ...paths.map((p) => `   ${p}`),
+          `   → Read each. If it's a folder, list its contents and read anything relevant (README.md, overview.html, notes.md).`,
+        ]
+      : ['2. No path properties on this entity, skip file loading.']),
+    ...(entity.edges.length > 0
+      ? [
+          `${paths.length > 0 ? '3' : '3'}. **Walk the 1-hop neighborhood**: for each related entity below, run \`orka kb show <targetId>\` to understand the surrounding context.`,
+        ]
+      : []),
+    `${paths.length > 0 || entity.edges.length > 0 ? '4' : '3'}. Once you've loaded everything, briefly confirm what you understand about this ${typeLabel} — 2-3 sentences — and then wait for my input.`,
+    '',
+    '---',
+  ].join('\n')
+
   return `I'm reviewing the following ${typeLabel} from the project Knowledge Base:
 
 **${entity.title}** (${entity.id})
@@ -989,7 +1197,9 @@ ${props ? '\nProperties:\n' + props : ''}
 ${tags}
 ${edges}
 
+${loadContextSteps}
+
 ${instruction}
 
-Go ahead, I'll provide my input now.`
+Go ahead when you've loaded context — I'll provide my input then.`
 }

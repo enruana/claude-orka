@@ -138,11 +138,7 @@ export function FileViewerPage() {
     const selectedText = sel.toString().trim()
     if (!selectedText) return
 
-    // Estimate line numbers from the content
     const fullText = content || ''
-    const lines = fullText.split('\n')
-
-    // Find which line the selected text starts on
     let startLine = 1
     let endLine = 1
     const selStart = fullText.indexOf(selectedText)

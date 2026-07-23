@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api, RegisteredProject, Session, Fork, SessionLayout } from '../api/client'
 import {
-  ArrowLeft,
+  X,
   Home,
   MessageSquarePlus,
   MessagesSquare,
@@ -11,6 +11,7 @@ import {
   ExternalLink,
   LogOut,
   Power,
+  Save,
   Terminal,
   Code,
   ChevronDown,
@@ -410,6 +411,30 @@ export function SessionView({
     }
   }
 
+  const [isSaving, setIsSaving] = useState(false)
+
+  /**
+   * Persist a lossless snapshot of the current session — the same work
+   * `detach` does under the hood, minus stopping the live tmux/ttyd
+   * processes. Ensures the next resume from a cold start starts with
+   * fresh claudeSessionIds, untracked panes, and context summaries.
+   * Unlike detach, we stay on this page after saving.
+   */
+  const handleSaveSession = async () => {
+    if (isSaving) return
+    setIsSaving(true)
+    try {
+      const r = await api.saveSession(project.path, session.id)
+      // Silent success (no alert) — quick, and the UI would flicker
+      // annoyingly if we opened a dialog. Just log for the curious.
+      console.log('Session snapshot saved:', r)
+    } catch (err: any) {
+      alert(`Failed to save: ${err.message}`)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const handleDetachSession = async () => {
     if (!confirm('Detach this session? The tmux session will keep running in the background.')) return
     try {
@@ -544,8 +569,9 @@ export function SessionView({
       {/* Header */}
       <div className="session-header">
         <div className="header-left">
-          <button className="icon-button" onClick={onBack} title="Back to project">
-            <ArrowLeft size={18} />
+          {/* Unified close: X on the left in every fullscreen surface. */}
+          <button className="orka-close-btn" onClick={onBack} title="Close session (Esc)" aria-label="Close session">
+            <X size={18} />
           </button>
           <button className="icon-button desktop-only" onClick={onGoHome} title="Go home">
             <Home size={18} />
@@ -686,6 +712,20 @@ export function SessionView({
           </button>
           <button className="icon-button" onClick={refreshSession} title="Refresh">
             <RefreshCw size={18} />
+          </button>
+          {/* Non-destructive snapshot — refreshes claudeSessionIds,
+              untracked panes and lastContextSummary for every branch and
+              persists them, without stopping the live tmux/ttyd. Sits
+              beside Detach because it's the "detach without leaving"
+              cousin. */}
+          <button
+            className="save-button"
+            onClick={handleSaveSession}
+            disabled={isSaving}
+            title="Save session snapshot (safe to resume from cold start)"
+          >
+            <Save size={16} className={isSaving ? 'spinning' : ''} />
+            <span className="btn-text">{isSaving ? 'Saving…' : 'Save'}</span>
           </button>
           <button className="detach-button" onClick={handleDetachSession} title="Detach (keep tmux running)">
             <LogOut size={16} />

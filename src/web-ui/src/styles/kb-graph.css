@@ -1644,6 +1644,41 @@
   border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
+/* Pin toggle: sits at the top of the actions column. Pink/violet accent so
+   it reads as separate from the informational (green/blue) actions. When
+   `.pinned` it flips to a filled look so it's clear the click will unpin. */
+.kb-detail-pin-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(244, 114, 182, 0.28);
+  background: rgba(244, 114, 182, 0.08);
+  color: #f9a8d4;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.kb-detail-pin-btn:hover:not(:disabled) {
+  background: rgba(244, 114, 182, 0.18);
+  border-color: rgba(244, 114, 182, 0.5);
+}
+
+.kb-detail-pin-btn.pinned {
+  background: rgba(244, 114, 182, 0.22);
+  border-color: rgba(244, 114, 182, 0.55);
+  color: #fbcfe8;
+}
+
+.kb-detail-pin-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .kb-detail-calendar-btn {
   display: flex;
   align-items: center;
@@ -2008,6 +2043,32 @@
 }
 
 .kb-detail-send-btn.sent {
+  border-color: rgba(166, 227, 161, 0.25);
+  background: rgba(166, 227, 161, 0.1);
+  color: #a6e3a1;
+}
+
+/* Copy discuss prompt — neutral pill; goes green briefly on success. */
+.kb-detail-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: #a6adc8;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.kb-detail-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+}
+.kb-detail-copy-btn.copied {
   border-color: rgba(166, 227, 161, 0.25);
   background: rgba(166, 227, 161, 0.1);
   color: #a6e3a1;

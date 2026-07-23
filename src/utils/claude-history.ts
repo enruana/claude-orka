@@ -466,6 +466,63 @@ export async function discoverBranchSessions(
 }
 
 /**
+ * Read the first meaningful user prompt from a Claude session JSONL —
+ * skips angle-bracket wrappers (`<local-command-caveat>`, resume/fork
+ * boilerplate injected by Orka) so the preview reflects what the user
+ * actually asked. Returns null if no such prompt is found in the first
+ * 200 lines. Used by `orka session verify` to surface semantic
+ * contamination that structural checks miss.
+ */
+export async function readMeaningfulUserPrompt(
+  projectPath: string,
+  sessionId: string,
+  maxLines: number = 200
+): Promise<string | null> {
+  const encoded = encodeProjectPath(projectPath)
+  const sessionFile = path.join(CLAUDE_PROJECTS_PATH, encoded, `${sessionId}.jsonl`)
+  if (!(await fs.pathExists(sessionFile))) return null
+
+  const fileStream = fs.createReadStream(sessionFile, { encoding: 'utf-8' })
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity })
+
+  let count = 0
+  try {
+    for await (const line of rl) {
+      if (count++ > maxLines) break
+      if (!line) continue
+      let obj: Record<string, unknown>
+      try { obj = JSON.parse(line) } catch { continue }
+      if (obj.type !== 'user') continue
+      const msg = obj.message as { content?: unknown } | undefined
+      if (!msg) continue
+      const collect = (text: string): string | null => {
+        const t = text.trim()
+        if (!t || t.startsWith('<')) return null
+        return t
+      }
+      if (typeof msg.content === 'string') {
+        const c = collect(msg.content)
+        if (c) return c
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part && typeof part === 'object' && (part as { type?: string }).type === 'text') {
+            const text = (part as { text?: unknown }).text
+            if (typeof text === 'string') {
+              const c = collect(text)
+              if (c) return c
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    rl.close()
+    fileStream.destroy()
+  }
+  return null
+}
+
+/**
  * Get the modification time of a Claude session JSONL file.
  * @returns mtime in ms or null if file doesn't exist
  */

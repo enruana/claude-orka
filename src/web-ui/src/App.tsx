@@ -15,6 +15,8 @@ import { SessionPage } from './components/SessionPage'
 import { CodeEditorPage, FilesPage } from './components/code-editor'
 import { FileViewerPage } from './components/finder'
 import { KBPage } from './components/kb'
+import { BoardPage } from './components/board/BoardPage'
+import { BoardSettingsPage } from './components/board/BoardSettingsPage'
 import { AgentCanvasPage } from './pages/AgentCanvasPage'
 import { HomePage } from './pages/HomePage'
 import { IPhoneLauncher } from './components/launcher/IPhoneLauncher'
@@ -263,12 +265,14 @@ const router = createBrowserRouter(
       <Route path="/dashboard" element={<ProjectDashboard />} />
       <Route path="/launcher" element={<IPhoneLauncher />} />
       <Route path="/agents" element={<AgentCanvasPage />} />
-      <Route path="/projects/:encodedPath" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/projects/:encodedPath" element={<Navigate to="/launcher" replace />} />
       <Route path="/projects/:encodedPath/sessions/:sessionId" element={<SessionPage />} />
       <Route path="/projects/:encodedPath/code" element={<CodeEditorPage />} />
       <Route path="/projects/:encodedPath/files" element={<FilesPage />} />
       <Route path="/projects/:encodedPath/files/view" element={<FileViewerPage />} />
       <Route path="/projects/:encodedPath/kb" element={<KBPage />} />
+      <Route path="/projects/:encodedPath/boards/:boardId" element={<BoardPage />} />
+      <Route path="/projects/:encodedPath/boards/:boardId/settings" element={<BoardSettingsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>
   )

@@ -7,8 +7,6 @@ import {
   claudeSessionFileExists,
   getSessionContextSummary,
   findLatestSessionFromIndex,
-  getSessionFileMtime,
-  discoverBranchSessions,
 } from '../utils'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
@@ -219,11 +217,33 @@ export class SessionManager {
         session.lastActivity = new Date().toISOString()
       }
 
-      // Check and restore active/saved forks that are missing their pane
+      // Check and restore active/saved forks that are missing their pane.
+      // A fork needs restoring if it has no pane id, its stored id no
+      // longer exists in tmux, or its id collides with main / another
+      // fork (a stale id that survived a crash and now shadows another
+      // pane — see the resume-recreate path for the origin of this).
       const forks = session.forks || []
-      const forksToRestore = forks.filter((f) =>
-        (f.status === 'active' || f.status === 'saved') && !f.tmuxPaneId
-      )
+      let currentPanes: string[] = []
+      try {
+        currentPanes = await TmuxCommands.listPanes(tmuxSessionId)
+      } catch (err: any) {
+        logger.warn(`[resumeSession] listPanes failed: ${err?.message || err}`)
+      }
+      const claimedElsewhere = (fork: Fork): boolean =>
+        session.main.tmuxPaneId === fork.tmuxPaneId ||
+        session.forks.some((f) => f.id !== fork.id && f.tmuxPaneId === fork.tmuxPaneId)
+
+      const forksToRestore = forks.filter((f) => {
+        if (f.status !== 'active' && f.status !== 'saved') return false
+        if (!f.tmuxPaneId) return true
+        if (currentPanes.length && !currentPanes.includes(f.tmuxPaneId)) return true
+        if (claimedElsewhere(f)) return true
+        return false
+      })
+      // Clear stale ids so resumeFork treats these as fresh restorations.
+      for (const fork of forksToRestore) {
+        fork.tmuxPaneId = undefined
+      }
       if (forksToRestore.length > 0) {
         logger.info(`Restoring ${forksToRestore.length} fork pane(s)...`)
         for (const fork of forksToRestore) {
@@ -322,6 +342,19 @@ export class SessionManager {
     session.ttydPort = ttydResult?.port
     session.ttydPid = ttydResult?.pid
 
+    // Tmux session was just recreated, so any tmuxPaneId stored in state
+    // is from a previous tmux instance. If we leave those stale ids in
+    // place, resumeFork's "pane already exists" guard will match a
+    // freshly-assigned id (e.g. main just took %1, and an old fork also
+    // has tmuxPaneId=%1) and silently skip the fork — losing one of the
+    // user's panes. Clear them before persisting so each fork is treated
+    // as needing a fresh pane.
+    for (const fork of session.forks || []) {
+      if ((fork.status === 'active' || fork.status === 'saved') && fork.tmuxPaneId) {
+        fork.tmuxPaneId = undefined
+      }
+    }
+
     await this.stateManager.replaceSession(session)
 
     // 5. Resume only active or saved forks (not closed or merged)
@@ -358,6 +391,31 @@ export class SessionManager {
   private async recreateUntrackedPanes(sessionId: string): Promise<void> {
     const session = await this.getSession(sessionId)
     if (!session || !session.untrackedPanes?.length) return
+
+    // Drop entries whose stored label matches main or an active/saved
+    // fork name. Those entries are ghost duplicates left by an older
+    // syncUntrackedPanes bug — recreating them would duplicate real
+    // branch panes. resumeFork already handles branch panes on this same
+    // resume path, so silently skipping is safe.
+    const forkNames = new Set(
+      session.forks
+        .filter((f) => f.status === 'active' || f.status === 'saved')
+        .map((f) => f.name)
+    )
+    const mainLabel = session.main.label || 'main'
+    const beforeCount = session.untrackedPanes.length
+    session.untrackedPanes = session.untrackedPanes.filter((u) => {
+      if (!u.label) return true
+      if (u.label === mainLabel || forkNames.has(u.label)) {
+        logger.warn(`Skipping ghost untrackedPane with branch-owned label "${u.label}" (paneId=${u.tmuxPaneId})`)
+        return false
+      }
+      return true
+    })
+    if (session.untrackedPanes.length !== beforeCount) {
+      await this.stateManager.replaceSession(session)
+    }
+    if (session.untrackedPanes.length === 0) return
 
     logger.info(`Recreating ${session.untrackedPanes.length} untracked pane(s)...`)
 
@@ -591,125 +649,28 @@ export class SessionManager {
   }
 
   /**
-   * Sync session IDs for an Orka session by pairing each branch (main +
-   * active forks) with the freshest Claude session JSONL on disk.
+   * Verify each branch (main + active/saved forks) of the requested Orka
+   * session still points to an on-disk Claude JSONL. Does NOT reassign
+   * ids based on mtime — that heuristic (previous implementation) is
+   * unsafe in projects with multiple Orka sessions or stray CLI
+   * `claude` invocations, because greedy newest-first matching cannot
+   * distinguish which jsonl was born from which branch. It caused
+   * cross-session contamination (Learning conversations bleeding into
+   * Execution, etc). Deterministic rotation tracking lives in the
+   * SessionStart hook receiver — see `src/server/api/sessions.ts`.
    *
-   * Why this exists: Claude Code rotates its session id on `/clear`,
-   * `/compact`, and a few other internal triggers, but Orka's
-   * `claudeSessionId` never gets refreshed unless this runs. After a
-   * reboot, `claude --resume <stored-id>` then loads an ancient snapshot
-   * and the user perceives this as "lost context".
+   * Only intervention this method makes: if a stored `claudeSessionId`
+   * has no jsonl on disk (Claude session was manually deleted or was
+   * never persisted), it is left untouched — resumeSession's fallback
+   * code path (`findLatestSessionFromIndex`) already handles that
+   * per-branch on demand with the user's implicit consent.
    *
-   * Strategy:
-   *  - Build an ordered list of branches to assign: main first, then
-   *    forks oldest-first (so the freshest unassigned session goes to
-   *    main, the next to the oldest fork, etc — matches the typical
-   *    pattern where the user does `/clear` on main most often).
-   *  - Hand that list to `discoverBranchSessions` which scans every
-   *    `<sessionId>.jsonl` in the project's Claude folder, sorts by
-   *    mtime, and matches greedily — preferring to keep a branch's
-   *    stored id if it's still the freshest, otherwise promoting the
-   *    newest unclaimed session.
-   *  - For any branch whose chosen id differs from the stored one,
-   *    update state.json and log the rotation.
-   *
-   * Safe to call repeatedly; idempotent. Replaces the older heuristic
-   * that depended on `sessions-index.json`, which Claude Code removed.
+   * Kept as a method so callers (resumeSession, saveSnapshot) do not
+   * need to change; behaviour is now a no-op that returns `null` in the
+   * healthy case. Return type preserved for API compatibility.
    */
-  async syncSessionIds(sessionId: string): Promise<{ mainChanged: boolean; forksChanged: string[] } | null> {
-    // Project-wide sync: build the branch list from EVERY Orka session in
-    // the project and match them in one greedy pass. Ordering by session
-    // `lastActivity` (most recent first) ensures the active session
-    // claims the freshest jsonls before dormant ones get a chance —
-    // critical when many Orka sessions share a project (e.g. MoxiWorks
-    // with Execution + Tracking + Learning).
-    const allSessions = await this.listSessions()
-    if (allSessions.length === 0) return null
-
-    type Entry = {
-      session: Session
-      branchKey: 'main' | string
-      storedId: string
-      activitySince: string
-      isMain: boolean
-    }
-
-    const orderedSessions = [...allSessions].sort(
-      (a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
-    )
-
-    const branchKeys: Array<{ key: string; storedId: string; storedMtime: number | null; activitySince: string }> = []
-    const entries: Entry[] = []
-    for (const s of orderedSessions) {
-      // main first within a session — most rotations happen there
-      const mainKey = `${s.id}::main`
-      entries.push({ session: s, branchKey: 'main', storedId: s.main.claudeSessionId, activitySince: s.createdAt, isMain: true })
-      branchKeys.push({
-        key: mainKey,
-        storedId: s.main.claudeSessionId,
-        storedMtime: await getSessionFileMtime(this.projectPath, s.main.claudeSessionId),
-        activitySince: s.createdAt,
-      })
-      const forks = s.forks
-        .filter((f) => f.status === 'active' || f.status === 'saved')
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-      for (const f of forks) {
-        const forkKey = `${s.id}::${f.id}`
-        entries.push({ session: s, branchKey: f.id, storedId: f.claudeSessionId, activitySince: f.createdAt, isMain: false })
-        branchKeys.push({
-          key: forkKey,
-          storedId: f.claudeSessionId,
-          storedMtime: await getSessionFileMtime(this.projectPath, f.claudeSessionId),
-          activitySince: f.createdAt,
-        })
-      }
-    }
-
-    // existingIds is empty here — the pool is the whole project. The
-    // matcher uses `branchKeys` directly to know which ids are ours.
-    const matches = await discoverBranchSessions(this.projectPath, branchKeys, new Set())
-
-    // Apply matches per-session, saving each session at most once.
-    const dirtySessions = new Set<string>()
-    let requestedMainChanged = false
-    const requestedForksChanged: string[] = []
-
-    for (const e of entries) {
-      const key = e.isMain ? `${e.session.id}::main` : `${e.session.id}::${e.branchKey}`
-      const m = matches.get(key)
-      if (!m || m.sessionId === e.storedId) continue
-
-      if (e.isMain) {
-        if (e.session.main.claudeSessionId !== m.sessionId) {
-          logger.info(`[syncSessionIds] ${e.session.name} main: ${e.storedId.slice(0, 8)}… → ${m.sessionId.slice(0, 8)}…`)
-          e.session.main.claudeSessionId = m.sessionId
-          if (m.summary) e.session.main.lastContextSummary = m.summary
-          dirtySessions.add(e.session.id)
-          if (e.session.id === sessionId) requestedMainChanged = true
-        }
-      } else {
-        const fork = e.session.forks.find((f) => f.id === e.branchKey)
-        if (fork && fork.claudeSessionId !== m.sessionId) {
-          logger.info(`[syncSessionIds] ${e.session.name} fork "${fork.name}": ${fork.claudeSessionId.slice(0, 8)}… → ${m.sessionId.slice(0, 8)}…`)
-          fork.claudeSessionId = m.sessionId
-          if (m.summary) fork.lastContextSummary = m.summary
-          dirtySessions.add(e.session.id)
-          if (e.session.id === sessionId) requestedForksChanged.push(fork.id)
-        }
-      }
-    }
-
-    // Persist each session whose ids we touched.
-    for (const sid of dirtySessions) {
-      const s = orderedSessions.find((x) => x.id === sid)
-      if (!s) continue
-      s.lastActivity = new Date().toISOString()
-      await this.stateManager.replaceSession(s)
-    }
-
-    if (dirtySessions.has(sessionId)) {
-      return { mainChanged: requestedMainChanged, forksChanged: requestedForksChanged }
-    }
+  async syncSessionIds(_sessionId: string): Promise<{ mainChanged: boolean; forksChanged: string[] } | null> {
+    // Intentional no-op. See docstring for the rationale.
     return null
   }
 
@@ -824,18 +785,77 @@ export class SessionManager {
 
     logger.info(`Resuming fork: ${fork.name}`)
 
-    // Check if fork pane already exists (fork is active)
+    // Check if fork pane already exists (fork is active).
+    // The pane id must (a) actually exist in the current tmux session AND
+    // (b) not already be claimed by main or by another fork — otherwise
+    // it's stale from a previous tmux instance that happened to reuse the
+    // same id, and skipping the split would drop this fork's pane.
     if (fork.status === 'active' && fork.tmuxPaneId) {
       try {
-        // Verify pane still exists in tmux
         const allPanes = await TmuxCommands.listPanes(session.tmuxSessionId)
-        if (allPanes.includes(fork.tmuxPaneId)) {
+        const claimedByOther =
+          session.main.tmuxPaneId === fork.tmuxPaneId ||
+          session.forks.some((f) => f.id !== fork.id && f.tmuxPaneId === fork.tmuxPaneId)
+        if (allPanes.includes(fork.tmuxPaneId) && !claimedByOther) {
           logger.info(`Fork pane already exists, no need to resume`)
           return fork
+        }
+        if (claimedByOther) {
+          logger.warn(`Fork ${fork.name} has stale tmuxPaneId ${fork.tmuxPaneId} (claimed elsewhere); recreating`)
         }
       } catch (error) {
         logger.warn(`Fork was marked active but pane not found, recreating...`)
       }
+    }
+
+    // Try to ADOPT an existing live pane before creating a new one. The
+    // `@orka_label` tmux user option is set at pane creation time to the
+    // fork's name and survives tmux server restarts — if we find a live
+    // pane with a matching label that isn't already claimed by main or
+    // another fork, re-associate the state to that pane instead of
+    // splitting. This is the fix for the "resume duplicates panes" bug:
+    // when tmux is restarted externally, every fork's `tmuxPaneId`
+    // becomes stale, and blindly splitting would produce one surplus
+    // pane per fork on every resume.
+    try {
+      const detailed = await TmuxCommands.listPanesDetailed(session.tmuxSessionId)
+      const takenByOther = new Set<string>()
+      if (session.main.tmuxPaneId) takenByOther.add(session.main.tmuxPaneId)
+      for (const f of session.forks) {
+        if (f.id !== fork.id && f.tmuxPaneId) takenByOther.add(f.tmuxPaneId)
+      }
+      const adoptable = detailed.find((p) => p.label === fork.name && !takenByOther.has(p.paneId))
+      if (adoptable) {
+        logger.info(`Adopting existing pane ${adoptable.paneId} for fork "${fork.name}" (label match)`)
+        fork.tmuxPaneId = adoptable.paneId
+        fork.status = 'active'
+        session.lastActivity = new Date().toISOString()
+        await this.stateManager.replaceSession(session)
+        return fork
+      }
+
+      // Surplus guard: if tmux already has as many panes as the session
+      // has active/saved branches, splitting more would create duplicates
+      // that don't correspond to any real branch. This happens when the
+      // user manually re-labelled panes so no label match adopt succeeds,
+      // yet the pane count is already saturated. Leave the fork
+      // disconnected; the UI/CLI can offer manual adoption.
+      const expectedBranches = 1 + session.forks.filter(
+        (f) => f.status === 'active' || f.status === 'saved'
+      ).length
+      if (detailed.length >= expectedBranches) {
+        logger.warn(
+          `Fork "${fork.name}": tmux has ${detailed.length} panes for ${expectedBranches} branches ` +
+          `and no pane label matched. Leaving fork disconnected — adopt manually with ` +
+          `orka session adopt-pane ${sessionId} ${fork.id} <pane-id>`
+        )
+        fork.tmuxPaneId = undefined
+        session.lastActivity = new Date().toISOString()
+        await this.stateManager.replaceSession(session)
+        return fork
+      }
+    } catch (err: any) {
+      logger.debug(`resumeFork: adopt-by-label check failed (non-fatal): ${err?.message || err}`)
     }
 
     // 1. Capturar estado actual de panes ANTES del split
@@ -1319,6 +1339,22 @@ Analyze the content and help me integrate the changes and learnings from the for
         if (fork.tmuxPaneId) knownPaneIds.add(fork.tmuxPaneId)
       }
 
+      // Also treat any pane whose `@orka_label` matches main or an
+      // active/saved fork's name as Orka-owned, even if its tmuxPaneId
+      // doesn't match state. This prevents `syncUntrackedPanes` from
+      // classifying our own panes as "untracked" when the stored
+      // tmuxPaneId is stale (e.g., after an external tmux restart),
+      // which used to persist ghost entries that then got duplicated on
+      // the next resume.
+      const forkNames = new Set(
+        session.forks
+          .filter((f) => f.status === 'active' || f.status === 'saved')
+          .map((f) => f.name)
+      )
+      const mainLabel = session.main.label || 'main'
+      const isOrkaLabel = (label: string): boolean =>
+        !!label && (label === mainLabel || forkNames.has(label))
+
       // Backfill @orka_label on the main + fork panes when missing. Panes
       // created before this feature existed (or any that lost the option)
       // get their label restored here without needing a session resume.
@@ -1333,7 +1369,7 @@ Analyze the content and help me integrate the changes and learnings from the for
       }
 
       const untracked: NonNullable<typeof session.untrackedPanes> = []
-      for (const p of panes.filter((p) => !knownPaneIds.has(p.paneId))) {
+      for (const p of panes.filter((p) => !knownPaneIds.has(p.paneId) && !isOrkaLabel(p.label))) {
         // Preserve createdAt + label if we had this pane before
         const existing = (session.untrackedPanes || []).find(
           (u) => u.tmuxPaneId === p.paneId
@@ -1365,6 +1401,152 @@ Analyze the content and help me integrate the changes and learnings from the for
     } catch (error: any) {
       // tmux session probably gone — leave any previously-saved untrackedPanes intact
       logger.debug(`syncUntrackedPanes skipped: ${error.message}`)
+    }
+  }
+
+  /**
+   * Take a "safe snapshot" of a session so it can be resumed losslessly
+   * later. This is what `detachSession` does under the hood, minus the
+   * parts that shut down live processes: we refresh everything a resume
+   * would need and persist it, but leave `ttydPort`/`ttydPid` alone (the
+   * server keeps running, the pane keeps its ttyd).
+   *
+   * Steps:
+   *  1. `syncSessionIds` — walks Claude's jsonl files and replaces any
+   *     rotated `claudeSessionId` on main/forks + refreshes
+   *     `lastContextSummary` on rotated branches (defined in this file).
+   *  2. `syncUntrackedPanes` — refreshes cwd/label/pane-id of every
+   *     manually-created pane in the window.
+   *  3. Re-cache `lastContextSummary` for main + every active/saved fork
+   *     directly from the jsonl (getSessionContextSummary). Same call
+   *     `detachSession` makes at :410–432. This is the only field the
+   *     8-second throttled sync never touches.
+   *
+   * Returns per-branch success counts so the caller can surface a toast
+   * like "2 sessions saved (6 branches, 8 untracked panes)".
+   */
+  async saveSessionSnapshot(sessionId: string): Promise<{
+    sessionId: string
+    name: string
+    branchesSaved: number
+    summariesRefreshed: number
+    untrackedPanes: number
+  }> {
+    let session = await this.getSession(sessionId)
+    if (!session) throw new Error(`Session ${sessionId} not found`)
+
+    logger.info(`Saving snapshot for session: ${session.name}`)
+
+    // Step 1 — Claude session id rotation. Non-fatal; if the tmux window
+    // is gone the jsonl mapping may not resolve, and we just keep the
+    // existing ids.
+    try { await this.syncSessionIds(sessionId) } catch (err: any) {
+      logger.debug(`saveSnapshot: syncSessionIds skipped: ${err?.message}`)
+    }
+
+    // Step 2 — untracked panes. Also non-fatal (tmux might be down).
+    try { await this.syncUntrackedPanes(sessionId) } catch (err: any) {
+      logger.debug(`saveSnapshot: syncUntrackedPanes skipped: ${err?.message}`)
+    }
+
+    // Re-read after mutations from steps 1+2.
+    session = await this.getSession(sessionId)
+    if (!session) throw new Error(`Session ${sessionId} vanished mid-save`)
+
+    // Step 3 — cache lastContextSummary for main + each active/saved
+    // fork. This is the field that goes stale between graceful
+    // detach/close events.
+    let summariesRefreshed = 0
+    let branchesSaved = 0
+
+    if (session.main.claudeSessionId) {
+      branchesSaved++
+      try {
+        const s = await getSessionContextSummary(this.projectPath, session.main.claudeSessionId)
+        if (s) {
+          session.main.lastContextSummary = s
+          summariesRefreshed++
+        }
+      } catch (err: any) {
+        logger.debug(`saveSnapshot: main summary refresh skipped: ${err?.message}`)
+      }
+    }
+
+    for (const fork of session.forks) {
+      if (fork.status !== 'active' && fork.status !== 'saved') continue
+      if (!fork.claudeSessionId) continue
+      branchesSaved++
+      try {
+        const s = await getSessionContextSummary(this.projectPath, fork.claudeSessionId)
+        if (s) {
+          fork.lastContextSummary = s
+          summariesRefreshed++
+        }
+      } catch (err: any) {
+        logger.debug(`saveSnapshot: fork "${fork.name}" summary refresh skipped: ${err?.message}`)
+      }
+    }
+
+    await this.stateManager.replaceSession(session)
+
+    const untrackedPanes = session.untrackedPanes?.length ?? 0
+    logger.info(
+      `Snapshot saved: ${session.name} — ${branchesSaved} branch(es), ` +
+      `${summariesRefreshed} summary refreshed, ${untrackedPanes} untracked pane(s)`
+    )
+
+    return {
+      sessionId,
+      name: session.name,
+      branchesSaved,
+      summariesRefreshed,
+      untrackedPanes,
+    }
+  }
+
+  /**
+   * Loop `saveSessionSnapshot` over every session in the current project.
+   * Failures on individual sessions are recorded but don't abort the run —
+   * a dead tmux pane shouldn't stop a healthy one from being snapshotted.
+   */
+  async saveAllSessions(): Promise<{
+    total: number
+    saved: number
+    failed: number
+    results: Array<{
+      sessionId: string
+      name: string
+      branchesSaved: number
+      summariesRefreshed: number
+      untrackedPanes: number
+    }>
+    errors: Array<{ sessionId: string; name: string; error: string }>
+  }> {
+    const state = await this.stateManager.getState()
+    const sessions = state.sessions || []
+    const results: Array<{
+      sessionId: string
+      name: string
+      branchesSaved: number
+      summariesRefreshed: number
+      untrackedPanes: number
+    }> = []
+    const errors: Array<{ sessionId: string; name: string; error: string }> = []
+
+    for (const s of sessions) {
+      try {
+        results.push(await this.saveSessionSnapshot(s.id))
+      } catch (err: any) {
+        errors.push({ sessionId: s.id, name: s.name, error: err?.message || String(err) })
+      }
+    }
+
+    return {
+      total: sessions.length,
+      saved: results.length,
+      failed: errors.length,
+      results,
+      errors,
     }
   }
 

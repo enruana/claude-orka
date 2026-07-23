@@ -72,6 +72,85 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+.iphone-header-add {
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.iphone-header-add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Icon cluster at the right of the header — Refresh · Save-All · Add. */
+.iphone-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.iphone-header-add .spinning {
+  animation: spin 1s linear infinite;
+}
+
+/* Toast: aggregated Save-All result. Slides up from the bottom-center so
+   it doesn't overlap the SystemWidget or the folder grid. */
+.iphone-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(30, 30, 46, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #cdd6f4;
+  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: iphoneToastIn 0.25s ease-out;
+}
+
+@keyframes iphoneToastIn {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Error banner sits above the toast, same slide-up. */
+.iphone-error-banner {
+  position: fixed;
+  bottom: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 91;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 12px;
+  background: rgba(243, 139, 168, 0.14);
+  border: 1px solid rgba(243, 139, 168, 0.35);
+  color: #f38ba8;
+  font-size: 13px;
+  max-width: 90vw;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.iphone-error-banner button {
+  background: rgba(243, 139, 168, 0.2);
+  border: none;
+  color: #f38ba8;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
 /* --- Screen / scrollable surface --- */
 
 .iphone-screen {
@@ -104,6 +183,175 @@
   text-decoration: none;
 }
 .iphone-cta:hover { text-decoration: underline; }
+
+/* --- iOS-style widgets row (rendered above the project grid) --- */
+
+.iphone-widgets {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+@media (min-width: 900px) {
+  .iphone-widgets { grid-template-columns: minmax(320px, 480px); }
+}
+
+/* Frosted-glass card matching folder icons */
+.system-widget {
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  padding: 14px 16px 16px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  color: #ecf0fe;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.system-widget-loading,
+.system-widget-error {
+  min-height: 76px;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.system-widget-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  animation: system-widget-spin 0.9s linear infinite;
+}
+
+@keyframes system-widget-spin {
+  to { transform: rotate(360deg); }
+}
+
+.system-widget-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.system-widget-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.system-widget-host {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+/* Tiles side-by-side; wrap on narrow viewports */
+.system-widget-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 520px) {
+  .system-widget-tiles { grid-template-columns: 1fr; gap: 8px; }
+}
+
+.system-widget-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.18);
+  min-width: 0;
+  /* Clickable button reset — inherits the widget's text colour and font */
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.system-widget-tile:hover { background: rgba(0, 0, 0, 0.28); }
+.system-widget-tile:active { transform: scale(0.98); }
+.system-widget-tile:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 2px;
+}
+
+.system-widget-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.system-widget-tile-head svg {
+  color: rgba(255, 255, 255, 0.55);
+  flex-shrink: 0;
+}
+
+.system-widget-tile-head > span:first-of-type {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.system-widget-tile-value {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.system-widget-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.system-widget-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+.system-widget-tile-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.system-widget-tile-detail {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.system-widget-spark {
+  flex-shrink: 0;
+}
 
 /* --- Section per project group --- */
 
@@ -219,6 +467,16 @@
   box-shadow: inset 0 0 0 1.5px #f38ba8;
 }
 
+/* Board thumbnail — same size as a session tile but uses the purple
+   gradient the folder-overlay icon and the dashboard board row share.
+   The Kanban glyph replaces the letter so boards read as first-class
+   citizens in the preview grid, not decorations. */
+.iphone-folder-thumb.board {
+  background: linear-gradient(135deg, #7c3aed 0%, #4c1d95 50%, #1e1b4b 100%);
+  color: #ddd6fe;
+  box-shadow: inset 0 0 0 1px rgba(196, 181, 253, 0.28);
+}
+
 .iphone-folder-empty {
   grid-column: 1 / -1;
   align-self: center;
@@ -238,6 +496,21 @@
 }
 
 .iphone-app-icon.saved { opacity: 0.7; filter: saturate(0.6); }
+
+/* System-terminal icon — sits alongside `.iphone-app-icon` in the grid.
+   Fixed dark-teal gradient so it reads as a system-level app (matches the
+   Terminal FAB on the dashboard) rather than a session color. */
+.iphone-terminal-icon {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 50%, #020617 100%);
+  border: 1px solid rgba(103, 232, 249, 0.28);
+  color: #67e8f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 6px 14px rgba(2, 6, 23, 0.55);
+}
 
 .iphone-app-letter {
   font-size: 26px;
@@ -533,15 +806,17 @@
   min-height: 0;
 }
 
-/* Floating close in the top-right corner — visible during loading and
-   as a reliable escape hatch independent of SessionView's own header. */
+/* Floating close in the TOP-LEFT — visible during loading and as a
+   reliable escape hatch independent of SessionView's own header.
+   Matches `.orka-close-btn` in shape/position so the pattern reads the
+   same as the header-anchored close on other surfaces. */
 .iphone-desktop-session-modal-close {
   position: absolute;
   top: 12px;
-  right: 12px;
+  left: 12px;
   z-index: 5;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(20, 22, 40, 0.7);
@@ -556,4 +831,865 @@
 }
 .iphone-desktop-session-modal-close:hover {
   background: rgba(40, 44, 70, 0.9);
+}
+
+/* ==================== System Details Modal ==================== */
+
+.sys-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: sys-detail-fade 0.15s ease;
+}
+
+@keyframes sys-detail-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.sys-detail-modal {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 48px);
+  background: #11111b;
+  color: #ecf0fe;
+  border: 1px solid #313244;
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  animation: sys-detail-slide 0.18s ease;
+}
+
+@keyframes sys-detail-slide {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* On phones the modal takes the full screen so procs are readable */
+@media (max-width: 640px) {
+  .sys-detail-overlay { padding: 0; }
+  .sys-detail-modal {
+    width: 100%;
+    max-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
+}
+
+.sys-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid #313244;
+  background: #181825;
+  flex-shrink: 0;
+}
+
+.sys-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.sys-detail-title svg { color: #fab387; }
+
+.sys-detail-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #a6adc8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.sys-detail-close:hover {
+  background: #1e1e2e;
+  color: #cdd6f4;
+}
+
+.sys-detail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sys-detail-loading,
+.sys-detail-error,
+.sys-detail-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #a6adc8;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.sys-detail-error { color: #f38ba8; }
+
+.sys-detail-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  animation: system-widget-spin 0.9s linear infinite;
+}
+
+.sys-detail-hero {
+  padding: 8px 4px 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.sys-detail-hero-percent {
+  font-size: 36px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.sys-detail-hero-detail {
+  font-size: 13px;
+  color: #a6adc8;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  padding: 4px;
+}
+
+.sys-detail-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.sys-detail-stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #7c839a;
+}
+
+.sys-detail-stat-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cdd6f4;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-model {
+  font-size: 12px;
+  color: #7c839a;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sys-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sys-detail-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #7c839a;
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+/* --- Per-core grid --- */
+.sys-detail-cores {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.sys-detail-core {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sys-detail-core-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.sys-detail-core-label {
+  font-size: 11px;
+  color: #7c839a;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-core-value {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-core-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.sys-detail-core-bar-fill {
+  height: 100%;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+/* --- Process list --- */
+.sys-detail-proc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sys-detail-proc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  transition: background 0.15s;
+}
+.sys-detail-proc-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sys-detail-proc-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sys-detail-proc-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd6f4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sys-detail-proc-sub {
+  font-size: 11px;
+  color: #7c839a;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.sys-detail-proc-pid {
+  color: #6c7086;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-proc-args {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.sys-detail-proc-value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.sys-detail-proc-value-main {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-proc-value-sub {
+  font-size: 11px;
+  color: #7c839a;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Swap --- */
+.sys-detail-swap {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sys-detail-swap-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #cdd6f4;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-swap-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.sys-detail-swap-bar-fill {
+  height: 100%;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+/* --- Disks --- */
+.sys-detail-disks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sys-detail-disk {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sys-detail-disk-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.sys-detail-disk-mount {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.sys-detail-disk-percent {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-disk-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.sys-detail-disk-bar-fill {
+  height: 100%;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+.sys-detail-disk-detail {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: #7c839a;
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-disk-fs {
+  color: #6c7086;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+/* --- Kill process button on each ProcessRow --- */
+
+.sys-detail-proc-kill {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: rgba(243, 139, 168, 0.08);
+  color: rgba(243, 139, 168, 0.75);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.sys-detail-proc-row:hover .sys-detail-proc-kill { opacity: 1; }
+.sys-detail-proc-kill:hover {
+  background: rgba(243, 139, 168, 0.2);
+  color: #f38ba8;
+  border-color: rgba(243, 139, 168, 0.35);
+}
+.sys-detail-proc-kill:focus-visible {
+  outline: 2px solid rgba(243, 139, 168, 0.55);
+  outline-offset: 1px;
+}
+
+/* --- Kill confirmation dialog (rendered above the details modal) --- */
+
+.sys-detail-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10003;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: sys-detail-fade 0.12s ease;
+}
+
+.sys-detail-confirm-modal {
+  width: min(440px, 100%);
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 16px;
+  padding: 22px 22px 18px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: sys-detail-slide 0.15s ease;
+}
+
+.sys-detail-confirm-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgba(243, 139, 168, 0.15);
+  color: #f38ba8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+
+.sys-detail-confirm-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.sys-detail-confirm-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  border-left: 3px solid #f38ba8;
+}
+
+.sys-detail-confirm-comm {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cdd6f4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sys-detail-confirm-meta {
+  font-size: 12px;
+  color: #a6adc8;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-detail-confirm-warning {
+  font-size: 12px;
+  color: #a6adc8;
+  line-height: 1.45;
+}
+
+.sys-detail-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.sys-detail-confirm-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s, background 0.15s;
+}
+.sys-detail-confirm-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.sys-detail-confirm-btn.primary {
+  background: #f38ba8;
+  color: #11111b;
+}
+.sys-detail-confirm-btn.primary:not(:disabled):hover { filter: brightness(1.08); }
+.sys-detail-confirm-btn.tertiary {
+  background: rgba(243, 139, 168, 0.15);
+  color: #f38ba8;
+  border: 1px solid rgba(243, 139, 168, 0.35);
+}
+.sys-detail-confirm-btn.tertiary:not(:disabled):hover {
+  background: rgba(243, 139, 168, 0.25);
+}
+.sys-detail-confirm-btn.secondary {
+  background: transparent;
+  color: #a6adc8;
+}
+.sys-detail-confirm-btn.secondary:not(:disabled):hover { background: rgba(255, 255, 255, 0.06); color: #cdd6f4; }
+
+/* --- Toast for kill outcome --- */
+
+.sys-detail-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10004;
+  background: #10b981;
+  color: #051510;
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  max-width: min(560px, 90vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: sys-detail-toast-in 0.15s ease-out;
+}
+.sys-detail-toast.error {
+  background: #f38ba8;
+  color: #300a17;
+}
+@keyframes sys-detail-toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* --- Long-press context menu -------------------------------------------
+   iOS "haptic touch" affordance for the launcher: a rounded floating card
+   with icons + labels, anchored to the pressed icon. The backdrop blurs
+   the whole page to draw focus to the menu (same trick Springboard uses). */
+.iphone-ctx-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 6, 12, 0.36);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 200;
+  animation: iphoneCtxFadeIn 0.15s ease-out;
+}
+
+.iphone-ctx-menu {
+  z-index: 201;
+  background: rgba(30, 30, 46, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  animation: iphoneCtxScaleIn 0.15s ease-out;
+}
+
+.iphone-ctx-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: #cdd6f4;
+}
+
+.iphone-ctx-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ecf0fe;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iphone-ctx-sub {
+  font-size: 11px;
+  color: #a6adc8;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iphone-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  color: #cdd6f4;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.iphone-ctx-item:first-child { border-top: none; }
+
+.iphone-ctx-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.iphone-ctx-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.iphone-ctx-item.destructive {
+  color: #f38ba8;
+}
+
+.iphone-ctx-item.destructive:hover {
+  background: rgba(243, 139, 168, 0.12);
+}
+
+.iphone-ctx-icon {
+  width: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+}
+
+.iphone-ctx-label { flex: 1; }
+
+.iphone-ctx-item .spinning { animation: spin 1s linear infinite; }
+
+@keyframes iphoneCtxFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes iphoneCtxScaleIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Outdated dot on ProjectFolderIcon — amber, top-left corner, half the
+   size of the waiting badge so both can coexist. */
+.iphone-badge.outdated-dot {
+  top: -4px;
+  left: -4px;
+  right: auto;
+  width: 12px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0;
+  background: #f9e2af;
+  border: 2px solid rgba(30, 30, 46, 0.98);
+  box-shadow: 0 0 0 1px rgba(249, 226, 175, 0.4);
+}
+
+/* Overlay-header action cluster — "New" button + close X. */
+.iphone-overlay-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iphone-overlay-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(137, 180, 250, 0.14);
+  border: 1px solid rgba(137, 180, 250, 0.35);
+  color: #89b4fa;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.iphone-overlay-new:hover {
+  background: rgba(137, 180, 250, 0.24);
+}
+
+/* CTA button variant — used for "Create the first one" empty state. */
+button.iphone-cta {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* --- Board icon variant (in the folder overlay) --------------------- */
+.iphone-board-icon {
+  background: linear-gradient(135deg, #7c3aed 0%, #4c1d95 50%, #1e1b4b 100%);
+  border: 1px solid rgba(196, 181, 253, 0.28);
+  color: #ddd6fe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 6px 14px rgba(30, 27, 75, 0.55);
+}
+
+/* (formerly `.iphone-badge.board-dot` — boards now appear as full
+   thumbnails in the folder grid instead of a corner decoration.) */
+
+/* --- FolderOverlay header actions & meta --------------------------- */
+.iphone-overlay-title-block {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.iphone-overlay-subline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #a6adc8;
+  flex-wrap: wrap;
+}
+.iphone-overlay-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(203, 166, 247, 0.14);
+  border: 1px solid rgba(203, 166, 247, 0.32);
+  color: #cba6f7;
+  cursor: pointer;
+  font-size: 11px;
+}
+.iphone-overlay-tag.unset { color: #a6adc8; border-color: rgba(255,255,255,0.12); background: transparent; }
+.iphone-overlay-tag:hover { background: rgba(203, 166, 247, 0.22); }
+
+.iphone-overlay-version {
+  font-family: monospace;
+  color: #a6adc8;
+  font-size: 10px;
+}
+.iphone-overlay-version.outdated {
+  color: #f9e2af;
+}
+
+.iphone-overlay-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(249, 226, 175, 0.14);
+  border: 1px solid rgba(249, 226, 175, 0.4);
+  color: #f9e2af;
+  font-size: 12px;
+  cursor: pointer;
+}
+.iphone-overlay-sync:hover:not(:disabled) { background: rgba(249, 226, 175, 0.22); }
+.iphone-overlay-sync:disabled { opacity: 0.6; cursor: not-allowed; }
+.iphone-overlay-sync .spinning { animation: spin 1s linear infinite; }
+
+/* Passive variant — up-to-date projects. Just says "Refresh" without the
+   warm amber tone that flags an actual version mismatch. */
+.iphone-overlay-sync.passive {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #a6adc8;
+}
+.iphone-overlay-sync.passive:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+
+.iphone-overlay-remove {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f38ba8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.iphone-overlay-remove:hover { background: rgba(243, 139, 168, 0.16); }
+
+.iphone-overlay-section-label {
+  font-size: 10px;
+  color: #6c7086;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin: 12px 4px 6px;
+}
+.iphone-overlay-boards { margin-bottom: 4px; }
+
+/* Header cluster: sync-all-outdated button variant */
+.iphone-header-add.outdated {
+  background: rgba(249, 226, 175, 0.14);
+  border-color: rgba(249, 226, 175, 0.4);
+  color: #f9e2af;
+  gap: 4px;
+}
+.iphone-header-add.outdated:hover:not(:disabled) {
+  background: rgba(249, 226, 175, 0.22);
+}
+.iphone-header-count {
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 14px;
+  text-align: center;
 }

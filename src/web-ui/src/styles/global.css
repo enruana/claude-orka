@@ -376,6 +376,54 @@ body {
   border-color: var(--accent-blue-hover);
 }
 
+/* Dashboard "Save All" button — mirrors .add-button geometry but uses
+   the same green accent as the per-session Save so both variants read
+   as "safe, non-destructive". */
+.save-all-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background: rgba(48, 209, 88, 0.14);
+  border: 1px solid rgba(48, 209, 88, 0.25);
+  color: var(--accent-green, #30d158);
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+}
+
+.save-all-button:hover:not(:disabled) {
+  background: rgba(48, 209, 88, 0.24);
+  border-color: rgba(48, 209, 88, 0.4);
+}
+
+.save-all-button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.save-all-button .spinning {
+  animation: spin 0.85s linear infinite;
+}
+
+/* Short-lived confirmation banner after "Save All" completes. Auto-
+   hides in JS after 5s; here we just style it. */
+.save-all-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0 var(--space-lg) var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(48, 209, 88, 0.12);
+  border: 1px solid rgba(48, 209, 88, 0.25);
+  border-radius: var(--radius-md);
+  color: var(--accent-green, #30d158);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -800,6 +848,28 @@ body {
   gap: var(--space-sm);
 }
 
+/* Universal close button — used at the top-left of every fullscreen
+   surface (BoardPage, SessionView, launcher modals, board task modal,
+   master mobile modal) so the user learns one gesture: "X top-left =
+   dismiss / go back". Neutral pill so it doesn't compete with the
+   primary content. */
+.orka-close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
+}
+.orka-close-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.orka-close-btn:active { background: rgba(255, 255, 255, 0.18); }
+
 .icon-button {
   background: none;
   border: none;
@@ -890,6 +960,37 @@ body {
 
 .detach-button:hover {
   background: rgba(255, 214, 10, 0.2);
+}
+
+/* Save (non-destructive snapshot) — sits between the layout buttons and
+   Detach in the session header. Uses green so it reads as "safe /
+   reversible" next to the yellow Detach and red Close. */
+.save-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(48, 209, 88, 0.12);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--accent-green, #30d158);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.save-button:hover:not(:disabled) {
+  background: rgba(48, 209, 88, 0.2);
+}
+
+.save-button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.save-button .spinning {
+  animation: spin 0.85s linear infinite;
 }
 
 .close-button {
@@ -3531,7 +3632,15 @@ body {
 .pcard-badge.version {
   background: rgba(166, 227, 161, 0.1);
   color: var(--accent-green);
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
 }
+.pcard-badge.version:hover:not(:disabled) { opacity: 0.8; }
+.pcard-badge.version:disabled { opacity: 0.5; cursor: default; }
 
 .pcard-badge.outdated {
   background: rgba(249, 226, 175, 0.15);
@@ -3551,6 +3660,40 @@ body {
 .pcard-badge.tag-btn:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
+}
+
+/* Boards list inside card — rendered above sessions with a purple accent
+   so they visually stand out from Classic session rows. */
+.pcard-boards {
+  border-top: 1px solid var(--border-primary);
+  padding: 4px 0;
+}
+.pcard-board {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.pcard-board:hover { background: var(--bg-hover); }
+.pcard-board-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
+  box-shadow: 0 0 6px rgba(167, 139, 250, 0.5);
+}
+.pcard-board-name { flex: 1; }
+.pcard-board-tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(167, 139, 250, 0.16);
+  color: #a78bfa;
 }
 
 /* Sessions list inside card */

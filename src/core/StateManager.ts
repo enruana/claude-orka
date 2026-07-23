@@ -2,7 +2,7 @@ import path from 'path'
 import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
-import { ProjectState, ProjectTask, ProjectComment, Session, Fork, SessionFilters } from '../models'
+import { ProjectState, ProjectTask, ProjectComment, ProjectPin, Session, Fork, SessionFilters } from '../models'
 import { logger } from '../utils'
 import { installSessionWatcherHooks } from '../server/session-watcher-hooks'
 import { getGlobalStateManager } from './GlobalStateManager'
@@ -721,5 +721,40 @@ export class StateManager {
     state.comments.splice(index, 1)
     await this.save(state)
     logger.info(`Comment deleted: ${commentId}`)
+  }
+
+  // --- OPERACIONES DE PINS ---
+
+  async listPins(): Promise<ProjectPin[]> {
+    const state = await this.read()
+    return state.pins || []
+  }
+
+  /**
+   * Upsert a pin by `entityId`. Re-pinning refreshes the denormalized
+   * title/type/folderPath (in case the entity's properties changed) and
+   * bumps `pinnedAt` so the FAB re-sorts it to the top.
+   */
+  async addPin(pin: ProjectPin): Promise<void> {
+    const state = await this.read()
+    if (!state.pins) state.pins = []
+    const existing = state.pins.findIndex(p => p.entityId === pin.entityId)
+    if (existing >= 0) {
+      state.pins[existing] = pin
+    } else {
+      state.pins.push(pin)
+    }
+    await this.save(state)
+    logger.info(`Pin ${existing >= 0 ? 'updated' : 'added'}: ${pin.entityId}`)
+  }
+
+  async deletePin(entityId: string): Promise<void> {
+    const state = await this.read()
+    if (!state.pins) state.pins = []
+    const index = state.pins.findIndex(p => p.entityId === entityId)
+    if (index === -1) throw new Error(`Pin not found: ${entityId}`)
+    state.pins.splice(index, 1)
+    await this.save(state)
+    logger.info(`Pin deleted: ${entityId}`)
   }
 }

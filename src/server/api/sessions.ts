@@ -62,10 +62,25 @@ sessionsRouter.post('/hook', async (req, res) => {
     const claudeSessionId = typeof payload.session_id === 'string' ? payload.session_id : ''
     const cwd = typeof payload.cwd === 'string' ? payload.cwd : ''
     const message = typeof payload.message === 'string' ? payload.message : undefined
+    // Tmux pane id — set by the hook curl command via `-H "X-Tmux-Pane: $TMUX_PANE"`.
+    // Empty string when Claude is invoked outside tmux.
+    const tmuxPaneId = String(req.headers['x-tmux-pane'] || '').trim()
 
     if (!event || !claudeSessionId) {
       logger.warn(`hook: missing event or session_id (event=${event}, sid=${claudeSessionId})`)
       res.json({ ok: true, skipped: 'missing event or session_id' })
+      return
+    }
+
+    // SessionStart with source clear|compact rotates the branch's stored
+    // claudeSessionId — this is the ONLY reliable rotation signal.
+    // Handled independently of the (sessionId → orka branch) lookup that
+    // the other events use, because after rotation the payload's session_id
+    // is the NEW id which is not yet in Orka state.
+    if (event === 'SessionStart') {
+      const source = String(payload.source || 'startup')
+      await handleSessionStart({ tmuxPaneId, cwd, claudeSessionId, source })
+      res.json({ ok: true })
       return
     }
 
@@ -107,6 +122,125 @@ sessionsRouter.post('/hook', async (req, res) => {
     res.json({ ok: true, error: error?.message || String(error) })
   }
 })
+
+/**
+ * Handle a Claude SessionStart hook event.
+ *
+ * Semantics by `source`:
+ *  - `startup` / `resume` — Claude just launched. The new session id
+ *    should equal what Orka pre-set via `--session-id` or `--resume`.
+ *    If it doesn't AND we can identify the branch, log the mismatch;
+ *    no id rewrite (Orka's state is the intended source of truth for
+ *    freshly-started conversations).
+ *  - `clear` / `compact` — Claude minted a NEW session id and started
+ *    writing to a NEW jsonl. Update the branch's `claudeSessionId` to
+ *    this new id so `claude --resume` later loads the correct content.
+ *
+ * Branch identification (in order of precedence):
+ *  1. tmux pane id — deterministic, survives id rotation.
+ *  2. previous claudeSessionId lookup — used as fallback when the pane
+ *     header is missing (e.g. Claude run outside tmux). Only works
+ *     BEFORE the rotation is committed to state.
+ */
+async function handleSessionStart(opts: {
+  tmuxPaneId: string
+  cwd: string
+  claudeSessionId: string
+  source: string
+}): Promise<void> {
+  const { tmuxPaneId, cwd, claudeSessionId, source } = opts
+  const isRotation = source === 'clear' || source === 'compact'
+
+  // Primary path: identify the branch by tmux pane id. Only works when
+  // Claude runs inside tmux (which is always true for Orka-managed
+  // sessions — Orka spawns Claude inside `orka-<uuid>` tmux sessions).
+  const target = tmuxPaneId ? await findSessionByTmuxPane(tmuxPaneId) : null
+
+  if (!target) {
+    if (isRotation) {
+      logger.warn(
+        `hook: SessionStart[${source}] for ${claudeSessionId.slice(0, 8)}… but ` +
+        `no Orka branch matched pane="${tmuxPaneId}" cwd="${cwd}" — rotation LOST. ` +
+        `Ensure the SessionStart hook is installed for this project.`
+      )
+    } else {
+      logger.debug(`hook: SessionStart[${source}] for ${claudeSessionId.slice(0, 8)}… (no Orka branch)`)
+    }
+    return
+  }
+
+  const { sm, sessionId, branch } = target
+  const session = await sm.getSession(sessionId)
+  if (!session) return
+
+  const currentStoredId = branch === 'main'
+    ? session.main.claudeSessionId
+    : session.forks.find((f) => f.id === branch)?.claudeSessionId
+
+  if (currentStoredId === claudeSessionId) {
+    // Common case for startup/resume — the id matches what Orka pre-set.
+    logger.debug(`hook: SessionStart[${source}] for ${session.name}/${branch} — id unchanged`)
+    return
+  }
+
+  if (!isRotation) {
+    // Non-rotation events (startup/resume) with a mismatched id: log and
+    // do NOT overwrite. This could indicate Orka's spawn command didn't
+    // take effect (e.g. --session-id was ignored) or the user replaced
+    // the terminal with a stray `claude` invocation. Overwriting here
+    // would masquerade any real bug.
+    logger.warn(
+      `hook: SessionStart[${source}] for ${session.name}/${branch}: ` +
+      `payload id ${claudeSessionId.slice(0, 8)}… != stored ${(currentStoredId || 'none').slice(0, 8)}… — ignoring`
+    )
+    return
+  }
+
+  // Rotation: commit the new id.
+  if (branch === 'main') {
+    session.main.claudeSessionId = claudeSessionId
+  } else {
+    const fork = session.forks.find((f) => f.id === branch)
+    if (!fork) return
+    fork.claudeSessionId = claudeSessionId
+  }
+  session.lastActivity = new Date().toISOString()
+  await sm.replaceSession(session)
+  logger.info(
+    `hook: SessionStart[${source}] rotated ${session.name}/${branch}: ` +
+    `${(currentStoredId || 'none').slice(0, 8)}… → ${claudeSessionId.slice(0, 8)}…`
+  )
+}
+
+/** Find the Orka session + branch owning a given tmux pane id.
+ *  Scans all registered projects; pane ids are globally unique within
+ *  a single tmux server, so no cwd disambiguation is needed. */
+async function findSessionByTmuxPane(
+  tmuxPaneId: string
+): Promise<{ sm: StateManager; sessionId: string; branch: string } | null> {
+  if (!tmuxPaneId) return null
+  const global = await getGlobalStateManager()
+  const projects = global.getProjects()
+
+  for (const project of projects) {
+    try {
+      const sm = new StateManager(project.path)
+      const sessions = await sm.getAllSessions()
+      for (const session of sessions) {
+        if (session.main.tmuxPaneId === tmuxPaneId) {
+          return { sm, sessionId: session.id, branch: 'main' }
+        }
+        const fork = session.forks.find((f) => f.tmuxPaneId === tmuxPaneId)
+        if (fork) {
+          return { sm, sessionId: session.id, branch: fork.id }
+        }
+      }
+    } catch {
+      // Project state may be unreadable mid-init — skip and continue.
+    }
+  }
+  return null
+}
 
 /**
  * POST /api/sessions/:sessionId/acknowledge-waiting?project=<base64>
@@ -249,15 +383,10 @@ sessionsRouter.get('/:sessionId', async (req, res) => {
     const orka = new ClaudeOrka(projectPath)
     await orka.initialize()
 
-    // Auto-sync session IDs for active sessions (non-blocking best-effort)
-    try {
-      const syncResult = await orka.syncSessionIds(sessionId)
-      if (syncResult) {
-        logger.info(`Session ${sessionId} IDs synced: main=${syncResult.mainChanged}, forks=${syncResult.forksChanged.join(',')}`)
-      }
-    } catch (syncError) {
-      logger.debug(`Session sync skipped: ${syncError}`)
-    }
+    // syncSessionIds is intentionally NOT called on GET anymore — the
+    // legacy greedy matcher caused cross-session contamination in
+    // projects with multiple Orka sessions. Rotation tracking now
+    // happens deterministically via the SessionStart hook receiver.
 
     const session = await orka.getSession(sessionId)
     if (!session) {
@@ -268,6 +397,184 @@ sessionsRouter.get('/:sessionId', async (req, res) => {
     res.json(session)
   } catch (error: any) {
     logger.error('Failed to get session:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * GET /api/sessions/:sessionId/verify?project=<base64-path>
+ *
+ * Audit each branch (main + active/saved forks) of the session and
+ * report any contamination symptoms:
+ *  - missing:  the stored `claudeSessionId` has no `.jsonl` on disk.
+ *  - mismatched-cwd: the jsonl exists but its recorded cwd does not
+ *    match the Orka project path (proof the id was assigned from a
+ *    conversation started elsewhere).
+ *  - duplicate: the id is also claimed by another branch (main or fork)
+ *    across ANY Orka session in the project — hard evidence that the
+ *    old greedy sync cross-wired two branches to the same conversation.
+ *
+ * Read-only. Use `POST /reset-claude-id` on a specific branch to remedy.
+ */
+sessionsRouter.get('/:sessionId/verify', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const encodedPath = req.query.project as string
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+    const projectPath = decodeProjectPath(encodedPath)
+
+    const [{ claudeSessionFileExists, listProjectSessions }, { StateManager: SM }] = await Promise.all([
+      import('../../utils/claude-history'),
+      import('../../core/StateManager'),
+    ])
+
+    const sm = new SM(projectPath)
+    await sm.initialize()
+    const session = await sm.getSession(sessionId)
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' })
+      return
+    }
+
+    // Build a map of id → owning branches across ALL Orka sessions in
+    // this project so we can flag cross-branch duplicates.
+    const allSessions = await sm.getAllSessions()
+    const idOwners = new Map<string, Array<{ sessionName: string; branch: string }>>()
+    for (const s of allSessions) {
+      if (s.main.claudeSessionId) {
+        const arr = idOwners.get(s.main.claudeSessionId) || []
+        arr.push({ sessionName: s.name, branch: 'main' })
+        idOwners.set(s.main.claudeSessionId, arr)
+      }
+      for (const f of s.forks) {
+        if (f.status !== 'active' && f.status !== 'saved') continue
+        if (!f.claudeSessionId) continue
+        const arr = idOwners.get(f.claudeSessionId) || []
+        arr.push({ sessionName: s.name, branch: f.name || f.id })
+        idOwners.set(f.claudeSessionId, arr)
+      }
+    }
+
+    // Index jsonls by id for cwd lookup.
+    const jsonls = await listProjectSessions(projectPath)
+    const jsonlByCwd = new Map(jsonls.map((e) => [e.sessionId, e.projectPath] as const))
+
+    interface BranchReport {
+      branch: 'main' | string
+      name: string
+      claudeSessionId: string
+      status: string
+      issues: string[]
+      duplicateOwners?: Array<{ sessionName: string; branch: string }>
+      recordedCwd?: string
+    }
+
+    const branches: BranchReport[] = []
+    const push = (b: BranchReport) => branches.push(b)
+
+    const audit = async (branchKey: 'main' | string, name: string, id: string, status: string) => {
+      const issues: string[] = []
+      let recordedCwd: string | undefined
+      let dupOwners: BranchReport['duplicateOwners']
+
+      if (!id) {
+        issues.push('missing-id')
+      } else {
+        const exists = await claudeSessionFileExists(projectPath, id)
+        if (!exists) issues.push('missing')
+        const cwd = jsonlByCwd.get(id)
+        if (cwd) {
+          recordedCwd = cwd
+          if (cwd !== projectPath) issues.push('mismatched-cwd')
+        }
+        const owners = idOwners.get(id) || []
+        if (owners.length > 1) {
+          issues.push('duplicate')
+          dupOwners = owners
+        }
+      }
+
+      push({ branch: branchKey, name, claudeSessionId: id, status, issues, duplicateOwners: dupOwners, recordedCwd })
+    }
+
+    await audit('main', session.main.label || 'main', session.main.claudeSessionId, session.main.status || 'active')
+    for (const f of session.forks) {
+      if (f.status !== 'active' && f.status !== 'saved') continue
+      await audit(f.id, f.name, f.claudeSessionId, f.status)
+    }
+
+    const healthy = branches.every((b) => b.issues.length === 0)
+    res.json({ sessionId, name: session.name, healthy, branches })
+  } catch (error: any) {
+    logger.error('Failed to verify session:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/sessions/:sessionId/branches/:branchId/reset-claude-id?project=<base64-path>
+ *
+ * Wipe a branch's stored `claudeSessionId` and assign a fresh uuid.
+ * The next `resumeSession` will detect no jsonl for the fresh id and
+ * fall back to creating a new Claude conversation for that branch
+ * (`new-fallback` prompt path, which honors cached `lastContextSummary`).
+ * Intended remedy for branches flagged as `duplicate` or `mismatched-cwd`
+ * by `/verify`.
+ *
+ * `branchId` is `'main'` for the session's main branch, or a fork id.
+ */
+sessionsRouter.post('/:sessionId/branches/:branchId/reset-claude-id', async (req, res) => {
+  try {
+    const { sessionId, branchId } = req.params
+    const encodedPath = req.query.project as string
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+    const projectPath = decodeProjectPath(encodedPath)
+
+    const [{ v4: uuidv4 }, { StateManager: SM }] = await Promise.all([
+      import('uuid'),
+      import('../../core/StateManager'),
+    ])
+    const sm = new SM(projectPath)
+    await sm.initialize()
+    const session = await sm.getSession(sessionId)
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' })
+      return
+    }
+
+    const oldId: string | undefined = branchId === 'main'
+      ? session.main.claudeSessionId
+      : session.forks.find((f) => f.id === branchId)?.claudeSessionId
+
+    const newId = uuidv4()
+    if (branchId === 'main') {
+      session.main.claudeSessionId = newId
+      session.main.lastContextSummary = undefined
+    } else {
+      const fork = session.forks.find((f) => f.id === branchId)
+      if (!fork) {
+        res.status(404).json({ error: `Fork ${branchId} not found` })
+        return
+      }
+      fork.claudeSessionId = newId
+      fork.lastContextSummary = undefined
+    }
+    session.lastActivity = new Date().toISOString()
+    await sm.replaceSession(session)
+
+    logger.info(
+      `reset-claude-id: ${session.name}/${branchId}: ` +
+      `${(oldId || 'none').slice(0, 8)}… → ${newId.slice(0, 8)}… (next resume creates fresh Claude conversation)`
+    )
+    res.json({ ok: true, oldClaudeSessionId: oldId, newClaudeSessionId: newId })
+  } catch (error: any) {
+    logger.error('Failed to reset claude id:', error)
     res.status(500).json({ error: error.message })
   }
 })
@@ -295,6 +602,61 @@ sessionsRouter.post('/:sessionId/sync', async (req, res) => {
     res.json({ synced: !!result, changes: result })
   } catch (error: any) {
     logger.error('Failed to sync session IDs:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/sessions/save-all?project=<base64-path>
+ * Save a lossless snapshot of every session in the project so it can be
+ * resumed later without state drift. Runs syncSessionIds +
+ * syncUntrackedPanes + refreshes lastContextSummary for each branch, then
+ * persists. Does not stop live processes (unlike detach/close). Registered
+ * BEFORE /:sessionId/save so Express matches the literal segment first.
+ */
+sessionsRouter.post('/save-all', async (req, res) => {
+  try {
+    const encodedPath = req.query.project as string
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    const result = await orka.saveAllSessions()
+    res.json(result)
+  } catch (error: any) {
+    logger.error('Failed to save all sessions:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/sessions/:sessionId/save?project=<base64-path>
+ * Save a lossless snapshot of one session. See `saveSessionSnapshot` for
+ * exactly what it refreshes.
+ */
+sessionsRouter.post('/:sessionId/save', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const encodedPath = req.query.project as string
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project query param is required' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    const result = await orka.saveSessionSnapshot(sessionId)
+    res.json(result)
+  } catch (error: any) {
+    logger.error('Failed to save session snapshot:', error)
     res.status(500).json({ error: error.message })
   }
 })

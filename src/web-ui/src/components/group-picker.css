@@ -1,0 +1,246 @@
+/* GroupPickerModal — reusable across dashboard and launcher.
+   Standalone stylesheet so it renders identically no matter which parent
+   surface hosts it (dashboard modal system vs. launcher iOS aesthetic).
+   Uses the same Catppuccin-Mocha palette the rest of the app uses. */
+
+.gp-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: gpFadeIn 0.15s ease-out;
+}
+
+@keyframes gpFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.gp-card {
+  background: #1e1e2e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  width: 100%;
+  max-width: 440px;
+  color: #cdd6f4;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  padding: 20px;
+  animation: gpScaleIn 0.15s ease-out;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+@keyframes gpScaleIn { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* Header */
+.gp-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.gp-header-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(203, 166, 247, 0.28), rgba(137, 180, 250, 0.22));
+  color: #cba6f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gp-header-text { flex: 1; min-width: 0; }
+.gp-header-text h2 {
+  margin: 0;
+  font-size: 15px;
+  color: #ecf0fe;
+  font-weight: 600;
+}
+.gp-header-text p {
+  margin: 4px 0 0;
+  color: #a6adc8;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-header-text strong { color: #cdd6f4; font-weight: 600; }
+
+.gp-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.gp-close:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* Input row */
+.gp-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: border-color 0.15s, background 0.15s;
+}
+.gp-input-row:focus-within {
+  border-color: rgba(137, 180, 250, 0.5);
+  background: rgba(137, 180, 250, 0.06);
+}
+.gp-input-icon {
+  color: #a6adc8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gp-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ecf0fe;
+  font-size: 14px;
+  min-width: 0;
+}
+.gp-input::placeholder { color: #6c7086; }
+.gp-input-clear {
+  background: transparent;
+  border: none;
+  color: #6c7086;
+  cursor: pointer;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gp-input-clear:hover { background: rgba(255,255,255,0.08); color: #cdd6f4; }
+
+.gp-hint {
+  margin-top: 8px;
+  color: #a6e3a1;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Chips section */
+.gp-section-label {
+  margin: 18px 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #6c7086;
+}
+.gp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gp-chip {
+  --chip-color: #89b4fa;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid color-mix(in oklab, var(--chip-color) 40%, transparent);
+  color: var(--chip-color);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+}
+.gp-chip:hover {
+  background: color-mix(in oklab, var(--chip-color) 12%, transparent);
+  border-color: color-mix(in oklab, var(--chip-color) 60%, transparent);
+}
+.gp-chip:active { transform: scale(0.96); }
+.gp-chip.selected {
+  background: color-mix(in oklab, var(--chip-color) 22%, transparent);
+  border-color: var(--chip-color);
+  color: #ecf0fe;
+  font-weight: 500;
+}
+.gp-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--chip-color);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--chip-color) 60%, transparent);
+}
+.gp-chip.selected .gp-chip-dot {
+  box-shadow: 0 0 10px color-mix(in oklab, var(--chip-color) 90%, transparent);
+}
+.gp-chip-check {
+  color: var(--chip-color);
+}
+
+.gp-chip-none {
+  --chip-color: #6c7086;
+  color: #a6adc8;
+}
+.gp-chip-none .gp-chip-label { display: inline-flex; align-items: center; gap: 4px; }
+.gp-chip-dot.none {
+  background: transparent;
+  border: 1px dashed #6c7086;
+  box-shadow: none;
+}
+.gp-chip-none.selected {
+  background: rgba(108, 112, 134, 0.24);
+  border-color: #6c7086;
+  color: #ecf0fe;
+}
+
+/* Footer */
+.gp-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.gp-btn {
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.gp-btn.secondary {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+}
+.gp-btn.secondary:hover { background: rgba(255, 255, 255, 0.12); }
+.gp-btn.primary {
+  background: linear-gradient(135deg, #89b4fa, #cba6f7);
+  color: #1e1e2e;
+  font-weight: 600;
+}
+.gp-btn.primary:disabled {
+  background: rgba(255, 255, 255, 0.08);
+  color: #6c7086;
+  cursor: not-allowed;
+}
+.gp-btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+@media (max-width: 480px) {
+  .gp-card { padding: 16px; border-radius: 16px; }
+}

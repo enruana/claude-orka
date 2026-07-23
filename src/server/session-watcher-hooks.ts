@@ -3,16 +3,21 @@
  *
  * Writes a small set of Claude Code hook entries into a project's
  * `.claude/settings.json` so the running Orka server can track per-session
- * "waiting for user input" state. Independent of the agent system: these
- * hooks are installed unconditionally for every Orka project on init /
- * reinitialize, and coexist with agent hooks via a unique URL marker so the
- * two systems do not stomp each other when (re-)installing.
+ * "waiting for user input" state and Claude session id rotations.
+ * Independent of the agent system: these hooks are installed unconditionally
+ * for every Orka project on init / reinitialize, and coexist with agent
+ * hooks via a unique URL marker so the two systems do not stomp each other
+ * when (re-)installing.
  *
  * Events tracked:
  *  - Notification       → may set `waitingForInput=true` on the receiver side
  *                         (filtered by message content there).
  *  - UserPromptSubmit   → clears the flag.
  *  - PreToolUse         → clears the flag.
+ *  - SessionStart       → deterministically re-attaches Orka branches to the
+ *                         new claudeSessionId after /clear or /compact,
+ *                         using the tmux pane id (from $TMUX_PANE) to
+ *                         identify which branch rotated.
  */
 
 import fs from 'fs-extra'
@@ -24,7 +29,7 @@ import { logger } from '../utils'
  *  these from agent hooks (which point to `/api/hooks/<agentId>`). */
 export const SESSION_WATCHER_PATH = '/api/sessions/hook'
 
-const WATCHED_EVENTS = ['Notification', 'UserPromptSubmit', 'PreToolUse'] as const
+const WATCHED_EVENTS = ['Notification', 'UserPromptSubmit', 'PreToolUse', 'SessionStart'] as const
 
 interface HookEntry {
   matcher?: string
@@ -69,9 +74,19 @@ function buildCommand(host: string, port: number, event: string, protocol: 'http
   // `localhost` — strict verification would reject the local hit. Hook
   // payloads do not contain secrets we'd care to protect against MITM on
   // a loopback connection, so this is safe.
+  //
+  // `X-Tmux-Pane` header: when Claude Code runs inside tmux, `$TMUX_PANE`
+  // is set to the containing pane id (e.g. `%1`). The receiver uses this
+  // to route SessionStart rotations to the exact Orka branch that
+  // triggered them — the only reliable identifier we have that survives
+  // `/clear` and `/compact` (both of which mint a new claudeSessionId).
+  // Empty when Claude is invoked outside tmux; the receiver falls back
+  // to cwd+session_id lookup in that case.
   const insecure = protocol === 'https' ? '-k ' : ''
   return `curl -s ${insecure}-X POST '${protocol}://${host}:${port}${SESSION_WATCHER_PATH}?event=${event}' ` +
-    `-H 'Content-Type: application/json' --data-binary @-`
+    `-H 'Content-Type: application/json' ` +
+    `-H "X-Tmux-Pane: \${TMUX_PANE:-}" ` +
+    `--data-binary @-`
 }
 
 /**

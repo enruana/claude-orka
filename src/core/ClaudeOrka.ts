@@ -133,6 +133,25 @@ export class ClaudeOrka {
   }
 
   /**
+   * Persist a fully-resumable snapshot of one session: refreshes
+   * claudeSessionIds, untrackedPanes, and lastContextSummary for main +
+   * active/saved forks. Does NOT stop the server or kill ttyd — this is a
+   * "safety save", not a shutdown. Use as the counterpart to detach/close.
+   */
+  async saveSessionSnapshot(sessionId: string) {
+    return await this.sessionManager.saveSessionSnapshot(sessionId)
+  }
+
+  /**
+   * Loop `saveSessionSnapshot` over every session in the current project.
+   * Failures on individual sessions are recorded in the return value but
+   * don't abort the run.
+   */
+  async saveAllSessions() {
+    return await this.sessionManager.saveAllSessions()
+  }
+
+  /**
    * Get complete project summary
    * Includes statistics of all sessions and their forks
    * @returns Project summary with all sessions and statistics

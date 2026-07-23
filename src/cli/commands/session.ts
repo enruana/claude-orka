@@ -353,6 +353,353 @@ export function sessionCommand(program: Command) {
       }
     })
 
+  // Verify session — audit claudeSessionIds for cross-contamination
+  session
+    .command('verify [session-id]')
+    .description('Audit each branch of a session for missing / cross-contaminated Claude session IDs')
+    .action(async (sessionId) => {
+      try {
+        const projectPath = process.cwd()
+        validateInitialized(projectPath)
+
+        const orka = new ClaudeOrka(projectPath)
+        await orka.initialize()
+
+        let target = sessionId
+        if (!target) {
+          const sessions = await orka.listSessions()
+          const picked = await selectSession(sessions)
+          if (!picked) return
+          target = picked.id
+        }
+        validateSessionId(target)
+
+        const { StateManager } = await import('../../core/StateManager')
+        const { claudeSessionFileExists, listProjectSessions } = await import('../../utils/claude-history')
+
+        const sm = new StateManager(projectPath)
+        await sm.initialize()
+        const session = await sm.getSession(target)
+        if (!session) {
+          Output.error(`Session ${target} not found`)
+          return
+        }
+
+        const allSessions = await sm.getAllSessions()
+        const owners = new Map<string, Array<{ sessionName: string; branch: string }>>()
+        for (const s of allSessions) {
+          if (s.main.claudeSessionId) {
+            const arr = owners.get(s.main.claudeSessionId) || []
+            arr.push({ sessionName: s.name, branch: 'main' })
+            owners.set(s.main.claudeSessionId, arr)
+          }
+          for (const f of s.forks) {
+            if (f.status !== 'active' && f.status !== 'saved') continue
+            if (!f.claudeSessionId) continue
+            const arr = owners.get(f.claudeSessionId) || []
+            arr.push({ sessionName: s.name, branch: f.name || f.id })
+            owners.set(f.claudeSessionId, arr)
+          }
+        }
+
+        const { getSessionContextSummary, readMeaningfulUserPrompt } = await import('../../utils/claude-history')
+
+        const jsonls = await listProjectSessions(projectPath)
+        const cwdById = new Map(jsonls.map((e) => [e.sessionId, e.projectPath] as const))
+
+        console.log()
+        console.log(chalk.bold.cyan(`Audit — ${session.name}`))
+        console.log(chalk.gray(`Project: ${projectPath}`))
+        console.log()
+
+        const rows: Array<{
+          branch: string
+          name: string
+          id: string
+          issues: string[]
+          extra?: string
+          summary?: string
+          firstPrompt?: string
+        }> = []
+
+        const audit = async (branch: string, name: string, id: string) => {
+          const issues: string[] = []
+          let extra = ''
+          if (!id) {
+            issues.push('missing-id')
+          } else {
+            const exists = await claudeSessionFileExists(projectPath, id)
+            if (!exists) issues.push('missing')
+            const cwd = cwdById.get(id)
+            if (cwd && cwd !== projectPath) {
+              issues.push('mismatched-cwd')
+              extra = `cwd=${cwd}`
+            }
+            const list = owners.get(id) || []
+            if (list.length > 1) {
+              issues.push('duplicate')
+              extra = 'shared by: ' + list.map((o) => `${o.sessionName}/${o.branch}`).join(', ')
+            }
+          }
+          let summary: string | undefined
+          let firstPrompt: string | undefined
+          if (id) {
+            try { summary = (await getSessionContextSummary(projectPath, id)) || undefined } catch {}
+            try { firstPrompt = (await readMeaningfulUserPrompt(projectPath, id)) || undefined } catch {}
+          }
+          rows.push({ branch, name, id, issues, extra, summary, firstPrompt })
+        }
+
+        await audit('main', session.main.label || 'main', session.main.claudeSessionId)
+        for (const f of session.forks) {
+          if (f.status !== 'active' && f.status !== 'saved') continue
+          await audit(f.id, f.name, f.claudeSessionId)
+        }
+
+        for (const r of rows) {
+          const idShort = r.id ? r.id.slice(0, 8) + '…' : '(none)'
+          const preview = r.summary || r.firstPrompt || ''
+          const previewLine = preview
+            ? chalk.gray(`      "${preview.slice(0, 90)}${preview.length > 90 ? '…' : ''}"`)
+            : ''
+          if (r.issues.length === 0) {
+            console.log(`  ${chalk.green('✓')} ${chalk.bold(r.name)} ${chalk.gray(idShort)}`)
+            if (previewLine) console.log(previewLine)
+          } else {
+            console.log(`  ${chalk.red('✗')} ${chalk.bold(r.name)} ${chalk.gray(idShort)}  ${chalk.red(r.issues.join(', '))}`)
+            if (previewLine) console.log(previewLine)
+            if (r.extra) console.log(chalk.gray(`      ${r.extra}`))
+            console.log(chalk.gray(`      Fix: orka session reset-branch ${target} ${r.branch}`))
+          }
+        }
+
+        const bad = rows.filter((r) => r.issues.length > 0).length
+        console.log()
+        if (bad === 0) {
+          Output.success(`All ${rows.length} branches look structurally healthy.`)
+          console.log(chalk.gray('If a preview above does not match the branch name, the id is semantically wrong.'))
+          console.log(chalk.gray(`Reset it with: orka session reset-branch ${target} <branch>`))
+        } else {
+          Output.warn(`${bad}/${rows.length} branch(es) need attention.`)
+        }
+      } catch (error) {
+        handleError(error)
+      }
+    })
+
+  // Reset a branch's claude session id — remedy for contamination
+  session
+    .command('reset-branch <session-id> <branch-id>')
+    .description('Wipe a branch\'s Claude session id so the next resume starts a fresh conversation. Use \'main\' or a fork id.')
+    .action(async (sessionId, branchId) => {
+      try {
+        const projectPath = process.cwd()
+        validateInitialized(projectPath)
+        validateSessionId(sessionId)
+
+        const orka = new ClaudeOrka(projectPath)
+        await orka.initialize()
+
+        const { v4: uuidv4 } = await import('uuid')
+        const { StateManager } = await import('../../core/StateManager')
+
+        const sm = new StateManager(projectPath)
+        await sm.initialize()
+        const session = await sm.getSession(sessionId)
+        if (!session) {
+          Output.error(`Session ${sessionId} not found`)
+          return
+        }
+
+        const oldId: string | undefined = branchId === 'main'
+          ? session.main.claudeSessionId
+          : session.forks.find((f) => f.id === branchId)?.claudeSessionId
+
+        const newId = uuidv4()
+        if (branchId === 'main') {
+          session.main.claudeSessionId = newId
+          session.main.lastContextSummary = undefined
+        } else {
+          const fork = session.forks.find((f) => f.id === branchId)
+          if (!fork) {
+            Output.error(`Fork ${branchId} not found in session ${sessionId}`)
+            return
+          }
+          fork.claudeSessionId = newId
+          fork.lastContextSummary = undefined
+        }
+        session.lastActivity = new Date().toISOString()
+        await sm.replaceSession(session)
+
+        Output.success(
+          `Reset ${session.name}/${branchId}: ${(oldId || 'none').slice(0, 8)}… → ${newId.slice(0, 8)}…`
+        )
+        Output.info('Next resume for this branch will create a fresh Claude conversation.')
+      } catch (error) {
+        handleError(error)
+      }
+    })
+
+  // Show pane-to-branch mapping — helps diagnose state/tmux drift
+  session
+    .command('panes <session-id>')
+    .description('Show live tmux panes vs. state-expected branches for a session (diagnose drift)')
+    .action(async (sessionId) => {
+      try {
+        const projectPath = process.cwd()
+        validateInitialized(projectPath)
+        validateSessionId(sessionId)
+
+        const orka = new ClaudeOrka(projectPath)
+        await orka.initialize()
+
+        const { StateManager } = await import('../../core/StateManager')
+        const { TmuxCommands } = await import('../../utils/tmux')
+
+        const sm = new StateManager(projectPath)
+        await sm.initialize()
+        const session = await sm.getSession(sessionId)
+        if (!session) {
+          Output.error(`Session ${sessionId} not found`)
+          return
+        }
+
+        const live = await TmuxCommands.listPanesDetailed(session.tmuxSessionId).catch(() => [])
+
+        console.log()
+        console.log(chalk.bold.cyan(`Panes — ${session.name}`))
+        console.log(chalk.gray(`Tmux session: ${session.tmuxSessionId}`))
+        console.log()
+
+        // State side
+        console.log(chalk.bold('State branches:'))
+        const stateBranches: Array<{ id: string; name: string; label?: string; paneId?: string; status: string }> = [
+          { id: 'main', name: session.main.label || 'main', label: session.main.label, paneId: session.main.tmuxPaneId, status: session.main.status || 'active' },
+          ...session.forks
+            .filter((f) => f.status === 'active' || f.status === 'saved')
+            .map((f) => ({ id: f.id, name: f.name, label: f.name, paneId: f.tmuxPaneId, status: f.status || 'active' })),
+        ]
+        const livePaneIds = new Set(live.map((p) => p.paneId))
+        for (const b of stateBranches) {
+          const paneAlive = b.paneId && livePaneIds.has(b.paneId)
+          const check = paneAlive ? chalk.green('✓') : chalk.red('✗')
+          const paneInfo = b.paneId ? chalk.gray(b.paneId + (paneAlive ? '' : ' (missing)')) : chalk.red('(no pane)')
+          console.log(`  ${check} ${chalk.bold(b.name.padEnd(30))} ${paneInfo}  ${chalk.gray('id=' + b.id.slice(0, 8))}`)
+        }
+
+        // Live side
+        console.log()
+        console.log(chalk.bold('Live tmux panes:'))
+        const claimedPaneIds = new Set<string>()
+        if (session.main.tmuxPaneId) claimedPaneIds.add(session.main.tmuxPaneId)
+        for (const f of session.forks) if (f.tmuxPaneId) claimedPaneIds.add(f.tmuxPaneId)
+        if (live.length === 0) {
+          console.log(chalk.red('  (no panes / tmux session not found)'))
+        } else {
+          for (const p of live) {
+            const claimed = claimedPaneIds.has(p.paneId)
+            const marker = claimed ? chalk.green('claimed') : chalk.yellow('orphan ')
+            const label = p.label || chalk.gray('(no label)')
+            console.log(`  ${p.paneId.padEnd(4)}  ${marker}  ${chalk.bold(label)}  ${chalk.gray(p.currentCommand)}`)
+          }
+        }
+
+        // Untracked side
+        console.log()
+        console.log(chalk.bold('State untrackedPanes:'))
+        const up = session.untrackedPanes || []
+        if (up.length === 0) {
+          console.log(chalk.gray('  (none)'))
+        } else {
+          for (const u of up) {
+            const alive = livePaneIds.has(u.tmuxPaneId)
+            const check = alive ? chalk.green('✓') : chalk.gray('✗')
+            console.log(`  ${check} ${u.tmuxPaneId.padEnd(4)}  ${u.label || '(no label)'}  ${chalk.gray(u.currentPath)}`)
+          }
+        }
+
+        // Hints
+        const disconnected = stateBranches.filter((b) => !b.paneId || !livePaneIds.has(b.paneId))
+        const orphans = live.filter((p) => !claimedPaneIds.has(p.paneId))
+        if (disconnected.length > 0 || orphans.length > 0) {
+          console.log()
+          console.log(chalk.bold.yellow('Hints:'))
+          for (const b of disconnected) {
+            console.log(chalk.gray(`  Branch "${b.name}" has no live pane — adopt one with:`))
+            console.log(chalk.gray(`    orka session adopt-pane ${sessionId} ${b.id} <pane-id>`))
+          }
+        }
+      } catch (error) {
+        handleError(error)
+      }
+    })
+
+  // Adopt an existing tmux pane into a branch — remedy when state and
+  // tmux are so far out of sync that automatic recovery can't decide.
+  session
+    .command('adopt-pane <session-id> <branch-id> <pane-id>')
+    .description('Associate a live tmux pane with a branch (main or fork id). Use when state and tmux drifted apart.')
+    .action(async (sessionId, branchId, paneId) => {
+      try {
+        const projectPath = process.cwd()
+        validateInitialized(projectPath)
+        validateSessionId(sessionId)
+
+        const orka = new ClaudeOrka(projectPath)
+        await orka.initialize()
+
+        const { StateManager } = await import('../../core/StateManager')
+        const { TmuxCommands } = await import('../../utils/tmux')
+
+        const sm = new StateManager(projectPath)
+        await sm.initialize()
+        const session = await sm.getSession(sessionId)
+        if (!session) {
+          Output.error(`Session ${sessionId} not found`)
+          return
+        }
+
+        // Sanity: pane must exist in this session's tmux window.
+        const livePanes: string[] = await TmuxCommands.listPanes(session.tmuxSessionId).catch(() => [] as string[])
+        if (!livePanes.includes(paneId)) {
+          Output.error(`Pane ${paneId} not found in tmux session ${session.tmuxSessionId}`)
+          Output.info(`Live panes: ${livePanes.join(', ') || '(none)'}`)
+          return
+        }
+
+        // Guard: the pane must not already be claimed by another branch.
+        if (session.main.tmuxPaneId === paneId && branchId !== 'main') {
+          Output.error(`Pane ${paneId} is already claimed by main`)
+          return
+        }
+        const claimingFork = session.forks.find((f) => f.tmuxPaneId === paneId)
+        if (claimingFork && claimingFork.id !== branchId) {
+          Output.error(`Pane ${paneId} is already claimed by fork "${claimingFork.name}"`)
+          return
+        }
+
+        if (branchId === 'main') {
+          session.main.tmuxPaneId = paneId
+          await TmuxCommands.setPaneLabel(paneId, session.main.label || 'main')
+        } else {
+          const fork = session.forks.find((f) => f.id === branchId)
+          if (!fork) {
+            Output.error(`Fork ${branchId} not found in session ${sessionId}`)
+            return
+          }
+          fork.tmuxPaneId = paneId
+          fork.status = 'active'
+          await TmuxCommands.setPaneLabel(paneId, fork.name)
+        }
+        session.lastActivity = new Date().toISOString()
+        await sm.replaceSession(session)
+
+        Output.success(`Adopted pane ${paneId} into ${session.name}/${branchId}`)
+      } catch (error) {
+        handleError(error)
+      }
+    })
+
   // Delete session
   session
     .command('delete <session-id>')

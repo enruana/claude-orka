@@ -388,8 +388,13 @@ export function createPreviewHtmlItem(projectPath: string, relativePath: string)
     label: 'Preview in Browser',
     icon: <Globe size={14} />,
     onClick: () => {
+      // Path-based preview endpoint so relative asset URLs inside the
+      // HTML resolve naturally against the document location, plus
+      // `?comments=1` to inject the review comment overlay so the user
+      // can select text and leave comments right on the rendered page.
       const encodedProject = btoa(projectPath).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-      const url = `/api/files/raw?project=${encodedProject}&path=${encodeURIComponent(relativePath)}`
+      const encodedFile = relativePath.split('/').map(encodeURIComponent).join('/')
+      const url = `/api/files/preview/${encodedProject}/${encodedFile}?comments=1`
       window.open(url, '_blank')
     }
   }

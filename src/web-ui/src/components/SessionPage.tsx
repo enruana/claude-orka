@@ -49,7 +49,7 @@ export function SessionPage() {
 
     const loadData = async () => {
       if (!encodedPath || !sessionId) {
-        navigate('/dashboard', { replace: true })
+        navigate('/launcher', { replace: true })
         return
       }
 
@@ -89,11 +89,11 @@ export function SessionPage() {
   }, [encodedPath, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBack = () => {
-    navigate('/dashboard')
+    navigate('/launcher')
   }
 
   const handleGoHome = () => {
-    navigate('/dashboard')
+    navigate('/launcher')
   }
 
   if (loading) {

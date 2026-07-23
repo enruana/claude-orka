@@ -105,6 +105,16 @@ export interface ProjectComment {
   resolvedAt?: string
 }
 
+// Pin types — KB entity shortcuts surfaced in the floating action button.
+// Denormalized so the FAB can render without touching the KB every time.
+export interface ProjectPin {
+  entityId: string
+  title: string
+  type: string
+  folderPath: string
+  pinnedAt: string
+}
+
 // Knowledge Base types
 export interface KBEdge {
   relation: string
@@ -206,6 +216,82 @@ export interface AIQueryResponse {
   answer: string
 }
 
+// Detailed views returned by GET /api/system/details?category=...
+export interface SystemProcessInfo {
+  pid: number
+  user: string
+  cpuPercent: number
+  memPercent: number
+  rssBytes: number
+  comm: string
+  args: string
+}
+
+export interface SystemCpuDetails {
+  cores: number
+  model: string
+  loadAvg: [number, number, number]
+  perCore: Array<{ core: number; usagePercent: number; speedMHz: number }>
+  processes: SystemProcessInfo[]
+}
+
+export interface SystemMemoryDetails {
+  detail: {
+    totalBytes: number
+    freeBytes: number
+    availableBytes: number
+    usedBytes: number
+    buffersBytes: number
+    cachedBytes: number
+    swapTotalBytes: number
+    swapFreeBytes: number
+    swapUsedBytes: number
+  }
+  processes: SystemProcessInfo[]
+}
+
+export interface SystemDiskDetails {
+  disks: Array<{
+    mount: string
+    filesystem: string
+    totalBytes: number
+    usedBytes: number
+    freeBytes: number
+    usedPercent: number
+  }>
+}
+
+// System metrics returned by GET /api/system/metrics — mirror of the
+// backend `SystemMetrics` interface in src/server/api/system.ts. Kept
+// in sync manually; both files are small.
+export interface SystemMetrics {
+  hostname: string
+  platform: string
+  arch: string
+  uptimeSeconds: number
+  cpu: {
+    usagePercent: number
+    cores: number
+    model: string
+    loadAvg: [number, number, number]
+  }
+  memory: {
+    totalBytes: number
+    freeBytes: number
+    usedBytes: number
+    usedPercent: number
+  }
+  disks: Array<{
+    mount: string
+    filesystem: string
+    totalBytes: number
+    usedBytes: number
+    freeBytes: number
+    usedPercent: number
+  }>
+  sampledAt: string
+}
+
 // Use origin-based URL for VPN/remote access compatibility
 const API_BASE = `${window.location.origin}/api`
 
@@ -283,6 +369,51 @@ export const api = {
     return res.json()
   },
 
+  async captureSystemTerminal(opts: { lines?: number; ansi?: boolean } = {}): Promise<{ text: string; target: string; ansi: boolean }> {
+    const params = new URLSearchParams()
+    if (opts.lines) params.set('lines', String(opts.lines))
+    if (opts.ansi) params.set('ansi', '1')
+    const qs = params.toString()
+    const url = `${API_BASE}/projects/system-terminal/capture${qs ? `?${qs}` : ''}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  // Live host metrics for the launcher widget
+  async getSystemMetrics(): Promise<SystemMetrics> {
+    const res = await fetch(`${API_BASE}/system/metrics`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /**
+   * Details for a single system-widget category. Consumers narrow the
+   * return type by category — TypeScript overloads didn't survive
+   * esbuild's transformer, so the union is manually asserted at the
+   * call sites (in `SystemDetailsModal`).
+   */
+  async getSystemDetails(
+    category: 'cpu' | 'memory' | 'disk'
+  ): Promise<SystemCpuDetails | SystemMemoryDetails | SystemDiskDetails> {
+    const res = await fetch(`${API_BASE}/system/details?category=${category}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /**
+   * Send a signal (SIGTERM by default, SIGKILL if `force`) to a process
+   * on the host. Returns the sent signal on success, throws with the
+   * server's error message on failure so the modal can toast it.
+   */
+  async killProcess(pid: number, force: boolean = false): Promise<{ pid: number; signal: string }> {
+    const signal = force ? 'KILL' : 'TERM'
+    const res = await fetch(`${API_BASE}/system/processes/${pid}/kill?signal=${signal}`, { method: 'POST' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+    return data
+  },
+
   // Sessions
   async listSessions(projectPath: string): Promise<Session[]> {
     const res = await fetch(`${API_BASE}/sessions?project=${encodeProjectPath(projectPath)}`)
@@ -326,6 +457,51 @@ export const api = {
       method: 'POST',
     })
     if (!res.ok) throw new Error(await res.text())
+  },
+
+  /** Save a lossless snapshot of ONE session so it can be resumed later
+   *  without state drift. Non-destructive: live processes keep running. */
+  async saveSession(
+    projectPath: string,
+    sessionId: string
+  ): Promise<{
+    sessionId: string
+    name: string
+    branchesSaved: number
+    summariesRefreshed: number
+    untrackedPanes: number
+  }> {
+    const res = await fetch(
+      `${API_BASE}/sessions/${sessionId}/save?project=${encodeProjectPath(projectPath)}`,
+      { method: 'POST' }
+    )
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Save every session of one project. Failures on individual sessions
+   *  are reported in the response's `errors` array; the run keeps going. */
+  async saveAllSessions(
+    projectPath: string
+  ): Promise<{
+    total: number
+    saved: number
+    failed: number
+    results: Array<{
+      sessionId: string
+      name: string
+      branchesSaved: number
+      summariesRefreshed: number
+      untrackedPanes: number
+    }>
+    errors: Array<{ sessionId: string; name: string; error: string }>
+  }> {
+    const res = await fetch(
+      `${API_BASE}/sessions/save-all?project=${encodeProjectPath(projectPath)}`,
+      { method: 'POST' }
+    )
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
   },
 
   async deleteSession(projectPath: string, sessionId: string): Promise<void> {
@@ -685,6 +861,39 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
   },
 
+  // ------------------------------------------------------------------
+  // Pins — KB entity shortcuts surfaced in the floating action button
+  // ------------------------------------------------------------------
+
+  async listPins(projectPath: string): Promise<ProjectPin[]> {
+    const res = await fetch(`${API_BASE}/projects/pins?project=${encodeProjectPath(projectPath)}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Pin (or re-pin) a KB entity. `folderPath` should be a
+   *  project-relative folder path (no leading `/`). */
+  async addPin(
+    projectPath: string,
+    payload: { entityId: string; title: string; type: string; folderPath: string }
+  ): Promise<ProjectPin> {
+    const res = await fetch(`${API_BASE}/projects/pins?project=${encodeProjectPath(projectPath)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async deletePin(projectPath: string, entityId: string): Promise<void> {
+    const res = await fetch(
+      `${API_BASE}/projects/pins/${encodeURIComponent(entityId)}?project=${encodeProjectPath(projectPath)}`,
+      { method: 'DELETE' }
+    )
+    if (!res.ok) throw new Error(await res.text())
+  },
+
   // Terminal interaction
   async sendTextToSession(projectPath: string, sessionId: string, text: string, branch?: string): Promise<{ success: boolean }> {
     const res = await fetch(`${API_BASE}/sessions/${sessionId}/send-text?project=${encodeProjectPath(projectPath)}`, {
@@ -798,4 +1007,318 @@ export const api = {
     }
     return res.json()
   },
+
+  // ---------- Boards ----------
+
+  async listBoards(projectPath: string): Promise<BoardIndexEntry[]> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board?project=${p}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async createBoard(
+    projectPath: string,
+    payload: { name: string; jiraUrl: string; jql?: string; columns?: string[] }
+  ): Promise<BoardConfig> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async getBoard(projectPath: string, boardId: string): Promise<BoardConfig> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}?project=${p}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async updateBoard(
+    projectPath: string,
+    boardId: string,
+    patch: Partial<BoardConfig>
+  ): Promise<BoardConfig> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}?project=${p}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async deleteBoard(projectPath: string, boardId: string): Promise<void> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}?project=${p}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  async listBoardTasks(projectPath: string, boardId: string, status?: string): Promise<BoardTask[]> {
+    const p = encodeProjectPath(projectPath)
+    const q = status ? `&status=${encodeURIComponent(status)}` : ''
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks?project=${p}${q}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async updateBoardTask(
+    projectPath: string,
+    boardId: string,
+    key: string,
+    patch: Partial<BoardTask>
+  ): Promise<BoardTask> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}?project=${p}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async startBoardMaster(
+    projectPath: string,
+    boardId: string
+  ): Promise<{ tmuxSessionId: string; paneId: string; ttydPort: number; ttydPid: number; claudeSessionId: string }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/master/start?project=${p}`, { method: 'POST' })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async syncBoardMaster(projectPath: string, boardId: string): Promise<void> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/master/sync?project=${p}`, { method: 'POST' })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  /**
+   * Spawn (or resume) a Board task terminal.
+   *
+   * `changeStatusTo` is opt-in: pass a column name to move the card at
+   * the same time (Kanban drag → in-progress does this); omit to keep
+   * the task in whatever column it's already in (modal Start button
+   * uses this so a Review task keeps its column when you attach a
+   * terminal to it).
+   */
+  async startBoardTask(
+    projectPath: string,
+    boardId: string,
+    key: string,
+    template: string = 'full',
+    changeStatusTo?: string,
+  ): Promise<{ tmuxSessionId: string; paneId: string; ttydPort: number; ttydPid: number; claudeSessionId: string; template: string; reopen: boolean; statusChanged: boolean }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/start?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template, changeStatusTo }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Revive a task's terminal after a server restart. Returns:
+   *   `alive`      — tmux survived, we spawned a fresh ttyd (handles updated).
+   *   `dead`       — tmux is gone; UI should offer to `startBoardTask` again.
+   *   `no-handles` — this task never had a terminal.
+   */
+  async resumeBoardTask(
+    projectPath: string,
+    boardId: string,
+    key: string,
+  ): Promise<{ status: 'alive' | 'dead' | 'no-handles'; handles?: { tmuxSessionId: string; paneId: string; ttydPort: number; ttydPid: number } }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/resume?project=${p}`, { method: 'POST' })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Silent close — only status change + optional terminal action, NO
+   *  prompt sent to Claude. Safe as the default of drag & drop. */
+  async closeBoardTask(
+    projectPath: string,
+    boardId: string,
+    key: string,
+    opts: { status?: string; terminal?: 'keep' | 'detach' | 'shutdown' } = {}
+  ): Promise<void> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/close?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  /** Full wrap-up ritual — sends the close-template prompt so Claude
+   *  runs push + PR + Jira comment + Jira transition + KB update. Use
+   *  when the user explicitly opts in (button + confirm dialog). */
+  async wrapUpBoardTask(
+    projectPath: string,
+    boardId: string,
+    key: string,
+    opts: { template?: string; status?: string; terminal?: 'keep' | 'detach' | 'shutdown' } = {}
+  ): Promise<void> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/wrap-up?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  /** Re-send the init prompt to a running terminal. Picks up updated
+   *  skills or template body without losing the current Claude context. */
+  /** Capture the tmux pane content of a Board task terminal. Analog of
+   *  `captureTerminalPane` but routes through BoardManager because board
+   *  task sessions live in `.boards/<id>/tasks.json`, not `state.json`. */
+  async captureBoardTaskPane(
+    projectPath: string,
+    boardId: string,
+    key: string,
+    opts: { lines?: number; ansi?: boolean } = {}
+  ): Promise<{ text: string; paneId: string; ansi: boolean }> {
+    const p = encodeProjectPath(projectPath)
+    const params = new URLSearchParams({ project: p })
+    if (opts.lines) params.set('lines', String(opts.lines))
+    if (opts.ansi) params.set('ansi', '1')
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/capture?${params.toString()}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async reinitBoardTask(
+    projectPath: string,
+    boardId: string,
+    key: string,
+    template: string = 'full'
+  ): Promise<void> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/reinit?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  async listBoardDrifts(projectPath: string, boardId: string): Promise<BoardDrift[]> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/drifts?project=${p}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async ackBoardDrift(projectPath: string, boardId: string, key: string): Promise<void> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/drifts/${key}?project=${p}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  async listBoardTemplates(): Promise<BoardPromptTemplate[]> {
+    const res = await fetch(`${API_BASE}/board/-/templates`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async upsertBoardTemplate(t: BoardPromptTemplate): Promise<BoardPromptTemplate> {
+    const res = await fetch(`${API_BASE}/board/-/templates/${t.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(t),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async deleteBoardTemplate(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/board/-/templates/${id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  async getJiraConfig(): Promise<{ instanceUrl?: string; email?: string; apiTokenSet: boolean }> {
+    const res = await fetch(`${API_BASE}/board/-/jira`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async setJiraConfig(cfg: { instanceUrl?: string; email?: string; apiToken?: string }): Promise<void> {
+    const res = await fetch(`${API_BASE}/board/-/jira`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+}
+
+// ---------- Board types (client-side mirror) ----------
+
+export interface BoardIndexEntry {
+  id: string
+  name: string
+  jiraUrl: string
+  createdAt: string
+}
+
+export interface BoardConfig {
+  id: string
+  name: string
+  jiraUrl: string
+  jql?: string
+  columns: string[]
+  masterPromptId?: string
+  syncPromptId?: string
+  lastSyncedAt?: string
+  createdAt: string
+  schemaVersion: string
+}
+
+export interface BoardTask {
+  key: string
+  title: string
+  description?: string
+  status: string
+  priority?: string
+  assignee?: string
+  reporter?: string
+  labels?: string[]
+  jiraUrl: string
+  kbEntityId?: string
+  terminalPaneId?: string
+  terminalTmuxSessionId?: string
+  ttydPort?: number
+  ttydPid?: number
+  worktreePath?: string
+  branchName?: string
+  createdAt: string
+  updatedAt: string
+  raw?: unknown
+}
+
+export interface BoardDrift {
+  taskKey: string
+  fromStatus: string
+  toStatus: string
+  detectedAt: string
+}
+
+export interface BoardPromptTemplate {
+  id: string
+  name: string
+  description?: string
+  kind: 'master' | 'sync' | 'task-init' | 'task-close'
+  body: string
+  requiresWorktree?: boolean
+  removesWorktree?: boolean
+  builtin?: boolean
 }
