@@ -126,6 +126,36 @@ projectsRouter.delete('/system-terminal', async (_req, res) => {
   }
 })
 
+/**
+ * GET /api/projects/system-terminal/capture?lines=<n>&ansi=<0|1>
+ * Capture the content of the system terminal's tmux pane. The system
+ * terminal is a single-pane session named `orka-system-terminal`; tmux's
+ * `-t` target accepts a session name and captures its active pane.
+ */
+projectsRouter.get('/system-terminal/capture', async (req, res) => {
+  try {
+    const globalState = await getGlobalStateManager()
+    const info = globalState.getSystemTerminal()
+    if (!info) {
+      res.status(404).json({ error: 'System terminal is not running' })
+      return
+    }
+
+    const lines = parseInt((req.query.lines as string) || '300', 10)
+    const wantAnsi = req.query.ansi === 'true' || req.query.ansi === '1'
+    const target = info.tmuxSessionId
+
+    const text = wantAnsi
+      ? await TmuxCommands.capturePaneAnsi(target, -lines)
+      : await TmuxCommands.capturePane(target, -lines)
+
+    res.json({ text, target, ansi: wantAnsi })
+  } catch (error: any) {
+    logger.error('Failed to capture system terminal:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 // ============================================================
 // IMPORTANT: More specific routes MUST come BEFORE /:encodedPath
 // Otherwise Express will match /:encodedPath for everything
@@ -342,6 +372,101 @@ projectsRouter.delete('/tasks/:taskId', async (req, res) => {
 })
 
 // ============================================================
+// PINS — KB entity shortcuts surfaced in the floating action button
+// ============================================================
+
+/**
+ * GET /api/projects/pins?project=ENCODED
+ * List all pinned KB entities for the current project. Ordered by
+ * pinnedAt DESC so the FAB can render top-first without extra work.
+ */
+projectsRouter.get('/pins', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const stateManager = new StateManager(projectPath)
+    const pins = await stateManager.listPins()
+    // Sort DESC by pinnedAt — new pins bubble to the top of the FAB.
+    pins.sort((a, b) => (a.pinnedAt < b.pinnedAt ? 1 : -1))
+    res.json(pins)
+  } catch (error: any) {
+    logger.error('Failed to list pins:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/projects/pins?project=ENCODED
+ * Pin a KB entity to the FAB. Body: { entityId, title, type, folderPath }.
+ * Idempotent — re-pinning refreshes the denormalized fields and bumps
+ * `pinnedAt`. Response is the persisted pin.
+ */
+projectsRouter.post('/pins', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const { entityId, title, type, folderPath } = req.body
+    if (typeof entityId !== 'string' || !entityId.trim()) {
+      res.status(400).json({ error: 'entityId is required' })
+      return
+    }
+    if (typeof title !== 'string' || !title.trim()) {
+      res.status(400).json({ error: 'title is required' })
+      return
+    }
+    if (typeof type !== 'string' || !type.trim()) {
+      res.status(400).json({ error: 'type is required' })
+      return
+    }
+    if (typeof folderPath !== 'string' || !folderPath.trim()) {
+      res.status(400).json({ error: 'folderPath is required' })
+      return
+    }
+
+    const pin = {
+      entityId: entityId.trim(),
+      title: title.trim(),
+      type: type.trim(),
+      folderPath: folderPath.trim(),
+      pinnedAt: new Date().toISOString(),
+    }
+
+    const stateManager = new StateManager(projectPath)
+    await stateManager.addPin(pin)
+    res.status(201).json(pin)
+  } catch (error: any) {
+    logger.error('Failed to add pin:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/projects/pins/:entityId?project=ENCODED
+ * Unpin an entity by id.
+ */
+projectsRouter.delete('/pins/:entityId', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const { entityId } = req.params
+
+    const stateManager = new StateManager(projectPath)
+    await stateManager.deletePin(entityId)
+    res.json({ success: true })
+  } catch (error: any) {
+    if (error.message.includes('not found')) {
+      res.status(404).json({ error: error.message })
+      return
+    }
+    logger.error('Failed to delete pin:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// ============================================================
 // Document Review Comments
 // ============================================================
 
@@ -540,8 +665,16 @@ projectsRouter.delete('/:encodedPath', async (req, res) => {
 })
 
 /**
- * Install Claude Code skills (kb-*.md) into a project's .claude/skills/
- * Claude Code looks for custom skills in .claude/skills/ (per project) or ~/.claude/skills/ (global)
+ * Install Claude Code skills into a project's .claude/skills/.
+ *
+ * Handles both the current directory-based format (`<name>/SKILL.md` with
+ * YAML frontmatter — required by the Claude Code skill discovery) and the
+ * legacy flat `.md` format left over from older Orka versions. Legacy flat
+ * files matching a name we now ship as a directory are removed so the
+ * project ends up with a single, discoverable skill per name.
+ *
+ * Claude Code looks for custom skills in `.claude/skills/` (per project)
+ * or `~/.claude/skills/` (global).
  */
 async function installSkillsToProject(projectPath: string): Promise<void> {
   const skillsDir = path.join(projectPath, '.claude', 'skills')
@@ -553,17 +686,40 @@ async function installSkillsToProject(projectPath: string): Promise<void> {
     return
   }
 
-  const files = await fs.readdir(skillsSource)
-  let installed = 0
+  const entries = await fs.readdir(skillsSource, { withFileTypes: true })
+  let installedDirs = 0
+  let installedFiles = 0
+  let cleanedLegacy = 0
 
-  for (const file of files) {
-    if (!file.endsWith('.md')) continue
-    const dest = path.join(skillsDir, file)
-    await fs.copy(path.join(skillsSource, file), dest)
-    installed++
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      // Directory skill (new format): copy the whole tree, overwrite so
+      // frontmatter / body updates flow through on Sync.
+      const srcDir = path.join(skillsSource, entry.name)
+      const destDir = path.join(skillsDir, entry.name)
+      await fs.copy(srcDir, destDir, { overwrite: true })
+      installedDirs++
+
+      // Nuke any legacy flat file with the same base name so the two
+      // don't coexist (Claude Code would index only one, and users would
+      // be confused which won).
+      const legacyFlat = path.join(skillsDir, `${entry.name}.md`)
+      if (await fs.pathExists(legacyFlat)) {
+        await fs.remove(legacyFlat)
+        cleanedLegacy++
+      }
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      // Flat legacy source — copy as-is. We still support this for
+      // one-off skills that don't warrant a folder.
+      await fs.copy(path.join(skillsSource, entry.name), path.join(skillsDir, entry.name))
+      installedFiles++
+    }
   }
 
-  if (installed > 0) {
-    logger.info(`Installed ${installed} skills in ${skillsDir} (source: ${skillsSource})`)
+  if (installedDirs + installedFiles > 0) {
+    logger.info(
+      `Installed ${installedDirs} directory skill(s) + ${installedFiles} file skill(s) in ${skillsDir}` +
+      (cleanedLegacy ? ` (cleaned ${cleanedLegacy} legacy flat file(s))` : '')
+    )
   }
 }

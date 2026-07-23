@@ -47,12 +47,18 @@ export function getSkillsSourcePath(): string | null {
   ]
 
   for (const candidate of candidates) {
-    if (fs.pathExistsSync(candidate)) {
-      const files = fs.readdirSync(candidate)
-      if (files.some((f: string) => f.endsWith('.md'))) {
-        return candidate
-      }
-    }
+    if (!fs.pathExistsSync(candidate)) continue
+    const entries = fs.readdirSync(candidate, { withFileTypes: true })
+    // A valid skills source is one that contains at least one skill —
+    // either the legacy flat `<name>.md` form, or the directory form
+    // `<name>/SKILL.md` (which is what Claude Code's discovery expects
+    // for anything with frontmatter).
+    const hasFlat = entries.some((e) => e.isFile() && e.name.endsWith('.md'))
+    const hasDir = entries.some((e) => {
+      if (!e.isDirectory()) return false
+      return fs.pathExistsSync(path.join(candidate, e.name, 'SKILL.md'))
+    })
+    if (hasFlat || hasDir) return candidate
   }
   return null
 }

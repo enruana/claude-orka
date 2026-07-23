@@ -573,29 +573,85 @@ export function kbCommand(program: Command) {
         }
 
         await fs.ensureDir(skillsDir)
-        const sourceFiles = (await fs.readdir(skillsSource)).filter((f) => f.endsWith('.md'))
-        const destFiles = (await fs.pathExists(skillsDir) ? await fs.readdir(skillsDir) : []).filter((f) => f.endsWith('.md'))
-        const sourceSet = new Set(sourceFiles)
-        const destSet = new Set(destFiles)
+
+        // Enumerate source skills — directory format is preferred (each
+        // dir is <name>/SKILL.md), but a stray flat .md file at the top
+        // level of the source is still supported.
+        const sourceEntries = await fs.readdir(skillsSource, { withFileTypes: true })
+        type SourceSkill = { name: string; kind: 'dir' | 'file'; path: string }
+        const sourceSkills: SourceSkill[] = []
+        for (const e of sourceEntries) {
+          if (e.isDirectory()) {
+            sourceSkills.push({ name: e.name, kind: 'dir', path: path.join(skillsSource, e.name) })
+          } else if (e.isFile() && e.name.endsWith('.md')) {
+            sourceSkills.push({
+              name: e.name.replace(/\.md$/, ''),
+              kind: 'file',
+              path: path.join(skillsSource, e.name),
+            })
+          }
+        }
+        const sourceNames = new Set(sourceSkills.map((s) => s.name))
+
+        // Enumerate the project's current skills — both dirs and flat.
+        // Track flat legacy files matching a name we now ship as a dir so
+        // we clean them up on apply (Claude Code would otherwise index
+        // ambiguously).
+        const destEntries = await fs.pathExists(skillsDir)
+          ? await fs.readdir(skillsDir, { withFileTypes: true })
+          : []
+        const destDirNames = new Set(destEntries.filter((e) => e.isDirectory()).map((e) => e.name))
+        const destFileNames = new Set(
+          destEntries.filter((e) => e.isFile() && e.name.endsWith('.md')).map((e) => e.name)
+        )
 
         const toAdd: string[] = []
         const toUpdate: string[] = []
+        const toMigrate: string[] = [] // legacy flat file for a name we now ship as a directory
         const orphan: string[] = []
 
-        for (const f of sourceFiles) {
-          const src = path.join(skillsSource, f)
-          const dest = path.join(skillsDir, f)
-          if (!destSet.has(f)) {
-            toAdd.push(f)
-            continue
+        for (const s of sourceSkills) {
+          if (s.kind === 'dir') {
+            const destDir = path.join(skillsDir, s.name)
+            const hasDir = destDirNames.has(s.name)
+            const hasLegacy = destFileNames.has(`${s.name}.md`)
+            if (!hasDir && !hasLegacy) {
+              toAdd.push(s.name)
+            } else if (!hasDir && hasLegacy) {
+              // Legacy flat file for a skill that's now a directory —
+              // needs migration regardless of content diff.
+              toMigrate.push(s.name)
+            } else if (await directoriesDiffer(s.path, destDir)) {
+              toUpdate.push(s.name)
+              if (hasLegacy) toMigrate.push(s.name)
+            } else if (hasLegacy) {
+              toMigrate.push(s.name)
+            }
+          } else {
+            // Flat file source (rare — kept for one-off skills).
+            const destFile = path.join(skillsDir, `${s.name}.md`)
+            if (!destFileNames.has(`${s.name}.md`)) {
+              toAdd.push(s.name)
+              continue
+            }
+            const [srcContent, destContent] = await Promise.all([
+              fs.readFile(s.path, 'utf-8'),
+              fs.readFile(destFile, 'utf-8'),
+            ])
+            if (srcContent !== destContent) toUpdate.push(s.name)
           }
-          const srcContent = await fs.readFile(src, 'utf-8')
-          const destContent = await fs.readFile(dest, 'utf-8')
-          if (srcContent !== destContent) toUpdate.push(f)
         }
 
-        for (const f of destFiles) {
-          if (!sourceSet.has(f) && f.startsWith('kb-')) orphan.push(f)
+        // Orphan detection: any kb-* / board-* left in the project that
+        // no source skill claims. Directory or flat, both surface.
+        const managedPrefixes = ['kb-', 'board-']
+        const isManaged = (n: string) => managedPrefixes.some((p) => n.startsWith(p))
+        for (const name of destDirNames) {
+          if (!sourceNames.has(name) && isManaged(name)) orphan.push(name)
+        }
+        for (const file of destFileNames) {
+          const base = file.replace(/\.md$/, '')
+          if (!sourceNames.has(base) && isManaged(base)) orphan.push(file)
         }
 
         // Print plan
@@ -603,21 +659,33 @@ export function kbCommand(program: Command) {
         console.log(chalk.bold.cyan('  Skills sync plan:'))
         console.log(`    ${chalk.green('+ add:')}    ${toAdd.length} new skill${toAdd.length !== 1 ? 's' : ''} ${toAdd.length > 0 ? chalk.gray(toAdd.join(', ')) : ''}`)
         console.log(`    ${chalk.yellow('~ update:')} ${toUpdate.length} changed skill${toUpdate.length !== 1 ? 's' : ''} ${toUpdate.length > 0 ? chalk.gray(toUpdate.join(', ')) : ''}`)
+        if (toMigrate.length > 0) {
+          console.log(`    ${chalk.magenta('↳ migrate:')} ${toMigrate.length} legacy flat file${toMigrate.length !== 1 ? 's' : ''} → directory format ${chalk.gray(toMigrate.join(', '))}`)
+        }
         if (orphan.length > 0) {
-          console.log(`    ${chalk.gray('orphan:')}  ${orphan.length} kb-* skill${orphan.length !== 1 ? 's' : ''} present in your folder but no longer in the package: ${chalk.gray(orphan.join(', '))}`)
+          console.log(`    ${chalk.gray('orphan:')}  ${orphan.length} skill${orphan.length !== 1 ? 's' : ''} present in your folder but no longer in the package: ${chalk.gray(orphan.join(', '))}`)
         }
 
         if (opts.diff) {
-          for (const f of toUpdate) {
-            const src = await fs.readFile(path.join(skillsSource, f), 'utf-8')
-            const dest = await fs.readFile(path.join(skillsDir, f), 'utf-8')
-            const srcLines = src.split('\n').length
-            const destLines = dest.split('\n').length
-            console.log(chalk.gray(`      ${f}: ${destLines}L → ${srcLines}L (${srcLines - destLines >= 0 ? '+' : ''}${srcLines - destLines})`))
+          for (const name of toUpdate) {
+            const src = sourceSkills.find((s) => s.name === name)!
+            const isDir = src.kind === 'dir'
+            const srcSkillMd = isDir ? path.join(src.path, 'SKILL.md') : src.path
+            const destSkillMd = isDir
+              ? path.join(skillsDir, name, 'SKILL.md')
+              : path.join(skillsDir, `${name}.md`)
+            if (!(await fs.pathExists(srcSkillMd)) || !(await fs.pathExists(destSkillMd))) continue
+            const [s, d] = await Promise.all([
+              fs.readFile(srcSkillMd, 'utf-8'),
+              fs.readFile(destSkillMd, 'utf-8'),
+            ])
+            const sL = s.split('\n').length
+            const dL = d.split('\n').length
+            console.log(chalk.gray(`      ${name}: ${dL}L → ${sL}L (${sL - dL >= 0 ? '+' : ''}${sL - dL})`))
           }
         }
 
-        if (toAdd.length === 0 && toUpdate.length === 0) {
+        if (toAdd.length === 0 && toUpdate.length === 0 && toMigrate.length === 0) {
           console.log()
           Output.success('Skills already up to date.')
           return
@@ -631,14 +699,24 @@ export function kbCommand(program: Command) {
 
         // Apply
         let applied = 0
-        for (const f of [...toAdd, ...toUpdate]) {
-          await fs.copy(path.join(skillsSource, f), path.join(skillsDir, f))
+        const touched = new Set<string>([...toAdd, ...toUpdate, ...toMigrate])
+        for (const name of touched) {
+          const src = sourceSkills.find((s) => s.name === name)
+          if (!src) continue
+          if (src.kind === 'dir') {
+            await fs.copy(src.path, path.join(skillsDir, name), { overwrite: true })
+            // Clean up any legacy flat file with the same base name.
+            const legacyFlat = path.join(skillsDir, `${name}.md`)
+            if (await fs.pathExists(legacyFlat)) await fs.remove(legacyFlat)
+          } else {
+            await fs.copy(src.path, path.join(skillsDir, `${name}.md`), { overwrite: true })
+          }
           applied++
         }
         console.log()
         Output.success(`Synced ${applied} skill${applied !== 1 ? 's' : ''} to .claude/skills/`)
         if (orphan.length > 0) {
-          Output.info(`Orphan kb-* skills (${orphan.join(', ')}) left untouched. Delete manually if you want them gone.`)
+          Output.info(`Orphan skills (${orphan.join(', ')}) left untouched. Delete manually if you want them gone.`)
         }
       } catch (error) {
         handleError(error)
@@ -1131,19 +1209,76 @@ async function installSkills(): Promise<void> {
     return
   }
 
-  const files = await fs.readdir(skillsSource)
-  let installed = 0
+  // Support both directory-format skills (`<name>/SKILL.md` with
+  // frontmatter — the discoverable form) and legacy flat `.md` files.
+  const entries = await fs.readdir(skillsSource, { withFileTypes: true })
+  let installedDirs = 0
+  let installedFiles = 0
+  let cleanedLegacy = 0
 
-  for (const file of files) {
-    if (!file.endsWith('.md')) continue
-    const dest = path.join(skillsDir, file)
-    await fs.copy(path.join(skillsSource, file), dest)
-    installed++
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const src = path.join(skillsSource, entry.name)
+      const dest = path.join(skillsDir, entry.name)
+      await fs.copy(src, dest, { overwrite: true })
+      installedDirs++
+
+      // Remove any legacy flat file matching the same name — the two
+      // would otherwise coexist and confuse Claude Code's discovery.
+      const legacyFlat = path.join(skillsDir, `${entry.name}.md`)
+      if (await fs.pathExists(legacyFlat)) {
+        await fs.remove(legacyFlat)
+        cleanedLegacy++
+      }
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      const dest = path.join(skillsDir, entry.name)
+      await fs.copy(path.join(skillsSource, entry.name), dest, { overwrite: true })
+      installedFiles++
+    }
   }
 
-  if (installed > 0) {
-    Output.success(`Installed ${installed} Claude Code skills in .claude/skills/`)
+  const total = installedDirs + installedFiles
+  if (total > 0) {
+    const parts = [`${installedDirs} directory`, `${installedFiles} file`]
+      .filter((_p, i) => (i === 0 ? installedDirs : installedFiles) > 0)
+    Output.success(
+      `Installed ${total} Claude Code skill${total !== 1 ? 's' : ''} (${parts.join(' + ')}) in .claude/skills/` +
+      (cleanedLegacy ? ` — cleaned ${cleanedLegacy} legacy flat file${cleanedLegacy !== 1 ? 's' : ''}` : '')
+    )
   } else {
     Output.info('Claude Code skills already installed')
   }
+}
+
+/**
+ * Recursive equality check between two directories — used by
+ * `skills-sync` to decide whether a directory-format skill needs
+ * updating without shelling out to `diff`.
+ */
+async function directoriesDiffer(a: string, b: string): Promise<boolean> {
+  const bExists = await fs.pathExists(b)
+  const [aEntries, bEntries] = await Promise.all([
+    fs.readdir(a, { withFileTypes: true }),
+    bExists ? fs.readdir(b, { withFileTypes: true }) : Promise.resolve([] as any[]),
+  ])
+  const aNames = new Set(aEntries.map((e) => e.name))
+  const bNames = new Set(bEntries.map((e: any) => e.name))
+  if (aNames.size !== bNames.size) return true
+  for (const name of aNames) {
+    if (!bNames.has(name)) return true
+    const aPath = path.join(a, name)
+    const bPath = path.join(b, name)
+    const [aStat, bStat] = await Promise.all([fs.stat(aPath), fs.stat(bPath)])
+    if (aStat.isDirectory() !== bStat.isDirectory()) return true
+    if (aStat.isDirectory()) {
+      if (await directoriesDiffer(aPath, bPath)) return true
+    } else {
+      const [aContent, bContent] = await Promise.all([
+        fs.readFile(aPath, 'utf-8'),
+        fs.readFile(bPath, 'utf-8'),
+      ])
+      if (aContent !== bContent) return true
+    }
+  }
+  return false
 }
