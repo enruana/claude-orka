@@ -216,13 +216,14 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
     if (busy) return
     const ok = window.confirm(
       `Wrap up ${task.key}?\n\n` +
-      `This will send the close-template prompt to Claude, which will:\n` +
-      `  • Push the branch and open a Pull Request\n` +
-      `  • Comment on the Jira ticket with the PR link\n` +
-      `  • Move the Jira ticket to Done\n` +
-      `  • Mark the KB entity as done\n` +
-      `  • (Optionally) remove the worktree\n\n` +
-      `Continue?`
+      `Este flujo asume que el ticket YA está terminado — PR mergeado,\n` +
+      `feature en prod o cerrada. Claude va a:\n\n` +
+      `  • Verificar que el PR esté MERGED (si sigue abierto, para)\n` +
+      `  • Cerrar la entidad KB con links a lo que se entregó\n` +
+      `  • Dejar un comentario corto en el ticket Jira\n` +
+      `  • Mover el ticket a Done si no está ya ahí\n` +
+      `  • Limpiar el worktree local (moxikit worktree remove)\n\n` +
+      `Continúa solo si el PR ya está mergeado.`
     )
     if (!ok) return
     setBusy(true)
@@ -515,7 +516,7 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
                 className="board-task-btn warning"
                 onClick={handleWrapUp}
                 disabled={busy}
-                title="Wrap up: push branch, open PR, comment on Jira, mark KB done, transition Jira → Done"
+                title="Wrap up (post-merge cleanup): remove worktree, close KB, comment on Jira, move to Done. Assumes PR is already merged."
                 aria-label={busy ? 'Wrapping up' : 'Wrap up'}
               >
                 <Package size={14} />
