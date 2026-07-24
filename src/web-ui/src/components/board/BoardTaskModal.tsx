@@ -577,6 +577,10 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
         projectPath={projectPath}
         sessionId={task.key}
         boardContext={{ boardId, taskKey: task.key }}
+        /* Marks this TaskWidget as the "active" one so the global one
+         * (from GlobalProjectWidgets) defers on Cmd+L. Otherwise both
+         * would open their own copy-terminal modals simultaneously. */
+        specialized
       />
       <QuickAIDialogWrapper
         contextType="terminal"

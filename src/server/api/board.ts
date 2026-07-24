@@ -12,6 +12,8 @@
  */
 
 import { Router } from 'express'
+import execa from 'execa'
+import { TmuxCommands } from '../../utils/tmux'
 import { BoardManager } from '../../core/BoardManager'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
 import {
@@ -216,6 +218,34 @@ boardRouter.post('/:boardId/master/sync', async (req, res) => {
     await mgr(req).markSyncStarted(cfg.id)
     await triggerBoardMasterSync(cfg.id, template)
     res.json({ success: true })
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
+ * `GET /:boardId/master/capture` — capture the current content of the
+ * master's tmux pane. Same shape as `/api/sessions/:sid/capture` but
+ * resolves the pane through the board's tmux name. Powers Cmd+L / Copy
+ * from Terminal when the Board's Master tab is the visible surface.
+ */
+boardRouter.get('/:boardId/master/capture', async (req, res) => {
+  try {
+    const boardId = req.params.boardId
+    const lines = parseInt((req.query.lines as string) || '300', 10)
+    const wantAnsi = req.query.ansi === 'true' || req.query.ansi === '1'
+    const tmuxSessionId = `orka-board-master-${boardId}`
+
+    try {
+      await execa('tmux', ['has-session', '-t', tmuxSessionId])
+    } catch {
+      res.status(404).json({ error: 'Master terminal not running' }); return
+    }
+    const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
+    const text = wantAnsi
+      ? await TmuxCommands.capturePaneAnsi(paneId, -lines)
+      : await TmuxCommands.capturePane(paneId, -lines)
+    res.json({ text, paneId, ansi: wantAnsi })
   } catch (err) {
     handle(res, err)
   }
@@ -480,7 +510,6 @@ boardRouter.get('/:boardId/tasks/:key/capture', async (req, res) => {
       res.status(404).json({ error: 'Task has no active terminal' }); return
     }
 
-    const { TmuxCommands } = await import('../../utils/tmux')
     const text = wantAnsi
       ? await TmuxCommands.capturePaneAnsi(task.terminalPaneId, -lines)
       : await TmuxCommands.capturePane(task.terminalPaneId, -lines)

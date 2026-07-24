@@ -1178,6 +1178,23 @@ export const api = {
 
   /** Re-send the init prompt to a running terminal. Picks up updated
    *  skills or template body without losing the current Claude context. */
+  /** Capture the tmux pane content of a Board master terminal. Powers
+   *  Cmd+L on the Board's Master tab (the tmux session lives outside
+   *  `state.json` so the classic capture 404s). */
+  async captureBoardMasterPane(
+    projectPath: string,
+    boardId: string,
+    opts: { lines?: number; ansi?: boolean } = {}
+  ): Promise<{ text: string; paneId: string; ansi: boolean }> {
+    const p = encodeProjectPath(projectPath)
+    const params = new URLSearchParams({ project: p })
+    if (opts.lines) params.set('lines', String(opts.lines))
+    if (opts.ansi) params.set('ansi', '1')
+    const res = await fetch(`${API_BASE}/board/${boardId}/master/capture?${params.toString()}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   /** Capture the tmux pane content of a Board task terminal. Analog of
    *  `captureTerminalPane` but routes through BoardManager because board
    *  task sessions live in `.boards/<id>/tasks.json`, not `state.json`. */

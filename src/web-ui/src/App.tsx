@@ -94,6 +94,7 @@ function GlobalProjectWidgets() {
   const projectPath = match ? decodeProjectPath(encodedPath) : ''
 
   const sessionMatch = pathname.match(/\/sessions\/([^/]+)/)
+  const boardMatch = pathname.match(/\/boards\/([^/?#]+)/)
   const isCodeRoute = pathname.endsWith('/code')
   const tab = searchParams.get('tab')
 
@@ -154,9 +155,14 @@ function GlobalProjectWidgets() {
   // Don't render widgets on non-project routes
   if (!match) return null
 
+  // When we're on a /boards/:boardId route the FAB's Copy-from-Terminal
+  // targets the board's MASTER pane (its tmux lives outside state.json,
+  // so the classic capture path 404s otherwise).
+  const boardMasterContext = boardMatch ? { boardId: boardMatch[1] } : undefined
+
   return (
     <>
-      <TaskWidget projectPath={projectPath} />
+      <TaskWidget projectPath={projectPath} boardMasterContext={boardMasterContext} />
       <QuickAIDialogWrapper
         contextType={contextType}
         contextLabel={contextLabel}

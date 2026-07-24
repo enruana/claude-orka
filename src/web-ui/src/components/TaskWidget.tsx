@@ -21,7 +21,24 @@ interface TaskWidgetProps {
    *  classic session ones. Board task terminals aren't stored in
    *  `state.json` so the classic capture returns 404 for their key. */
   boardContext?: { boardId: string; taskKey: string }
+  /** Same idea as `boardContext` but points at the board's MASTER
+   *  terminal. Set by GlobalProjectWidgets on `/projects/:enc/boards/:id`
+   *  routes so Cmd+L / Copy from Terminal capture the master pane. */
+  boardMasterContext?: { boardId: string }
+  /** Set to `true` to mark this TaskWidget as the "specialized" one for
+   *  the current surface (e.g. inside a board task modal). When any
+   *  specialized TaskWidget is mounted, non-specialized (global) ones
+   *  skip window-level shortcuts to avoid double-firing. */
+  specialized?: boolean
 }
+
+/**
+ * Module-level counter of "specialized" TaskWidgets currently mounted
+ * (e.g. one inside a board task modal). Non-specialized (global)
+ * TaskWidgets check this on every Cmd+L / postMessage and defer when
+ * >0 — the specialized one is the one the user is looking at.
+ */
+let specializedTaskWidgetCount = 0
 
 interface FabPosition {
   x: number
@@ -77,7 +94,14 @@ function getSessionIdFromUrl(): string | null {
   return match ? match[1] : null
 }
 
-export function TaskWidget({ projectPath, sessionId: sessionIdProp, boardContext }: TaskWidgetProps) {
+export function TaskWidget({ projectPath, sessionId: sessionIdProp, boardContext, boardMasterContext, specialized }: TaskWidgetProps) {
+  // Bump the specialized-widget counter on mount if we're one, so any
+  // non-specialized (global) TaskWidgets defer to us for the shortcut.
+  useEffect(() => {
+    if (!specialized) return
+    specializedTaskWidgetCount++
+    return () => { specializedTaskWidgetCount-- }
+  }, [specialized])
   const [active, setActive] = useState<ActivePanel>('none')
   const [tasks, setTasks] = useState<ProjectTask[]>([])
   const [newTitle, setNewTitle] = useState('')
@@ -295,6 +319,11 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp, boardContext
       const isShortcut = (e.metaKey || e.ctrlKey) && (e.key === 'l' || e.key === 'L')
       if (!isShortcut) return
 
+      // Defer to the specialized (scoped) TaskWidget if one is mounted
+      // — a board task modal, typically. Prevents double-modals on
+      // Cmd+L when both global and scoped widgets are on the page.
+      if (!specialized && specializedTaskWidgetCount > 0) return
+
       const ae = document.activeElement as HTMLElement | null
       if (ae) {
         const tag = ae.tagName
@@ -306,7 +335,12 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp, boardContext
     }
 
     const onMessage = (e: MessageEvent) => {
-      if (e.data?.type === 'orka-copy-from-terminal') toggleCopyTerminal()
+      if (e.data?.type !== 'orka-copy-from-terminal') return
+      // Same defer-to-specialized guard as the keydown path — the iframe
+      // posts to the parent window and both widgets receive it, so we
+      // need this check here too.
+      if (!specialized && specializedTaskWidgetCount > 0) return
+      toggleCopyTerminal()
     }
 
     window.addEventListener('keydown', onKeyDown)
@@ -315,7 +349,7 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp, boardContext
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('message', onMessage)
     }
-  }, [terminalAvailable, active]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [terminalAvailable, active, specialized]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Terminal capture — fetches both plain (for clipboard) and ANSI (for
   // display) from the current session's active pane. When `boardContext`
@@ -330,6 +364,13 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp, boardContext
       ])
       return { plain: plainRes.text || '', ansi: ansiRes.text || '' }
     }
+    if (boardMasterContext) {
+      const [plainRes, ansiRes] = await Promise.all([
+        api.captureBoardMasterPane(projectPath, boardMasterContext.boardId, { lines: 400 }),
+        api.captureBoardMasterPane(projectPath, boardMasterContext.boardId, { lines: 400, ansi: true }),
+      ])
+      return { plain: plainRes.text || '', ansi: ansiRes.text || '' }
+    }
     const sessionId = sessionIdProp || getSessionIdFromUrl()
     if (!sessionId) {
       return { plain: '(No active session found in URL)', ansi: '' }
@@ -339,7 +380,7 @@ export function TaskWidget({ projectPath, sessionId: sessionIdProp, boardContext
       api.captureTerminalPane(projectPath, sessionId, { lines: 400, ansi: true }),
     ])
     return { plain: plainRes.text || '', ansi: ansiRes.text || '' }
-  }, [projectPath, sessionIdProp, boardContext])
+  }, [projectPath, sessionIdProp, boardContext, boardMasterContext])
 
   // --- Task CRUD ---
   const handleAdd = async () => {
