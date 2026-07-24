@@ -15,6 +15,7 @@ import {
   FileText,
   FolderOpen,
   Link as LinkIcon,
+  SplitSquareHorizontal,
 } from 'lucide-react'
 import { api, type AIQueryContext, type BoardTask } from '../../api/client'
 import { TaskWidget } from '../TaskWidget'
@@ -369,12 +370,31 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
         <>
           <div className="board-task-terminal-toolbar">
             <span><Terminal size={12} /> Terminal</span>
-            <button
-              onClick={() => window.open(`/terminal/${task.ttydPort}?desktop=1`, '_blank')}
-              title="Open in new tab"
-            >
-              <ExternalLink size={12} />
-            </button>
+            <div className="board-task-terminal-toolbar-actions">
+              {/* Split — adds a bare shell pane to the task's tmux
+                  session (cwd = worktree if set, else project root).
+                  Shows up in the iframe automatically. */}
+              <button
+                onClick={async () => {
+                  try {
+                    await api.splitBoardTask(projectPath, boardId, task.key, true)
+                  } catch (err) {
+                    console.error('Failed to split task terminal:', err)
+                  }
+                }}
+                title="Split — new shell pane in this tmux (no Claude, just bash)"
+                aria-label="Split terminal"
+              >
+                <SplitSquareHorizontal size={12} />
+              </button>
+              <button
+                onClick={() => window.open(`/terminal/${task.ttydPort}?desktop=1`, '_blank')}
+                title="Open in new tab"
+                aria-label="Open in new tab"
+              >
+                <ExternalLink size={12} />
+              </button>
+            </div>
           </div>
           {/* `terminal-iframe` compound class + `data-orka-session-id`
               let the shared CommentWidget target this iframe when the

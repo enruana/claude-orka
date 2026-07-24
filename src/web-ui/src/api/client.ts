@@ -1196,6 +1196,42 @@ export const api = {
     return res.json()
   },
 
+  /** Add a bare shell pane next to the board master's Claude pane. New
+   *  pane runs the user's default shell in the project root. `vertical`
+   *  true = split right, false = split below. */
+  async splitBoardMaster(
+    projectPath: string,
+    boardId: string,
+    vertical: boolean = false,
+  ): Promise<{ paneId: string }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/master/split?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vertical }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Add a bare shell pane next to a board task's Claude pane. Starts in
+   *  the task's worktree if set, else the project root. */
+  async splitBoardTask(
+    projectPath: string,
+    boardId: string,
+    key: string,
+    vertical: boolean = false,
+  ): Promise<{ paneId: string }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/split?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vertical }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   async reinitBoardTask(
     projectPath: string,
     boardId: string,

@@ -24,6 +24,8 @@ import {
   sendInitToBoardTask,
   persistTaskHandles,
   resumeBoardTask,
+  splitBoardTaskTerminal,
+  splitBoardMasterTerminal,
 } from '../../core/BoardTerminals'
 import { logger } from '../../utils'
 
@@ -219,6 +221,24 @@ boardRouter.post('/:boardId/master/sync', async (req, res) => {
   }
 })
 
+/**
+ * `POST /:boardId/master/split` — add a bare shell pane next to the
+ * master's Claude pane in the same tmux session. Shows up in the same
+ * ttyd iframe automatically. Body: `{ vertical?: boolean }` — vertical
+ * true = split to the right (side-by-side), false (default) = split
+ * below (stacked).
+ */
+boardRouter.post('/:boardId/master/split', async (req, res) => {
+  try {
+    const projectPath = project(req)
+    const vertical = !!req.body?.vertical
+    const result = await splitBoardMasterTerminal(projectPath, req.params.boardId, vertical)
+    res.json(result)
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
 // ---------- Task lifecycle ----------
 
 boardRouter.post('/:boardId/tasks/:key/start', async (req, res) => {
@@ -398,6 +418,23 @@ boardRouter.post('/:boardId/tasks/:key/reinit', async (req, res) => {
       worktreeParent: '',
     })
     res.json({ success: true, template: template.id })
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
+ * `POST /:boardId/tasks/:key/split` — add a bare shell pane next to the
+ * task's Claude pane. New pane starts in the task's `worktreePath` (if
+ * any) so `git status`, `npm test`, etc. hit the right tree. Body:
+ * `{ vertical?: boolean }`.
+ */
+boardRouter.post('/:boardId/tasks/:key/split', async (req, res) => {
+  try {
+    const projectPath = project(req)
+    const vertical = !!req.body?.vertical
+    const result = await splitBoardTaskTerminal(projectPath, req.params.boardId, req.params.key, vertical)
+    res.json(result)
   } catch (err) {
     handle(res, err)
   }

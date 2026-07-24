@@ -468,6 +468,57 @@ export async function sendInitToBoardTask(
 }
 
 /**
+ * Add a bare shell pane next to the board task's Claude pane — same tmux
+ * session, so it shows up in the same ttyd iframe automatically. Useful
+ * when the user wants to run one-off commands (git, tail, curl, etc.)
+ * without stealing focus from Claude.
+ *
+ * Starts in the task's worktree if it exists, otherwise falls back to
+ * `projectPath` — so a task working on branch X drops the user into
+ * that branch's worktree by default.
+ */
+export async function splitBoardTaskTerminal(
+  projectPath: string,
+  boardId: string,
+  taskKey: string,
+  vertical: boolean = false,
+): Promise<{ paneId: string }> {
+  const tmuxSessionId = taskTmuxName(taskKey)
+  try {
+    await execa('tmux', ['has-session', '-t', tmuxSessionId])
+  } catch {
+    throw new Error(`Task terminal for ${taskKey} is not running — start it first`)
+  }
+  const mgr = new BoardManager(projectPath)
+  const task = await mgr.getTask(boardId, taskKey)
+  const cwd = task?.worktreePath || projectPath
+  const paneId = await TmuxCommands.splitPaneWithCwd(tmuxSessionId, cwd, vertical)
+  logger.info(`Split shell pane added to board task ${taskKey} (cwd=${cwd})`)
+  return { paneId }
+}
+
+/**
+ * Add a bare shell pane next to the board master's Claude pane. Same
+ * mechanism as `splitBoardTaskTerminal` but for the master session.
+ * Always rooted at `projectPath`.
+ */
+export async function splitBoardMasterTerminal(
+  projectPath: string,
+  boardId: string,
+  vertical: boolean = false,
+): Promise<{ paneId: string }> {
+  const tmuxSessionId = masterTmuxName(boardId)
+  try {
+    await execa('tmux', ['has-session', '-t', tmuxSessionId])
+  } catch {
+    throw new Error(`Board master for ${boardId} is not running`)
+  }
+  const paneId = await TmuxCommands.splitPaneWithCwd(tmuxSessionId, projectPath, vertical)
+  logger.info(`Split shell pane added to board master ${boardId}`)
+  return { paneId }
+}
+
+/**
  * Convenience: attach the freshly-spawned terminal handles back to the
  * BoardTask row so the UI can render "terminal is up" and the server can
  * later shut it down.

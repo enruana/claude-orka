@@ -13,6 +13,7 @@ import {
   Maximize2,
   Minimize2,
   ExternalLink,
+  SplitSquareHorizontal,
 } from 'lucide-react'
 import {
   api,
@@ -324,6 +325,22 @@ export function BoardPage() {
                   />
                 </span>
                 <div className="board-terminal-toolbar-actions">
+                  {/* Split — adds a bare shell pane to the same tmux
+                      session. Shows up in the iframe automatically. */}
+                  <button
+                    className="board-terminal-toolbar-btn"
+                    onClick={async () => {
+                      try {
+                        await api.splitBoardMaster(projectPath, boardId, true)
+                      } catch (err: any) {
+                        setError(err?.message || 'Failed to split master terminal')
+                      }
+                    }}
+                    title="Split — new shell pane in this tmux (no Claude, just bash)"
+                    aria-label="Split terminal"
+                  >
+                    <SplitSquareHorizontal size={12} />
+                  </button>
                   <button
                     className="board-terminal-toolbar-btn"
                     onClick={() => setTerminalFullscreen(true)}
