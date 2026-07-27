@@ -16,6 +16,7 @@ import {
   FolderOpen,
   Link as LinkIcon,
   SplitSquareHorizontal,
+  Power,
 } from 'lucide-react'
 import { api, type AIQueryContext, type BoardTask } from '../../api/client'
 import { TaskWidget } from '../TaskWidget'
@@ -238,6 +239,34 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
       console.error(err)
     } finally {
       setBusy(false)
+    }
+  }
+
+  const [shuttingDown, setShuttingDown] = useState(false)
+  const handleShutdown = async () => {
+    if (shuttingDown) return
+    const ok = window.confirm(
+      `Shutdown terminal for ${task.key}?\n\n` +
+      `Kills tmux + ttyd and detaches the local handles. The Claude ` +
+      `session id stays saved, so when you hit Start later it will ` +
+      `come back with \`claude --resume\` and pick up the same ` +
+      `conversation.\n\n` +
+      `The task stays in its column, no Jira / KB / PR touched. ` +
+      `And the terminal will NOT auto-revive on server restart — you ` +
+      `have to explicitly Start it again.\n\n` +
+      `Continue?`
+    )
+    if (!ok) return
+    setShuttingDown(true)
+    try {
+      await api.shutdownBoardTask(projectPath, boardId, task.key)
+      // Reset the resume gate so the next mount doesn't try to revive.
+      resumedForKeyRef.current = null
+      await onChanged()
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setShuttingDown(false)
     }
   }
 
@@ -511,6 +540,19 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
               >
                 <RefreshCw size={14} className={reiniting ? 'spinning' : ''} />
                 <span className="mobile-hide">{reiniting ? 'Restarting…' : 'Restart init'}</span>
+              </button>
+              {/* Shutdown — hard-stop tmux + ttyd but keep claudeSessionId
+                  so Start later resumes the same conversation. Task
+                  stays dead across server restarts. */}
+              <button
+                className="board-task-btn"
+                onClick={handleShutdown}
+                disabled={shuttingDown}
+                title="Shutdown terminal — kills tmux + ttyd but preserves the Claude session id so Start later resumes the same conversation. Stays off across server restarts."
+                aria-label={shuttingDown ? 'Shutting down' : 'Shutdown terminal'}
+              >
+                <Power size={14} className={shuttingDown ? 'spinning' : ''} />
+                <span className="mobile-hide">{shuttingDown ? 'Shutting down…' : 'Shutdown'}</span>
               </button>
               <button
                 className="board-task-btn warning"

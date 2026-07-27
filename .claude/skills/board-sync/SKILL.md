@@ -39,7 +39,21 @@ Find the `boardId` matching `orka-board-master-<boardId>` (the tmux session you'
 cat <project>/.claude-orka/.boards/<boardId>/config.json
 ```
 
-Fields to use: `jiraUrl`, `jql` (if set — otherwise default to `assignee = currentUser() AND resolution = Unresolved`), `columns`, `lastSyncedAt`.
+Fields to use: `jiraUrl`, `jql`, `columns`, `lastSyncedAt`.
+
+**Default JQL — `assignee = currentUser() AND sprint in openSprints() AND resolution = Unresolved`.**
+El scope es **el sprint activo**, no todo el backlog. Sin `sprint in openSprints()` el sync trae también tickets viejos, cerrados en sprints pasados y backlog completo — casi nunca es lo que el usuario quiere.
+
+Si el `jql` del board **está seteado**, úsalo tal cual (el usuario lo configuró explícitamente).
+
+Si el `jql` está **vacío**:
+1. Empieza con la default arriba.
+2. Verifica que el board Jira sea *scrum* (sprints). Si es *kanban* — que no tiene sprints — cae a `assignee = currentUser() AND statusCategory != Done` y avísale al usuario en el reporte final ("Este board es Kanban, no hay sprint activo — sincronicé con todo lo abierto asignado a ti").
+
+Otras JQLs útiles si el usuario pregunta:
+- Un sprint específico por nombre: `sprint = "Sprint 42"` (comillas obligatorias).
+- Todo el proyecto sin filtro por usuario: `project = PROJ AND sprint in openSprints()`.
+- Todo lo tuyo, ignora sprint (para tableros personales): `assignee = currentUser() AND resolution = Unresolved`.
 
 ---
 

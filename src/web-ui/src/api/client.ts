@@ -1249,6 +1249,22 @@ export const api = {
     return res.json()
   },
 
+  /** Hard-stop a task terminal without the wrap-up ritual. Kills tmux +
+   *  ttyd, clears live handles, but preserves `claudeSessionId` so a
+   *  later Start does `claude --resume` (same conversation). Stays dead
+   *  across server restarts until the user explicitly hits Start. */
+  async shutdownBoardTask(
+    projectPath: string,
+    boardId: string,
+    key: string,
+  ): Promise<void> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/shutdown?project=${p}`, {
+      method: 'POST',
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
   async reinitBoardTask(
     projectPath: string,
     boardId: string,

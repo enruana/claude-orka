@@ -117,12 +117,25 @@ Every mutation appends an event to `events.jsonl`, so history and drift detectio
 
 ## Knowledge Base link (bidirectional)
 
-- Every task-terminal creates a KB entity of type `task` at boot. The KB entity carries `properties.jira_key`, `properties.jira_url`, `properties.board_id`, and (when known) `properties.worktree_path` + `properties.branch_name`.
-- `BoardTask.kbEntityId` stores the KB entity id — that's the local link back.
-- Use the KB as the durable memory: PRs opened, decisions made, blockers found — all logged as KB updates via `orka kb update <id> ...`.
-- On close, KB entity flips to `status: done`, PR url captured as a property, and any decisions get their own `decision` entities linked via `resulted_in` edges.
+- Every task creates **at most one** KB entity per `jira_key` — never
+  duplicate. Task-terminals must run the "look for an existing entity
+  FIRST" step from `board-task-init` before adding, so reopens and
+  cross-session spawns retake the same entity + its full context
+  (overview.html + changelog + prior updates).
+- The KB entity carries `properties.jira_key`, `properties.jira_url`,
+  `properties.board_id`, and (when known) `properties.worktree_path`
+  + `properties.branch_name` + `properties.path` + `properties.master_doc`.
+- `BoardTask.kbEntityId` stores the KB entity id — that's the local link
+  back. If it's set on the BoardTask, load that entity directly instead
+  of grepping by `jira_key`.
+- Use the KB as the durable memory: PRs opened, decisions made, blockers
+  found — all logged as KB updates via `orka kb update <id> ...`.
+- On close, KB entity flips to `status: done`, PR url captured as a
+  property, and any decisions get their own `decision` entities linked
+  via `resulted_in` edges.
 
-See the `kb-guide` skill for KB shape details and `kb-track` for the capture flow.
+See the `kb-guide` skill for KB shape details, `kb-project` for the
+folder / tier convention, and `kb-track` for the capture flow.
 
 ---
 

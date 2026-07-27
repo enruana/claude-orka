@@ -473,6 +473,33 @@ boardRouter.post('/:boardId/tasks/:key/split', async (req, res) => {
 // ---------- Task recovery ----------
 
 /**
+ * `POST /:boardId/tasks/:key/shutdown` — hard stop for a task terminal
+ * WITHOUT running the wrap-up ritual. Kills tmux + ttyd, clears the
+ * `terminalTmuxSessionId` / paneId / ttydPort handles from tasks.json,
+ * but preserves `claudeSessionId` so the user can Start later and
+ * `claude --resume` restores the same conversation.
+ *
+ * Because the handles are cleared, the BoardPage sweep (which only
+ * looks at rows still carrying tmux handles) won't touch this task on
+ * a server restart — it stays dead until the user explicitly hits
+ * Start on the card. That's the "power off" semantics the UI exposes.
+ */
+boardRouter.post('/:boardId/tasks/:key/shutdown', async (req, res) => {
+  try {
+    const boardId = req.params.boardId
+    const taskKey = req.params.key
+    const boardMgr = mgr(req)
+    const task = await boardMgr.getTask(boardId, taskKey)
+    if (!task) { res.status(404).json({ error: 'Task not found' }); return }
+    await stopBoardTask(taskKey, task.ttydPid)
+    await boardMgr.detachTaskTerminal(boardId, taskKey)
+    res.json({ success: true })
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
  * `POST /:boardId/tasks/:key/resume` — analog of `resumeSession` for
  * classic sessions. After a server restart, the ttyd process that served
  * a task's terminal is gone but the tmux is not; call this to spin up a
