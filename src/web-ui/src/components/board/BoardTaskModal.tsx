@@ -215,16 +215,39 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
 
   const handleWrapUp = async () => {
     if (busy) return
+    // Confirm dialog spells out exactly what runs where. Two clocks:
+    // Orka's happens immediately server-side; Claude's happens
+    // asynchronously in the task's tmux pane once the prompt lands.
+    // Kept as plain text so window.confirm can render it — a nicer
+    // custom modal would be a follow-up.
     const ok = window.confirm(
       `Wrap up ${task.key}?\n\n` +
-      `Este flujo asume que el ticket YA está terminado — PR mergeado,\n` +
-      `feature en prod o cerrada. Claude va a:\n\n` +
-      `  • Verificar que el PR esté MERGED (si sigue abierto, para)\n` +
-      `  • Cerrar la entidad KB con links a lo que se entregó\n` +
-      `  • Dejar un comentario corto en el ticket Jira\n` +
-      `  • Mover el ticket a Done si no está ya ahí\n` +
-      `  • Limpiar el worktree local (moxikit worktree remove)\n\n` +
-      `Continúa solo si el PR ya está mergeado.`
+      `━━━ INMEDIATO (lo hace Orka al aceptar) ━━━\n` +
+      `  • Marca el task como "done" en el board local.\n` +
+      `    Esto pasa aunque Claude no complete el resto.\n\n` +
+      `━━━ ASÍNCRONO (Claude en el terminal del task) ━━━\n` +
+      `Se inyecta un prompt que le pide cargar el skill\n` +
+      `board-task-close y ejecutar el ritual post-merge:\n\n` +
+      `  1. Verifica que el PR esté MERGED (via \`gh pr view\`).\n` +
+      `     → Si sigue open, ABORTA acá. No toca nada más.\n` +
+      `  2. Cierra la entidad KB: status=done + pr_url +\n` +
+      `     merged_at + entrada al changelog del overview.html.\n` +
+      `  3. Captura entidades derivadas si el trabajo produjo\n` +
+      `     decisiones/bugs/spikes reusables (opcional).\n` +
+      `  4. Comentario corto en español en el ticket Jira\n` +
+      `     (edita el previo de Orka si ya existe).\n` +
+      `  5. Mueve el ticket a Done en Jira (skip si ya está).\n` +
+      `  6. Actualiza el BoardTask local con pr_url.\n` +
+      `  7. Remueve el worktree con \`moxikit worktree remove\`.\n` +
+      `  8. Mata tmux + ttyd del task terminal.\n\n` +
+      `━━━ NO REVERSIBLES ━━━\n` +
+      `  ✗ Comentario en Jira (queda en el ticket).\n` +
+      `  ✗ Worktree removido (habría que recrearlo).\n\n` +
+      `━━━ SALVAGUARDAS ━━━\n` +
+      `  ✓ Paso 1 aborta si el PR no está mergeado.\n` +
+      `  ✓ Paso 5 no transiciona Jira si ya está en Done.\n` +
+      `  ✓ Paso 7 no borra worktree con cambios sin commit sin preguntar.\n\n` +
+      `Solo continúa si el PR ya está mergeado.`
     )
     if (!ok) return
     setBusy(true)
