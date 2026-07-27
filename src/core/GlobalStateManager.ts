@@ -316,7 +316,12 @@ export class GlobalStateManager {
     const basePort = this.getTtydBasePort()
     const execa = (await import('execa')).default
 
-    for (let port = basePort; port < basePort + 100; port++) {
+    // Scan a larger range (500 vs. 100) so a leak-and-cleanup cycle
+    // doesn't wedge us. The BoardTerminals `getOrSpawnTtydForTmux`
+    // helper prevents new leaks, but old zombies from earlier versions
+    // may still hold the low-numbered ports until the user runs
+    // `pkill ttyd` (or the fresh `orka` cleanup script).
+    for (let port = basePort; port < basePort + 500; port++) {
       try {
         await execa('lsof', ['-i', `:${port}`])
         // Port is in use, continue
@@ -326,7 +331,10 @@ export class GlobalStateManager {
       }
     }
 
-    throw new Error('No available ports found for ttyd')
+    throw new Error(
+      `No available ports found for ttyd in ${basePort}-${basePort + 499}. ` +
+      'Run `pkill ttyd` (or `orka restart -b`) to clear zombie processes and try again.'
+    )
   }
 
   /**

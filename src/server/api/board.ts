@@ -340,6 +340,11 @@ boardRouter.post('/:boardId/tasks/:key/start', async (req, res) => {
       template,
       existingClaudeSessionId: effectiveClaudeSessionId,
       isReopen,
+      // Pass persisted ttyd handles so we reuse the live process
+      // instead of spawning another one — that leak is what
+      // exhausted the ttyd port pool in the wild.
+      existingTtydPid: task.ttydPid,
+      existingTtydPort: task.ttydPort,
     })
     await persistTaskHandles(projectPath, boardId, taskKey, handles)
     res.json({ ...handles, template: template.id, reopen: isReopen, statusChanged: !!changeStatusTo })

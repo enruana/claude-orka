@@ -32,6 +32,69 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Look for a ttyd process already attached to the given tmux session.
+ * Returns its `{ port, pid }` if one is alive, or null if there's none.
+ *
+ * Every `orka-*` ttyd is spawned with `... tmux attach -t <sessionName>`
+ * as its trailing args, so pgrep can pinpoint the exact process by
+ * matching the session name at the end of the cmdline. The port is
+ * extracted from the `-p <port>` flag in the same cmdline.
+ *
+ * Used by `startBoardMaster` and `startBoardTask` so repeat calls
+ * (e.g. every time the user re-enters the board page) don't accumulate
+ * one orphan ttyd per navigation — that leak is what exhausted the
+ * ttyd port pool in the wild.
+ */
+async function findExistingTtydForSession(
+  tmuxSessionId: string,
+): Promise<{ port: number; pid: number } | null> {
+  try {
+    // -a: include cmdline, -f: match against full cmdline
+    const { stdout } = await execa('pgrep', ['-af', `tmux attach -t ${tmuxSessionId}$`])
+    const lines = stdout.split('\n').filter(Boolean)
+    for (const line of lines) {
+      const spaceIdx = line.indexOf(' ')
+      if (spaceIdx <= 0) continue
+      const pid = Number(line.slice(0, spaceIdx))
+      const cmdline = line.slice(spaceIdx + 1)
+      if (!Number.isFinite(pid) || !cmdline.startsWith('ttyd')) continue
+      // Confirm the process is our ttyd and not, say, a manually launched
+      // `tmux attach` from a terminal (the cmdline check above should
+      // handle that, but be defensive).
+      const portMatch = cmdline.match(/-p\s+(\d+)/)
+      if (!portMatch) continue
+      if (!isProcessAlive(pid)) continue
+      return { port: Number(portMatch[1]), pid }
+    }
+  } catch {
+    // pgrep exits 1 when no matches — treat as "none found".
+  }
+  return null
+}
+
+/**
+ * Get an existing ttyd for a tmux session or spawn a new one. Callers
+ * pass `existingPid`/`existingPort` from persisted state to short-circuit
+ * the pgrep lookup when we already trust the values. If either fails
+ * (process dead or nothing found), spawns fresh.
+ */
+async function getOrSpawnTtydForTmux(
+  tmuxSessionId: string,
+  existingPid?: number,
+  existingPort?: number,
+): Promise<{ port: number; pid: number; reused: boolean }> {
+  if (existingPid && existingPort && isProcessAlive(existingPid)) {
+    return { port: existingPort, pid: existingPid, reused: true }
+  }
+  const scanned = await findExistingTtydForSession(tmuxSessionId)
+  if (scanned) {
+    return { port: scanned.port, pid: scanned.pid, reused: true }
+  }
+  const spawned = await spawnTtydForTmux(tmuxSessionId)
+  return { ...spawned, reused: false }
+}
+
 async function spawnTtydForTmux(tmuxSessionId: string): Promise<{ port: number; pid: number }> {
   const globalState = await getGlobalStateManager()
 
@@ -138,8 +201,13 @@ export async function startBoardMaster(
     // Label failure isn't fatal — cosmetic only.
   }
 
-  // 3. Spin ttyd.
-  const { port, pid } = await spawnTtydForTmux(tmuxSessionId)
+  // 3. Reuse an existing ttyd for this tmux if we can find one — the
+  //    master has no persistent handle store so every re-entry to the
+  //    board page used to leak a ttyd. Now we scan for a live one first.
+  const { port, pid, reused } = await getOrSpawnTtydForTmux(tmuxSessionId)
+  if (reused) {
+    logger.info(`Reusing existing ttyd :${port} (pid ${pid}) for master ${opts.boardId}`)
+  }
 
   // 4. Boot claude with a pre-generated session id + master prompt (only
   //    on the first creation — otherwise we'd interrupt an in-flight
@@ -224,6 +292,11 @@ export interface StartBoardTaskOptions {
    *  event more clearly and to skip the init template (a resumed task
    *  shouldn't re-run moxikit / re-create the KB entity). */
   isReopen?: boolean
+  /** Persisted ttyd handle for this task, if any. Passed through from
+   *  the caller so we can reuse an existing live ttyd instead of
+   *  spawning yet another one. */
+  existingTtydPid?: number
+  existingTtydPort?: number
 }
 
 export interface BoardTaskHandles {
@@ -262,7 +335,16 @@ export async function startBoardTask(
     // cosmetic only
   }
 
-  const { port, pid } = await spawnTtydForTmux(tmuxSessionId)
+  // Reuse a ttyd that's still alive from a previous session boot rather
+  // than spawning a new one — that's what accumulated the port leak.
+  const { port, pid, reused } = await getOrSpawnTtydForTmux(
+    tmuxSessionId,
+    opts.existingTtydPid,
+    opts.existingTtydPort,
+  )
+  if (reused) {
+    logger.info(`Reusing existing ttyd :${port} (pid ${pid}) for task ${opts.taskKey}`)
+  }
 
   let claudeSessionId: string
   let bootMode: BoardTaskHandles['bootMode']
