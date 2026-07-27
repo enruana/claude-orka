@@ -14,6 +14,7 @@
 import { Router } from 'express'
 import execa from 'execa'
 import { TmuxCommands } from '../../utils/tmux'
+import { findLatestSessionMentioning } from '../../utils/claude-history'
 import { BoardManager } from '../../core/BoardManager'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
 import {
@@ -293,11 +294,29 @@ boardRouter.post('/:boardId/tasks/:key/start', async (req, res) => {
     const template = globalState.getBoardTemplate(templateId)
     if (!template) { res.status(400).json({ error: `Template not found: ${templateId}` }); return }
 
+    // Recover a Claude session id when we don't have one saved locally.
+    // Two paths:
+    //  a) task.claudeSessionId set — trust it (normal case for tasks
+    //     started after the "persist session id" fix landed).
+    //  b) Missing — search ~/.claude/history.jsonl for the most recent
+    //     session in this project whose prompts mentioned taskKey, and
+    //     use that. Persists it back to tasks.json so we don't need
+    //     the lookup next time. Covers legacy tasks that never had the
+    //     id saved and tasks that got clobbered by the old spread bug.
+    let effectiveClaudeSessionId = task.claudeSessionId
+    if (!effectiveClaudeSessionId) {
+      const recovered = await findLatestSessionMentioning(projectPath, taskKey)
+      if (recovered) {
+        effectiveClaudeSessionId = recovered
+        logger.info(`Recovered Claude session ${recovered} for task ${taskKey} from history.jsonl (no id was saved locally)`)
+        await boardMgr.updateTask(boardId, taskKey, { claudeSessionId: recovered })
+      }
+    }
+
     // Reopen = a task that already has a claudeSessionId AND is not
-    // currently running. Detected from the ORIGINAL status/handles so
-    // reopening a Done task via Kanban drag still resumes even if the
-    // caller asks us to bump status to in-progress.
-    const isReopen = !!task.claudeSessionId && task.status !== 'in-progress'
+    // currently running. Uses `effectiveClaudeSessionId` so recovered
+    // legacy tasks also take the resume path, not fresh.
+    const isReopen = !!effectiveClaudeSessionId && task.status !== 'in-progress'
 
     // Only touch status if the caller asked. Validation: must be one
     // of the board's columns to prevent typos landing in state.json.
@@ -319,7 +338,7 @@ boardRouter.post('/:boardId/tasks/:key/start', async (req, res) => {
       jiraUrl: task.jiraUrl,
       branchName,
       template,
-      existingClaudeSessionId: task.claudeSessionId,
+      existingClaudeSessionId: effectiveClaudeSessionId,
       isReopen,
     })
     await persistTaskHandles(projectPath, boardId, taskKey, handles)

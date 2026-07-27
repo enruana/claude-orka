@@ -183,6 +183,39 @@ export async function getLatestSessionForProject(
   return sessions.length > 0 ? sessions[0] : null
 }
 
+/**
+ * Look up the most recent Claude session whose user-facing prompts
+ * mention the given `needle` (typically a Jira/task key like `PROJ-123`)
+ * inside the specified project. Used as a Board task recovery fallback
+ * when `BoardTask.claudeSessionId` isn't persisted — for tasks spawned
+ * before we started tracking that field, and for the edge cases where
+ * a persist call clobbered it.
+ *
+ * Matches the `project` field first (must equal `projectPath`) so we
+ * don't pull sessions from unrelated projects that happen to have
+ * mentioned the key. Then within those, filters `display` containing
+ * `needle` (case-insensitive) and picks the highest timestamp.
+ */
+export async function findLatestSessionMentioning(
+  projectPath: string,
+  needle: string,
+): Promise<string | null> {
+  try {
+    const entries = await readClaudeHistory()
+    const target = needle.toLowerCase()
+    let best: ClaudeHistoryEntry | null = null
+    for (const e of entries) {
+      if (e.project !== projectPath) continue
+      if (!(e.display || '').toLowerCase().includes(target)) continue
+      if (!best || e.timestamp > best.timestamp) best = e
+    }
+    return best?.sessionId ?? null
+  } catch (error) {
+    logger.warn(`findLatestSessionMentioning failed: ${(error as Error).message}`)
+    return null
+  }
+}
+
 // ==========================================
 // SESSION VALIDATION & CONTEXT UTILITIES
 // ==========================================

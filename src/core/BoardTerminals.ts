@@ -530,14 +530,18 @@ export async function persistTaskHandles(
   h: BoardTaskHandles,
 ): Promise<void> {
   const mgr = new BoardManager(projectPath)
-  await mgr.attachTaskTerminal(boardId, taskKey, {
+  // Build the patch conditionally — passing `claudeSessionId: undefined`
+  // through the spread in `updateTask` would CLOBBER an existing saved
+  // value (JS spread overwrites even with undefined). We only want to
+  // persist it when we actually have a non-empty id; otherwise leave
+  // whatever's on disk untouched. This is why old tasks that spun up
+  // before we tracked the id kept losing it on subsequent runs.
+  const patch: Parameters<typeof mgr.attachTaskTerminal>[2] = {
     terminalPaneId: h.paneId,
     terminalTmuxSessionId: h.tmuxSessionId,
     ttydPort: h.ttydPort,
     ttydPid: h.ttydPid,
-    // Only overwrite `claudeSessionId` when we actually know it — an
-    // `attached` boot mode returns whatever we had (which may be
-    // undefined for pre-migration tasks); leaving it untouched then.
-    claudeSessionId: h.claudeSessionId || undefined,
-  })
+  }
+  if (h.claudeSessionId) patch.claudeSessionId = h.claudeSessionId
+  await mgr.attachTaskTerminal(boardId, taskKey, patch)
 }
