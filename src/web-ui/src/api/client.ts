@@ -1099,6 +1099,17 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
   },
 
+  /** Kick off the standup ritual on the master terminal. Claude writes
+   *  an English HTML report to a fixed path in the board's storage —
+   *  same file overwrites each run. Returns the project-relative path
+   *  so the caller can open it via /api/files/preview. */
+  async runBoardStandup(projectPath: string, boardId: string): Promise<{ success: boolean; reportPath: string }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/master/standup?project=${p}`, { method: 'POST' })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   /**
    * Spawn (or resume) a Board task terminal.
    *

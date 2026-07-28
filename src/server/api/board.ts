@@ -225,6 +225,30 @@ boardRouter.post('/:boardId/master/sync', async (req, res) => {
 })
 
 /**
+ * `POST /:boardId/master/standup` — inject the standup prompt into the
+ * running master terminal. Claude loads the `board-standup` skill,
+ * builds the English report from events since `lastStandupAt` + current
+ * snapshot, writes it to `.claude-orka/.boards/<boardId>/standup.html`,
+ * then bumps `lastStandupAt` via `orka board standup-mark`.
+ *
+ * The endpoint just kicks off the ritual — polling for completion is
+ * up to the caller. The report always overwrites the same file so
+ * clients can point at a stable URL.
+ */
+boardRouter.post('/:boardId/master/standup', async (req, res) => {
+  try {
+    const cfg = await mgr(req).getBoard(req.params.boardId)
+    if (!cfg) { res.status(404).json({ error: 'Board not found' }); return }
+    const globalState = await getGlobalStateManager()
+    const template = globalState.getBoardTemplate('standup-default')!
+    await triggerBoardMasterSync(cfg.id, template)
+    res.json({ success: true, reportPath: `.claude-orka/.boards/${cfg.id}/standup.html` })
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
  * `GET /:boardId/master/capture` — capture the current content of the
  * master's tmux pane. Same shape as `/api/sessions/:sid/capture` but
  * resolves the pane through the board's tmux name. Powers Cmd+L / Copy

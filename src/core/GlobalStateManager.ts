@@ -58,7 +58,7 @@ export interface BoardPromptTemplate {
   id: string
   name: string
   description?: string
-  kind: 'master' | 'sync' | 'task-init' | 'task-close'
+  kind: 'master' | 'sync' | 'task-init' | 'task-close' | 'standup'
   body: string
   /** Init-only: whether the task should get a git worktree. */
   requiresWorktree?: boolean
@@ -465,6 +465,18 @@ function getBuiltinBoardTemplates(): BoardPromptTemplate[] {
       builtin: true,
       body: [
         'Sync trigger received. Load the `board-sync` skill and execute the ritual for board {{boardId}}.',
+        'When done, report a compact summary and stop.',
+      ].join('\n'),
+    },
+    {
+      id: 'standup-default',
+      name: 'Standup (default)',
+      kind: 'standup',
+      description: 'Ritual the master runs when the user hits the Standup button. Loads the board-standup skill to build the English HTML report.',
+      builtin: true,
+      body: [
+        'Standup trigger received for board {{boardId}}.',
+        'Load the `board-standup` skill and execute the ritual — read events since lastStandupAt, snapshot the current board, write the English report to .claude-orka/.boards/{{boardId}}/standup.html (always overwrite the same file), and bump lastStandupAt.',
         'When done, report a compact summary and stop.',
       ].join('\n'),
     },

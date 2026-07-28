@@ -129,6 +129,11 @@ export interface BoardConfig {
   /** ISO timestamp of the last successful sync (server-side clock). */
   lastSyncedAt?: string
 
+  /** ISO timestamp of the last standup report generation. Powers the
+   *  "what changed since last standup" filter — Claude reads events
+   *  after this cutoff and updates it on completion. */
+  lastStandupAt?: string
+
   /** ISO creation timestamp. */
   createdAt: string
 

@@ -108,7 +108,7 @@ export class BoardManager {
 
   async updateBoard(
     boardId: string,
-    patch: Partial<Pick<BoardConfig, 'name' | 'jiraUrl' | 'jql' | 'columns' | 'masterPromptId' | 'syncPromptId' | 'lastSyncedAt'>>,
+    patch: Partial<Pick<BoardConfig, 'name' | 'jiraUrl' | 'jql' | 'columns' | 'masterPromptId' | 'syncPromptId' | 'lastSyncedAt' | 'lastStandupAt'>>,
   ): Promise<BoardConfig> {
     const cfg = await this.getBoard(boardId)
     if (!cfg) throw new Error(`Board not found: ${boardId}`)
@@ -396,14 +396,29 @@ export class BoardManager {
 
   // ---------- Events (audit log) ----------
 
-  async listEvents(boardId: string): Promise<BoardEvent[]> {
+  async listEvents(
+    boardId: string,
+    opts?: { since?: string; taskKey?: string },
+  ): Promise<BoardEvent[]> {
     const p = path.join(this.boardDir(boardId), EVENTS_FILE)
     if (!(await fs.pathExists(p))) return []
     const raw = await fs.readFile(p, 'utf-8')
-    return raw
+    const all: BoardEvent[] = raw
       .split('\n')
       .filter((l) => l.trim())
       .map((l) => JSON.parse(l) as BoardEvent)
+    if (!opts) return all
+    return all.filter((e) => {
+      if (opts.since && e.ts < opts.since) return false
+      if (opts.taskKey && e.taskKey !== opts.taskKey) return false
+      return true
+    })
+  }
+
+  /** Bump `lastStandupAt` on a board. Called at the end of the standup
+   *  ritual so the next report only looks at events after this one. */
+  async markStandupGenerated(boardId: string): Promise<void> {
+    await this.updateBoard(boardId, { lastStandupAt: new Date().toISOString() })
   }
 
   private async appendEvent(boardId: string, evt: BoardEvent): Promise<void> {

@@ -511,4 +511,62 @@ export function boardCommand(program: Command): void {
         handleError(error)
       }
     })
+
+  // ---------- Events / audit log ----------
+
+  board
+    .command('events')
+    .description('Dump the board event log — mutations with timestamps. Powers the standup report.')
+    .requiredOption('--board <id>')
+    .option('--since <iso>', 'Only events at or after this ISO timestamp (or a relative like "24h" / "7d")')
+    .option('--key <PROJ-123>', 'Only events for a specific task key')
+    .option('--json', 'Output as JSON (default: human-readable table)')
+    .action(async (opts) => {
+      try {
+        const mgr = new BoardManager(process.cwd())
+        // Support relative sinces like `24h`, `7d`, `30m` — trivial parse
+        // so the standup skill doesn't need to compute ISO offsets.
+        let since = opts.since as string | undefined
+        if (since && /^\d+[mhd]$/i.test(since)) {
+          const m = since.match(/^(\d+)([mhd])$/i)!
+          const n = Number(m[1])
+          const unit = m[2].toLowerCase()
+          const ms = n * (unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000)
+          since = new Date(Date.now() - ms).toISOString()
+        }
+        const events = await mgr.listEvents(opts.board, { since, taskKey: opts.key })
+        if (opts.json) {
+          console.log(JSON.stringify(events, null, 2))
+          return
+        }
+        if (events.length === 0) {
+          Output.info(since ? `No events since ${since}` : 'No events')
+          return
+        }
+        for (const e of events) {
+          const ts = e.ts.replace('T', ' ').replace(/\..*/, '')
+          const key = e.taskKey ? `[${e.taskKey}] ` : ''
+          const payload = e.payload ? ' ' + chalk.gray(JSON.stringify(e.payload).slice(0, 120)) : ''
+          console.log(`${chalk.gray(ts)} ${chalk.bold(e.event)} ${key}${payload}`)
+        }
+      } catch (error) {
+        handleError(error)
+      }
+    })
+
+  // ---------- Standup bookkeeping ----------
+
+  board
+    .command('standup-mark')
+    .description('Update lastStandupAt so the next standup only considers events after this point')
+    .requiredOption('--board <id>')
+    .action(async (opts) => {
+      try {
+        const mgr = new BoardManager(process.cwd())
+        await mgr.markStandupGenerated(opts.board)
+        Output.success('Marked standup as generated (lastStandupAt updated)')
+      } catch (error) {
+        handleError(error)
+      }
+    })
 }

@@ -14,6 +14,7 @@ import {
   Minimize2,
   ExternalLink,
   SplitSquareHorizontal,
+  Newspaper,
 } from 'lucide-react'
 import {
   api,
@@ -152,6 +153,31 @@ export function BoardPage() {
     }
   }
 
+  // Standup — same pattern as Sync but different ritual. On completion
+  // the master writes standup.html; we open the preview URL for the
+  // user (they land on the report as soon as Claude finishes writing).
+  const [standupBusy, setStandupBusy] = useState(false)
+  const handleStandup = async () => {
+    if (standupBusy) return
+    setStandupBusy(true)
+    try {
+      const { reportPath } = await api.runBoardStandup(projectPath, boardId)
+      setTab('terminal')
+      // Give Claude a moment to actually write the file before opening
+      // the preview — 8s is enough for the typical short standup.
+      // Preview URL uses the /api/files/preview endpoint so relative
+      // assets in the HTML resolve correctly against the file location.
+      setTimeout(() => {
+        const segments = reportPath.split('/').map(encodeURIComponent).join('/')
+        window.open(`/api/files/preview/${encodedPath}/${segments}`, '_blank')
+      }, 8000)
+    } catch (err: any) {
+      setError(err?.message || 'Standup failed')
+    } finally {
+      setStandupBusy(false)
+    }
+  }
+
   const handleMoveTask = async (task: BoardTask, newStatus: string) => {
     if (task.status === newStatus) return
     try {
@@ -262,6 +288,19 @@ export function BoardPage() {
           >
             <RefreshCw size={14} className={syncing ? 'spinning' : ''} />
             <span>Sync</span>
+          </button>
+          {/* Standup — asks the master to write an English HTML report
+              of what changed since lastStandupAt + current snapshot.
+              Opens the resulting standup.html in a new tab after
+              Claude has had a moment to write it. */}
+          <button
+            className="board-header-btn"
+            onClick={handleStandup}
+            disabled={standupBusy}
+            title="Generate an English standup report (what shipped, in flight, next up) as HTML"
+          >
+            <Newspaper size={14} className={standupBusy ? 'spinning' : ''} />
+            <span>Standup</span>
           </button>
           <button
             className="board-header-btn"
