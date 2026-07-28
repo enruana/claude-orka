@@ -160,7 +160,10 @@ export function BoardPage() {
   const standupReportPath = `.claude-orka/.boards/${boardId}/standup.html`
   const standupPreviewUrl = (() => {
     const segments = standupReportPath.split('/').map(encodeURIComponent).join('/')
-    return `/api/files/preview/${encodedPath}/${segments}`
+    // `?comments=1` matches the query the file viewer / KB detail
+    // panel use — needed for the preview endpoint to render the
+    // page with the same comments overlay the app expects.
+    return `/api/files/preview/${encodedPath}/${segments}?comments=1`
   })()
   const hasStandupReport = !!board?.lastStandupAt
 
