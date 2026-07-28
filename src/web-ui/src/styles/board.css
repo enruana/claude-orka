@@ -81,6 +81,26 @@
 .board-header-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .board-header-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Split-button group — primary (Open) + secondary (Regenerate) share
+   one visual pill so they read as related actions instead of two
+   independent buttons. */
+.board-header-split {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.board-header-split .board-header-btn.split-primary {
+  border-radius: 999px 0 0 999px;
+  border-right: none;
+  padding-right: 10px;
+}
+.board-header-split .board-header-btn.split-secondary {
+  border-radius: 0 999px 999px 0;
+  padding: 6px 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+}
+
 /* ---------- Error banner ---------- */
 
 .board-error-banner {

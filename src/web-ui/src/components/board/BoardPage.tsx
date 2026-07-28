@@ -153,29 +153,51 @@ export function BoardPage() {
     }
   }
 
-  // Standup — same pattern as Sync but different ritual. On completion
-  // the master writes standup.html; we open the preview URL for the
-  // user (they land on the report as soon as Claude finishes writing).
+  // Standup — file path is stable per board so we can link directly
+  // without asking the server what it was. `lastStandupAt` from the
+  // config tells us whether a report has ever been generated (and how
+  // fresh it is).
+  const standupReportPath = `.claude-orka/.boards/${boardId}/standup.html`
+  const standupPreviewUrl = (() => {
+    const segments = standupReportPath.split('/').map(encodeURIComponent).join('/')
+    return `/api/files/preview/${encodedPath}/${segments}`
+  })()
+  const hasStandupReport = !!board?.lastStandupAt
+
+  const handleOpenStandup = () => {
+    window.open(standupPreviewUrl, '_blank')
+  }
+
   const [standupBusy, setStandupBusy] = useState(false)
-  const handleStandup = async () => {
+  const handleGenerateStandup = async () => {
     if (standupBusy) return
     setStandupBusy(true)
     try {
-      const { reportPath } = await api.runBoardStandup(projectPath, boardId)
+      await api.runBoardStandup(projectPath, boardId)
+      // Jump to master so the user watches Claude execute.
       setTab('terminal')
-      // Give Claude a moment to actually write the file before opening
-      // the preview — 8s is enough for the typical short standup.
-      // Preview URL uses the /api/files/preview endpoint so relative
-      // assets in the HTML resolve correctly against the file location.
+      // Give Claude ~8s to write the file, then open the preview.
       setTimeout(() => {
-        const segments = reportPath.split('/').map(encodeURIComponent).join('/')
-        window.open(`/api/files/preview/${encodedPath}/${segments}`, '_blank')
+        window.open(standupPreviewUrl, '_blank')
       }, 8000)
     } catch (err: any) {
       setError(err?.message || 'Standup failed')
     } finally {
       setStandupBusy(false)
     }
+  }
+
+  /** Human-readable "3h ago" for the standup freshness hint. */
+  const formatSince = (iso?: string): string => {
+    if (!iso) return ''
+    const diff = Date.now() - new Date(iso).getTime()
+    const min = Math.floor(diff / 60_000)
+    if (min < 1) return 'just now'
+    if (min < 60) return `${min}m ago`
+    const hr = Math.floor(min / 60)
+    if (hr < 24) return `${hr}h ago`
+    const d = Math.floor(hr / 24)
+    return `${d}d ago`
   }
 
   const handleMoveTask = async (task: BoardTask, newStatus: string) => {
@@ -289,19 +311,42 @@ export function BoardPage() {
             <RefreshCw size={14} className={syncing ? 'spinning' : ''} />
             <span>Sync</span>
           </button>
-          {/* Standup — asks the master to write an English HTML report
-              of what changed since lastStandupAt + current snapshot.
-              Opens the resulting standup.html in a new tab after
-              Claude has had a moment to write it. */}
-          <button
-            className="board-header-btn"
-            onClick={handleStandup}
-            disabled={standupBusy}
-            title="Generate an English standup report (what shipped, in flight, next up) as HTML"
-          >
-            <Newspaper size={14} className={standupBusy ? 'spinning' : ''} />
-            <span>Standup</span>
-          </button>
+          {/* Standup — split pattern:
+              - When a report exists: primary button opens it via the
+                HTML preview endpoint; secondary icon-only button
+                regenerates (jump-to-master + auto-reopen after 8s).
+              - When there's no report yet: single button generates. */}
+          {hasStandupReport ? (
+            <div className="board-header-split">
+              <button
+                className="board-header-btn split-primary"
+                onClick={handleOpenStandup}
+                title={`Open the sprint report — last generated ${formatSince(board.lastStandupAt)}`}
+              >
+                <Newspaper size={14} />
+                <span>Standup</span>
+              </button>
+              <button
+                className="board-header-btn split-secondary"
+                onClick={handleGenerateStandup}
+                disabled={standupBusy}
+                title="Regenerate — refresh the report with events since last time"
+                aria-label={standupBusy ? 'Regenerating standup' : 'Regenerate standup'}
+              >
+                <RefreshCw size={12} className={standupBusy ? 'spinning' : ''} />
+              </button>
+            </div>
+          ) : (
+            <button
+              className="board-header-btn"
+              onClick={handleGenerateStandup}
+              disabled={standupBusy}
+              title="Generate an English standup report (what shipped, in flight, next up) as HTML"
+            >
+              <Newspaper size={14} className={standupBusy ? 'spinning' : ''} />
+              <span>{standupBusy ? 'Generating…' : 'Generate standup'}</span>
+            </button>
+          )}
           <button
             className="board-header-btn"
             onClick={() => navigate(`/projects/${encodedPath}/boards/${boardId}/settings`)}
