@@ -60,6 +60,13 @@ This gives you every task's current column. Bucket by status
 (`todo` / `in-progress` / `review` / `done` / custom columns) — the
 report needs "where are we right now" separately from "what moved".
 
+**Ordering inside every bucket**: sort by `updatedAt` **descending**
+(most recently touched first). This applies to Since-last-standup
+sub-buckets, Current-board columns (including `done`), and Coming-up-
+next. Rationale: the reader scans top-down; the freshest activity
+carries the most standup signal. If `updatedAt` is missing (shouldn't
+happen but defend), fall back to `createdAt`, then to key.
+
 For any task that's currently in `in-progress` or `review`, also pull
 its KB entity if `kbEntityId` is set to reference the deep-dive doc:
 
@@ -92,6 +99,9 @@ Sections in this order:
 2. **Current board** — snapshot buckets:
    - Count + list per column. Keep it scannable (compact table or `<ul>`
      per column).
+   - **Order every column by `updatedAt` DESC** — freshest first,
+     including `done` so the reader immediately sees what shipped
+     most recently.
    - Highlight cards that have been in the same column > 3 days
      (`updatedAt` older than 72h) — that's the "stale" signal.
 
@@ -103,8 +113,9 @@ Sections in this order:
    - Tasks with high WIP (multiple in-progress at once by same
      assignee).
 
-4. **Coming up next** — 3-5 items from `todo` most likely to move next
-   (highest priority, unblocked, or newest).
+4. **Coming up next** — 3-5 items from `todo`, `updatedAt` DESC (the
+   ones the team touched most recently — added by sync, edited,
+   re-prioritized). Skip anything already flagged as blocked above.
 
 Keep it **skimmable**: developer reads this in 30 seconds and knows the
 state. Avoid corporate-speak. Prefer concrete verbs.
@@ -190,7 +201,9 @@ Use the `Write` tool for full-file replacement — don't patch.
       </div>
       <div class="col-card">
         <h3>Done <span class="col-count">(N)</span></h3>
-        <!-- Show only tasks moved to done during the window here. Not the historical Done pile. -->
+        <!-- Order by updatedAt DESC (most recently closed first).
+             Show only the top 5 most recent from the historical Done
+             pile — the full list is on the Kanban. -->
       </div>
     </div>
   </section>

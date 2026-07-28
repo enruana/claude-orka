@@ -31,11 +31,23 @@ export function BoardKanban({ columns, tasks, driftByKey, onOpenTask, onMoveTask
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
 
+  // Bucket by column, then sort each bucket by `updatedAt` DESC so
+  // the freshest cards sit at the top. Applies to every column
+  // (including Done) — the reader scans top-down and expects the most
+  // recent activity first. Falls back to createdAt if updatedAt is
+  // absent (shouldn't happen but defensive).
   const byColumn = new Map<string, BoardTask[]>()
   for (const col of columns) byColumn.set(col, [])
   for (const t of tasks) {
     const list = byColumn.get(t.status) ?? byColumn.set(t.status, []).get(t.status)!
     list.push(t)
+  }
+  for (const list of byColumn.values()) {
+    list.sort((a, b) => {
+      const ta = a.updatedAt || a.createdAt || ''
+      const tb = b.updatedAt || b.createdAt || ''
+      return tb.localeCompare(ta)
+    })
   }
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, task: BoardTask) => {
