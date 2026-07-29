@@ -35,6 +35,11 @@ import '../../styles/board.css'
  *  Terminal in place of Claude Code, then Code / Files / Knowledge). */
 type BoardTab = 'kanban' | 'terminal' | 'code' | 'files' | 'kb'
 
+function isMobileViewport(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.matchMedia('(max-width: 768px)').matches
+}
+
 /**
  * `/projects/:encodedPath/boards/:boardId` — one page per Board.
  *
@@ -84,6 +89,36 @@ export function BoardPage() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [terminalFullscreen])
+
+  // Track viewport so the master terminal iframe URL matches what the
+  // task terminal already does: on mobile we drop `?desktop=1` so
+  // terminal-mobile.html renders its virtual keyboard + quick actions.
+  const [isMobile, setIsMobile] = useState(isMobileViewport())
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    const onChange = () => setIsMobile(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  // Build the master terminal URL the same way BoardTaskModal builds
+  // the task URL: mobile → no desktop flag (keyboard on), desktop → with
+  // it (bare xterm). Always thread the project so the tasks / comments
+  // widgets on the terminal page can talk to /api/projects/*, and a
+  // stable session identifier so the CommentWidget's copy-to-terminal
+  // routing targets this iframe.
+  const buildMasterUrl = useCallback(
+    (opts?: { forceDesktop?: boolean }) => {
+      if (!masterPort) return null
+      const desktop = opts?.forceDesktop || !isMobile
+      const parts: string[] = []
+      if (desktop) parts.push('desktop=1')
+      parts.push(`project=${btoa(projectPath)}`)
+      parts.push(`session=${encodeURIComponent(`board-master-${boardId}`)}`)
+      return `/terminal/${masterPort}?${parts.join('&')}`
+    },
+    [masterPort, isMobile, projectPath, boardId]
+  )
 
   const load = useCallback(async () => {
     try {
@@ -275,7 +310,7 @@ export function BoardPage() {
           <Minimize2 size={16} />
         </button>
         <iframe
-          src={`/terminal/${masterPort}?desktop=1`}
+          src={buildMasterUrl() || undefined}
           title="Master Terminal (fullscreen)"
           className="board-terminal-iframe terminal-iframe"
           data-orka-session-id={`board-master-${boardId}`}
@@ -438,7 +473,10 @@ export function BoardPage() {
                   </button>
                   <button
                     className="board-terminal-toolbar-btn"
-                    onClick={() => window.open(`/terminal/${masterPort}?desktop=1`, '_blank')}
+                    onClick={() => {
+                      const u = buildMasterUrl({ forceDesktop: true })
+                      if (u) window.open(u, '_blank')
+                    }}
                     title="Open in new tab"
                     aria-label="Open in new tab"
                   >
@@ -447,7 +485,7 @@ export function BoardPage() {
                 </div>
               </div>
               <iframe
-                src={`/terminal/${masterPort}?desktop=1`}
+                src={buildMasterUrl() || undefined}
                 title="Board Master Terminal"
                 className="board-terminal-iframe terminal-iframe"
                 data-orka-session-id={`board-master-${boardId}`}
