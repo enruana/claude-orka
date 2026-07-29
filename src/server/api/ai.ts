@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import execa from 'execa'
+import { query } from '@anthropic-ai/claude-agent-sdk'
 import { TmuxCommands } from '../../utils/tmux'
 import { KnowledgeBaseManager } from '../../core/KnowledgeBaseManager'
 
@@ -480,3 +481,229 @@ Output ONLY the summary, no preamble or closing remarks.`
   }
 })
 
+// ---------------------------------------------------------------------------
+// POST /api/ai/topic-stream
+//
+// Summarizes a rolling slice of the live meeting transcript into a
+// "current topic" card. Called by the sidepanel every ~20s while a
+// recording is going. Uses the same `@anthropic-ai/claude-agent-sdk`
+// `query()` helper as the master-agent daemon does — that means:
+//   - Auth comes from the user's local Claude Code login (no API key
+//     required in the server env).
+//   - Structured output is enforced via a JSON schema — no fence
+//     stripping / try/parse dance around free-form text.
+//   - Latency is a few seconds per call, which matches the 20s cadence
+//     the frontend uses.
+// ---------------------------------------------------------------------------
+
+interface TopicStreamBody {
+  transcript: string
+  language?: 'es' | 'en' | 'auto'
+  hint?: string
+}
+
+const TOPIC_SYSTEM_PROMPT = `You are a meeting-transcript segmenter. You receive the FULL live transcript of a meeting and split it into an ordered list of topic segments — each one representing a coherent subject the speakers discussed for some stretch of the conversation.
+
+Output ONE JSON object with this shape (nothing else):
+{
+  "topics": [
+    {
+      "title": "string, 3-8 words",
+      "summary": "string, 2-3 sentences",
+      "keyPoints": ["string", "..."],
+      "sentiment": "neutral" | "positive" | "concerned" | "excited"
+    },
+    ...
+  ]
+}
+
+The topics array is ordered EARLIEST to LATEST (chronological). The client renders it with the most recent on top; you don't reverse it yourself.
+
+Segmentation rules:
+- Group by SUBJECT, not by paragraph. A stretch of small talk about the same joke is one topic. A tangent that briefly interrupts a decision discussion and then returns should be folded into the surrounding topic unless it's clearly its own subject.
+- Aim for 1 topic every ~30-90 seconds of discussion. A 5-minute meeting typically has 3-8 topics; a 30-minute meeting typically has 10-25.
+- Do NOT create a new topic just because the wording changed. The bar is a real shift in what's being discussed (new question, new agenda item, new problem).
+- The FIRST topic can be small talk / setup / greetings if that's what the meeting opened with. Give it a real title like "Saludos iniciales" rather than "Introduction".
+- If the transcript is too short or noisy to segment (< 3 sentences of real content), return a single-topic array whose title = "(sin contenido suficiente)" (or "(not enough content)" in English) and empty keyPoints.
+
+Field rules per topic:
+- title: 3-8 words in the transcript's dominant language (Spanish/English; default Spanish if mixed). No filler like "Discussion about" or "Introduction to".
+- summary: 2-3 sentences describing what was actually discussed inside this segment. Concrete, not generic.
+- keyPoints: at most 5 short bullets (facts, decisions, questions, action items). Empty array if nothing concrete.
+- sentiment: exactly one of the four allowed values.
+- Never invent speaker names. Only mention names if clearly stated in the transcript.
+
+Output rules — VIOLATIONS BREAK THE UPSTREAM PARSER:
+- Your FIRST character MUST be "{" and your LAST character MUST be "}".
+- Do NOT wrap the JSON in Markdown fences.
+- Do NOT preface with prose ("Here is...", "Analizando...", "Based on the transcript...").
+- Do NOT append anything after the closing "}".
+
+Example valid output (Spanish meeting, 3 topics):
+{"topics":[{"title":"Saludos iniciales","summary":"El equipo se reunió y comentó cómo estuvo el fin de semana antes de arrancar la agenda.","keyPoints":[],"sentiment":"positive"},{"title":"Bug en el pipeline de transcripción","summary":"Se detectó que la calidad del transcript en vivo bajaba con chunks cortos. Se acordó subir el mínimo de hop a 1.5s y agregar overlap de 500ms.","keyPoints":["Chunks cortos degradan calidad","Subir mínimo a 1.5s","Overlap 500ms"],"sentiment":"concerned"},{"title":"Siguientes pasos y responsables","summary":"Se asignaron las tareas: Ana revisa el backend, Luis prueba con un audio real, revisamos mañana.","keyPoints":["Ana: backend","Luis: prueba con audio real","Revisión mañana"],"sentiment":"neutral"}]}`
+
+const TOPIC_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    topics: {
+      type: 'array',
+      description: 'Ordered chronologically (earliest first). One entry per coherent subject discussed.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          title: { type: 'string', description: '3-8 word topic title in the transcript language' },
+          summary: { type: 'string', description: '2-3 sentence description of what was actually said' },
+          keyPoints: {
+            type: 'array',
+            items: { type: 'string' },
+            maxItems: 5,
+            description: 'At most 5 short bullets of facts, decisions, or action items',
+          },
+          sentiment: {
+            type: 'string',
+            enum: ['neutral', 'positive', 'concerned', 'excited'],
+          },
+        },
+        required: ['title', 'summary', 'keyPoints', 'sentiment'],
+      },
+    },
+  },
+  required: ['topics'],
+}
+
+aiRouter.post('/topic-stream', async (req, res) => {
+  const { transcript, language, hint } = (req.body || {}) as TopicStreamBody
+  if (!transcript || typeof transcript !== 'string' || transcript.trim().length < 20) {
+    res.status(400).json({ error: 'transcript too short to segment' })
+    return
+  }
+
+  // Cap the transcript we send at 12000 chars (~25 min of talk) so a very
+  // long meeting doesn't blow past the model's context / our latency
+  // budget. When it grows past the cap we keep the tail — Claude sees
+  // the most recent content in full and only loses the early minutes,
+  // which is the least useful thing to drop for a live-panel view.
+  const MAX_CHARS = 12000
+  const trimmedTranscript = transcript.length > MAX_CHARS
+    ? '(…earlier transcript trimmed…)\n' + transcript.slice(-MAX_CHARS)
+    : transcript
+
+  const userText = [
+    hint ? `Extra hint: ${hint}` : null,
+    language && language !== 'auto' ? `Preferred output language: ${language}` : null,
+    `Full meeting transcript so far:\n"""\n${trimmedTranscript}\n"""`,
+    'Segment this into topics as instructed. Respond with exactly one JSON object matching the schema. No prose, no fences. First character "{", last character "}".',
+  ].filter(Boolean).join('\n\n')
+
+  try {
+    const t0 = Date.now()
+    let structured: unknown = null
+    let resultText: string | undefined
+    let collectedText = ''      // fallback: any text emitted by the model
+    const messageTypesSeen: string[] = []
+
+    // Iterate the SDK stream. maxTurns=2 gives the model room to both
+    // reason and materialize the json_schema output — with 1 the tool
+    // call sometimes cuts before it lands and `result` comes back empty.
+    // We also fan-out over EVERY message type so short-circuits like
+    // assistant text blocks give us something to fall back on.
+    for await (const message of query({
+      prompt: userText,
+      options: {
+        model: 'haiku',
+        systemPrompt: TOPIC_SYSTEM_PROMPT,
+        maxTurns: 2,
+        allowedTools: [],
+        outputFormat: {
+          type: 'json_schema',
+          schema: TOPIC_SCHEMA,
+        },
+      } as any,  // outputFormat may not be in the sdk d.ts yet; the runtime accepts it
+    })) {
+      const msg = message as Record<string, unknown>
+      const t = String(msg.type || '')
+      messageTypesSeen.push(t)
+      if (t === 'result') {
+        structured = msg.structured_output
+        resultText = msg.result as string | undefined
+      }
+      // Assistant messages carry `message.content` as an array of
+      // content blocks; text blocks contain the model's prose. When the
+      // json_schema path fails silently we can still parse JSON out of
+      // this text.
+      if (t === 'assistant' && msg.message && typeof msg.message === 'object') {
+        const inner = msg.message as Record<string, unknown>
+        const content = inner.content
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block && typeof block === 'object') {
+              const b = block as Record<string, unknown>
+              if (b.type === 'text' && typeof b.text === 'string') {
+                collectedText += b.text
+              }
+            }
+          }
+        } else if (typeof inner.content === 'string') {
+          collectedText += inner.content
+        }
+      }
+      if (typeof msg.text === 'string') collectedText += msg.text
+    }
+
+    // Fallback ladder: prefer explicit structured_output, then parse
+    // whatever text we captured (result field OR assistant blocks).
+    if (!structured) {
+      const candidates = [resultText, collectedText].filter((s): s is string => !!s && s.length > 0)
+      for (const raw of candidates) {
+        const cleaned = raw
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```$/i, '')
+          .trim()
+        // Some models wrap the JSON in prose ("Here is the topic: {...}").
+        // Extract the first {...} block that parses.
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+        const attempts = jsonMatch ? [jsonMatch[0], cleaned] : [cleaned]
+        for (const attempt of attempts) {
+          try {
+            const parsed = JSON.parse(attempt)
+            if (parsed && typeof parsed === 'object') {
+              structured = parsed
+              break
+            }
+          } catch {
+            // try next
+          }
+        }
+        if (structured) break
+      }
+    }
+
+    if (!structured || typeof structured !== 'object') {
+      console.error('[topic-stream] no usable output — messages seen:', messageTypesSeen, 'text:', collectedText.slice(0, 200))
+      res.status(502).json({
+        error: 'Claude returned no usable structured output',
+        raw: (resultText || collectedText || '').slice(0, 400),
+        seen: messageTypesSeen,
+      })
+      return
+    }
+
+    // Response shape: { topics: [...] }. If Claude returned the shape
+    // right, this is a pass-through. If it returned a single topic
+    // (older client behavior), wrap it for backward compatibility.
+    const parsed = structured as Record<string, unknown>
+    const topics = Array.isArray(parsed.topics)
+      ? parsed.topics
+      : (parsed.title ? [parsed] : [])
+    res.json({
+      topics,
+      latencyMs: Date.now() - t0,
+    })
+  } catch (err) {
+    const e = err as Error
+    console.error('Error in AI topic-stream:', e)
+    res.status(500).json({ error: e.message || 'topic-stream failed' })
+  }
+})

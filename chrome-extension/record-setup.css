@@ -116,3 +116,21 @@ h1 {
 }
 
 .hidden { display: none !important; }
+
+.live-group { margin-top: 4px; }
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #cdd6f4;
+  margin-bottom: 0;
+}
+.checkbox-row input[type="checkbox"] {
+  width: 16px; height: 16px; accent-color: #89b4fa;
+  cursor: pointer;
+}
+#live-lang-row {
+  margin-top: 8px;
+}

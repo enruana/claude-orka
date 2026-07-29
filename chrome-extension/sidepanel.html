@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Orka Live</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body class="sp-mode-setup">
+  <!-- Collapsed rail (visible when the user minimizes the panel). Keeping
+       it inside the panel — Chrome doesn't let extensions resize the
+       side panel width, so "collapsed" is a content mode where the whole
+       panel becomes a thin vertical rail with the recording indicator.
+       The user can also drag Chrome's side-panel edge to shrink it. -->
+  <aside class="sp-rail" id="rail">
+    <button class="sp-rail-expand" id="btn-expand" title="Expand panel">›</button>
+    <div class="sp-rail-status">
+      <span class="sp-dot" id="rail-dot"></span>
+      <span class="sp-rail-duration" id="rail-duration">00:00</span>
+    </div>
+    <button class="sp-rail-stop" id="btn-stop-rail" title="Stop recording" hidden>■</button>
+  </aside>
+
+  <div class="sp-shell">
+    <header class="sp-header">
+      <div class="sp-brand">
+        <span class="sp-dot" id="status-dot" title="idle"></span>
+        <span>Orka Live</span>
+      </div>
+      <div class="sp-header-right">
+        <span class="sp-lang" id="lang-tag" hidden>—</span>
+        <button class="sp-icon-btn" id="btn-collapse" title="Minimize to rail">‹</button>
+      </div>
+    </header>
+
+    <!-- SETUP: shown while idle (before Start). -->
+    <section id="setup-view" class="sp-view sp-setup">
+      <div class="sp-target" id="target-info">
+        <div class="sp-target-label">Recording target</div>
+        <div class="sp-target-title" id="target-title">—</div>
+      </div>
+
+      <div class="sp-server">
+        <div class="sp-server-row">
+          <span class="sp-server-label">Server</span>
+          <span class="sp-server-url" id="server-url-display">https://localhost:3456</span>
+          <button class="sp-icon-btn" id="btn-server-edit" title="Edit server URL">✎</button>
+        </div>
+        <div class="sp-server-edit hidden" id="server-edit-block">
+          <input type="text" id="server-url-input" placeholder="https://my-host.ts.net:3456">
+          <button class="sp-btn ghost" id="btn-server-save">Save</button>
+          <p class="sp-hint">The extension talks to your local Orka server. If it runs HTTPS with a Tailscale cert, use the Tailscale hostname (not localhost) — WebSockets are strict about cert SANs.</p>
+        </div>
+        <div class="sp-server-status" id="server-status">—</div>
+      </div>
+
+      <div class="sp-field">
+        <label for="mode">Capture mode</label>
+        <select id="mode">
+          <option value="tab">Tab audio only</option>
+          <option value="mic">Microphone only</option>
+          <option value="both">Tab + Microphone</option>
+        </select>
+      </div>
+
+      <div class="sp-field hidden" id="mic-permission-block">
+        <p class="sp-hint">Microphone permission required.</p>
+        <button class="sp-btn ghost" id="btn-req-mic">Grant microphone access</button>
+      </div>
+
+      <div class="sp-field hidden" id="mic-device-block">
+        <label for="mic-device">Microphone</label>
+        <select id="mic-device"></select>
+      </div>
+
+      <div class="sp-field">
+        <label class="sp-checkbox-row">
+          <input type="checkbox" id="live-enabled" checked>
+          <span>Enable live transcription</span>
+        </label>
+      </div>
+
+      <div class="sp-field hidden" id="live-lang-block">
+        <label for="live-language">Language</label>
+        <select id="live-language">
+          <option value="auto">Auto-detect</option>
+          <option value="es">Spanish</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+
+      <button id="btn-start" class="sp-btn record">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg>
+        Start recording
+      </button>
+
+      <div id="setup-error" class="sp-error hidden"></div>
+    </section>
+
+    <!-- RECORDING: shown once capture starts. -->
+    <section id="recording-view" class="sp-view sp-recording hidden">
+      <div class="sp-saved-card hidden" id="saved-card">
+        <div class="sp-saved-head">
+          <span class="sp-saved-icon">✓</span>
+          <span class="sp-saved-title">Recording saved</span>
+        </div>
+        <div class="sp-saved-name" id="saved-name">—</div>
+        <div class="sp-saved-meta" id="saved-meta">—</div>
+        <button class="sp-btn primary sp-saved-cta" id="btn-open-recordings">Open Recordings →</button>
+      </div>
+      <div class="sp-record-bar">
+        <div class="sp-record-status">
+          <span class="sp-dot recording" id="rec-dot"></span>
+          <span id="duration" class="sp-duration">00:00</span>
+          <div class="sp-bars" id="audio-bars" title="Audio level"></div>
+          <span id="drift-badge" class="sp-drift ok" title="Live drift — how far behind the transcription is">Live</span>
+        </div>
+        <button id="btn-stop" class="sp-btn danger" title="Stop recording">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+          Stop
+        </button>
+        <button id="btn-new-session" class="sp-btn primary hidden" title="Discard this session and set up a new recording">
+          + New session
+        </button>
+      </div>
+
+      <nav class="sp-tabs" role="tablist">
+        <button class="sp-tab active" data-tab="live" role="tab">Live</button>
+        <button class="sp-tab" data-tab="topic" role="tab">Topics</button>
+      </nav>
+
+      <div class="sp-body">
+        <section id="tab-live" class="sp-panel active">
+          <div class="sp-empty" id="live-empty">
+            Waiting for audio…
+          </div>
+          <div class="sp-transcript" id="live-transcript"></div>
+        </section>
+
+        <section id="tab-topic" class="sp-panel">
+          <div class="sp-topic-status" id="topic-status" hidden></div>
+          <div class="sp-empty" id="topic-empty">
+            <p id="topic-empty-msg">Topics will appear here once there's enough transcript.</p>
+            <button class="sp-btn primary sp-inline-cta hidden" id="topic-empty-cta">Enable topic summaries</button>
+          </div>
+          <ol class="sp-topic-list" id="topic-list"></ol>
+        </section>
+      </div>
+    </section>
+
+    <div id="cloud-optin" class="sp-cloud-banner">
+      <label class="sp-cloud-row">
+        <input type="checkbox" id="cloud-optin-toggle">
+        <span>
+          <strong>Topic summaries via Claude Haiku</strong>
+          <em>Uses your Claude Code login on the Orka server to summarize the transcript every ~20 seconds. No extra API key needed. Off by default — enable when you want the "Current topic" &amp; "History" tabs to populate.</em>
+        </span>
+      </label>
+    </div>
+
+    <div id="run-log" class="sp-runlog" hidden></div>
+  </div>
+
+  <script src="storage.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

@@ -4,23 +4,19 @@ import path from 'path'
 import fs from 'fs-extra'
 import os from 'os'
 import { logger } from '../../utils'
-import { getPackageNodeModulesPath } from '../../utils/paths'
+import {
+  getWhisperCppPath,
+  resolveAvailableWhisperModel,
+  WHISPER_MODEL_PREFERENCE,
+  WHISPER_PREFERRED_MODEL,
+} from '../../utils/whisper'
 
 export const transcribeRouter = Router()
 
-// Model to use - base is a good balance of speed and quality
-// Using multilingual model for multi-language support
-const WHISPER_MODEL = 'base'
-
-// Path to whisper.cpp installation (inside nodejs-whisper)
-const getWhisperPath = () => {
-  const whisperModulePath = getPackageNodeModulesPath('nodejs-whisper')
-  if (!whisperModulePath) {
-    // Fallback to cwd for backwards compatibility
-    return path.join(process.cwd(), 'node_modules', 'nodejs-whisper', 'cpp', 'whisper.cpp')
-  }
-  return path.join(whisperModulePath, 'cpp', 'whisper.cpp')
-}
+// Kept as an alias so existing telemetry doesn't break. Actual model
+// selection happens per-request via resolveAvailableWhisperModel() so a
+// user can drop a new model file in without restarting the server.
+const getWhisperPath = getWhisperCppPath
 
 // Temp directory for audio files
 const getTempDir = () => path.join(os.tmpdir(), 'orka-whisper')
@@ -181,20 +177,23 @@ async function processTranscription(
     // Get whisper paths
     const whisperPath = getWhisperPath()
     const whisperBin = path.join(whisperPath, 'build', 'bin', 'whisper-cli')
-    const modelPath = path.join(whisperPath, 'models', `ggml-${WHISPER_MODEL}.bin`)
 
-    // Check if whisper binary exists
     if (!await fs.pathExists(whisperBin)) {
       throw new Error(`Whisper binary not found at ${whisperBin}`)
     }
 
-    // Check if model exists
-    if (!await fs.pathExists(modelPath)) {
-      throw new Error(`Whisper model not found at ${modelPath}. Run the model download script first.`)
+    const resolved = await resolveAvailableWhisperModel()
+    if (!resolved) {
+      throw new Error(
+        `No whisper model found (checked: ${WHISPER_MODEL_PREFERENCE.join(', ')}). ` +
+        `Run 'orka prepare' to download the '${WHISPER_PREFERRED_MODEL}' model.`
+      )
     }
+    const modelPath = resolved.path
+    const activeModel = resolved.name
 
     // Transcribe with Whisper CLI directly
-    logger.info(`Starting transcription with model: ${WHISPER_MODEL}, language: ${lang}`)
+    logger.info(`Starting transcription with model: ${activeModel}, language: ${lang}`)
 
     const { stdout, stderr } = await execa(whisperBin, [
       '-m', modelPath,
@@ -242,7 +241,7 @@ async function processTranscription(
     job.status = 'completed'
     job.text = text.trim()
     job.duration = duration
-    job.model = WHISPER_MODEL
+    job.model = activeModel
     job.language = lang
 
   } catch (error: unknown) {
@@ -300,29 +299,31 @@ transcribeRouter.get('/status', async (_req: Request, res: Response): Promise<vo
   try {
     const whisperPath = getWhisperPath()
     const whisperBin = path.join(whisperPath, 'build', 'bin', 'whisper-cli')
-    const modelPath = path.join(whisperPath, 'models', `ggml-${WHISPER_MODEL}.bin`)
-
     const binaryExists = await fs.pathExists(whisperBin)
-    const modelExists = await fs.pathExists(modelPath)
+    const resolved = await resolveAvailableWhisperModel()
 
-    if (binaryExists && modelExists) {
-      const stats = await fs.stat(modelPath)
+    if (binaryExists && resolved) {
+      const stats = await fs.stat(resolved.path)
       const sizeMB = Math.round(stats.size / 1024 / 1024)
-
+      const preferred = resolved.name === WHISPER_PREFERRED_MODEL
       res.json({
         available: true,
-        model: WHISPER_MODEL,
+        model: resolved.name,
+        preferredModel: WHISPER_PREFERRED_MODEL,
+        upgradeAvailable: !preferred,
         modelSize: `${sizeMB}MB`,
-        message: 'Whisper ready'
+        message: preferred
+          ? `Whisper ready (${resolved.name})`
+          : `Whisper ready (${resolved.name}) — a better model (${WHISPER_PREFERRED_MODEL}) can be downloaded with 'orka prepare'`,
       })
     } else {
       res.json({
         available: false,
         binaryExists,
-        modelExists,
+        modelExists: !!resolved,
         message: !binaryExists
           ? 'Whisper binary not found. Run: cd node_modules/nodejs-whisper/cpp/whisper.cpp && make'
-          : 'Whisper model not found. Run: cd node_modules/nodejs-whisper/cpp/whisper.cpp && bash ./models/download-ggml-model.sh tiny'
+          : `No whisper model found (checked: ${WHISPER_MODEL_PREFERENCE.join(', ')}). Run 'orka prepare' to download '${WHISPER_PREFERRED_MODEL}'.`,
       })
     }
   } catch (error: unknown) {

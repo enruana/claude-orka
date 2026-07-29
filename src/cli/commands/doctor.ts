@@ -406,43 +406,56 @@ async function checkWhisperModel(): Promise<CheckResult> {
     }
   }
 
-  // Check for model in nodejs-whisper location (used by our server)
   const modelsPath = path.join(whisperModulePath, 'cpp', 'whisper.cpp', 'models')
-  // Check for base model (better quality) or tiny as fallback
-  const baseModel = path.join(modelsPath, 'ggml-base.bin')
-  const tinyModel = path.join(modelsPath, 'ggml-tiny.bin')
+  // Ordered by preference — small is the target for live captioning
+  // (best accents / mixed-language accuracy), base is the previous
+  // default (kept as fallback), tiny is last-resort for tight boxes.
+  const candidates = [
+    { name: 'small', file: 'ggml-small.bin', desc: 'best accuracy for live captioning (ES/EN, accents)' },
+    { name: 'base', file: 'ggml-base.bin', desc: 'good quality (previous default)' },
+    { name: 'tiny', file: 'ggml-tiny.bin', desc: 'fastest, lower accuracy' },
+  ]
+  const preferred = candidates[0]
 
   try {
-    const baseExists = await fs.pathExists(baseModel)
-    const tinyExists = await fs.pathExists(tinyModel)
+    let active: { name: string; file: string; desc: string; sizeMB: number } | null = null
+    const alsoPresent: string[] = []
+    for (const c of candidates) {
+      const p = path.join(modelsPath, c.file)
+      if (await fs.pathExists(p)) {
+        const stats = await fs.stat(p)
+        const sizeMB = Math.round(stats.size / 1024 / 1024)
+        if (!active) active = { ...c, sizeMB }
+        else alsoPresent.push(`${c.name} (${sizeMB}MB)`)
+      }
+    }
 
-    if (baseExists) {
-      const stats = await fs.stat(baseModel)
-      const sizeMB = Math.round(stats.size / 1024 / 1024)
-      return {
-        name: 'Whisper model',
-        status: 'pass',
-        message: `base multilingual (${sizeMB}MB)`,
-        details: 'Speech-to-text ready (good quality, ES/EN)',
+    if (active) {
+      const extra = alsoPresent.length ? ` · also present: ${alsoPresent.join(', ')}` : ''
+      if (active.name === preferred.name) {
+        return {
+          name: 'Whisper model',
+          status: 'pass',
+          message: `${active.name} multilingual (${active.sizeMB}MB)`,
+          details: `${active.desc}${extra}`,
+        }
       }
-    } else if (tinyExists) {
-      const stats = await fs.stat(tinyModel)
-      const sizeMB = Math.round(stats.size / 1024 / 1024)
-      return {
-        name: 'Whisper model',
-        status: 'warn',
-        message: `tiny multilingual (${sizeMB}MB)`,
-        details: 'Consider upgrading to base model for better accuracy',
-        fix: 'Run: orka prepare',
-      }
-    } else {
+      // A non-preferred model is active — running fine, but suggest upgrade.
       return {
         name: 'Whisper model',
         status: 'warn',
-        message: 'Not downloaded',
-        details: 'Whisper model required for voice input (~142MB)',
+        message: `${active.name} multilingual (${active.sizeMB}MB) · upgrade available`,
+        details: `${active.desc} — the '${preferred.name}' model (~465MB) is materially better for accented Spanish and mixed-language meetings${extra}`,
         fix: 'Run: orka prepare',
       }
+    }
+
+    return {
+      name: 'Whisper model',
+      status: 'warn',
+      message: 'Not downloaded',
+      details: `Whisper model required for voice input (${preferred.name} ~465MB)`,
+      fix: 'Run: orka prepare',
     }
   } catch (error) {
     return {

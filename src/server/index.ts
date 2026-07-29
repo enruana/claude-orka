@@ -12,6 +12,7 @@ import { browseRouter } from './api/browse'
 import { filesRouter } from './api/files'
 import { gitRouter } from './api/git'
 import { transcribeRouter } from './api/transcribe'
+import { attachLiveTranscribeWS } from './api/transcribe-live'
 import { agentsRouter } from './api/agents'
 import { aiRouter } from './api/ai'
 import { kbRouter } from './api/kb'
@@ -270,6 +271,11 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
       `)
       resolve()
     })
+
+    // Live-transcription WebSocket. Attaches its own upgrade listener that
+    // only responds to /api/transcribe/live — the ttyd handler below early-
+    // returns on other paths so both can coexist on the same server.
+    attachLiveTranscribeWS(server)
 
     // WebSocket proxy for ttyd - each connection gets its own independent pipe
     server.on('upgrade', (req, socket, head) => {

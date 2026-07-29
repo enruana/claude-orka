@@ -29,6 +29,21 @@
       </div>
     </div>
 
+    <div class="form-group live-group">
+      <label class="checkbox-row">
+        <input type="checkbox" id="live-enabled" />
+        <span>Enable live transcription (side panel)</span>
+      </label>
+      <div id="live-lang-row" class="hidden">
+        <label>Language</label>
+        <select id="live-language">
+          <option value="auto">Auto-detect</option>
+          <option value="es">Spanish</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+
     <button id="btn-start" class="btn btn-record">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg>
       Start Recording

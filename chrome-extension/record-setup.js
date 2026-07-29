@@ -6,6 +6,14 @@ const micDevice = document.getElementById('mic-device')
 const btnRequestMic = document.getElementById('btn-request-mic')
 const btnStart = document.getElementById('btn-start')
 const errorEl = document.getElementById('error')
+const liveEnabled = document.getElementById('live-enabled')
+const liveLangRow = document.getElementById('live-lang-row')
+const liveLangSelect = document.getElementById('live-language')
+
+// Show / hide language row based on the live checkbox
+liveEnabled.addEventListener('change', () => {
+  liveLangRow.classList.toggle('hidden', !liveEnabled.checked)
+})
 
 // Get tabId and streamId from URL params (passed from menu.js)
 const urlParams = new URLSearchParams(window.location.search)
@@ -85,12 +93,55 @@ btnStart.addEventListener('click', async () => {
   try {
     const deviceId = needsMic ? (micDevice.value || '') : ''
 
+    const live = liveEnabled.checked
+    const liveLanguage = live ? (liveLangSelect.value || 'auto') : ''
+    const targetTabId = parseInt(tabId, 10) || 0
+
+    // Refresh the tab-capture streamId at the moment of Start. The one
+    // we received when the menu popup opened is often stale by now:
+    // Chrome expires those in ~10 seconds and the user routinely spends
+    // longer configuring the mode / mic. We re-request against the
+    // ORIGINAL target tab (kept in the URL) so activeTab still applies.
+    let freshStreamId = streamId
+    try {
+      const s = await chrome.runtime.sendMessage({
+        action: 'getStreamId',
+        targetTabId,
+      })
+      if (s?.error) throw new Error(s.error)
+      freshStreamId = s.streamId || streamId
+    } catch (err) {
+      // Fall back to the initial streamId — it may still work if the
+      // user was fast enough. The recorder will surface a clearer error
+      // if it too fails.
+      console.warn('[recorder] streamId refresh failed', err)
+    }
+
+    // Open the side panel FROM THIS PAGE (preserves the click gesture,
+    // which sending through the SW does not reliably do). Do it before
+    // openRecorder so the panel is ready to catch the very first
+    // session_started event.
+    if (live && targetTabId) {
+      try {
+        await chrome.sidePanel.setOptions({
+          tabId: targetTabId,
+          path: 'sidepanel.html',
+          enabled: true,
+        })
+        await chrome.sidePanel.open({ tabId: targetTabId })
+      } catch (err) {
+        console.warn('[live] side panel open failed', err)
+      }
+    }
+
     const result = await chrome.runtime.sendMessage({
       action: 'openRecorder',
       mode,
       deviceId,
       tabId,
-      streamId,
+      streamId: freshStreamId,
+      live,
+      liveLanguage,
     })
 
     if (result?.error) {

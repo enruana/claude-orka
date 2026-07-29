@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Orka",
   "description": "Chrome extension for Claude Orka - Writer & Audio Recorder",
-  "version": "1.1.0",
-  "permissions": ["tabs", "tabCapture", "activeTab", "storage"],
+  "version": "1.2.0",
+  "permissions": ["tabs", "tabCapture", "activeTab", "storage", "sidePanel", "offscreen"],
   "background": {
     "service_worker": "background.js"
   },
@@ -14,6 +14,9 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   },
   "host_permissions": [
     "http://localhost/*",

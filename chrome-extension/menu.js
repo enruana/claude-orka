@@ -16,34 +16,39 @@ document.getElementById('btn-writer').addEventListener('click', () => {
   window.close()
 })
 
-// Recorder - get streamId NOW (while popup is open and activeTab is valid),
-// then open setup window with the streamId already secured
+// Recorder — moved out of a floating popup into the side panel so the
+// user can keep the recording UI docked and even minimize it to a thin
+// strip while they're on the actual meeting tab. Clicking the button:
+//   1. Reads the currently active tab (activeTab is granted for it right
+//      now thanks to this popup click gesture).
+//   2. Stashes the tabId in chrome.storage.local so the side panel can
+//      pick it up when it loads.
+//   3. Opens the side panel for that tab in the same user gesture — the
+//      `chrome.sidePanel.open()` API requires a fresh gesture and losing
+//      it will silently fail with a permission error.
 document.getElementById('btn-recorder').addEventListener('click', async () => {
   const btn = document.getElementById('btn-recorder')
   btn.style.opacity = '0.5'
   btn.style.pointerEvents = 'none'
 
   try {
-    // Get streamId from background while activeTab is still valid
-    const result = await chrome.runtime.sendMessage({ action: 'getStreamId' })
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+    if (!tab?.id) throw new Error('No active tab found')
 
-    if (result?.error) {
-      alert(result.error)
-      return
-    }
-
-    const params = new URLSearchParams({
-      tabId: result.tabId.toString(),
-      streamId: result.streamId,
+    await chrome.storage.local.set({
+      recorderTargetTabId: tab.id,
+      recorderTargetTitle: tab.title || '',
+      recorderTargetUrl: tab.url || '',
+      recorderRequestedAt: Date.now(),
     })
 
-    chrome.windows.create({
-      url: chrome.runtime.getURL('record-setup.html?' + params.toString()),
-      type: 'popup',
-      width: 340,
-      height: 420,
-      focused: true,
+    await chrome.sidePanel.setOptions({
+      tabId: tab.id,
+      path: 'sidepanel.html',
+      enabled: true,
     })
+    await chrome.sidePanel.open({ tabId: tab.id })
+
     window.close()
   } catch (err) {
     alert('Failed: ' + err.message)

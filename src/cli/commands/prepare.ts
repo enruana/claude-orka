@@ -478,25 +478,46 @@ async function setupWhisper() {
     Output.success('Whisper is already built')
   }
 
-  // Check for base model
-  const modelPath = path.join(whisperCppPath, 'models', 'ggml-base.bin')
-  if (!await fs.pathExists(modelPath)) {
+  // Download the preferred whisper model (small, ~465MB). small is a
+  // meaningful accuracy step up from base for accented speech and
+  // multi-language meetings, and still runs comfortably faster than
+  // real time on modest CPUs. base is kept as a fallback for users who
+  // already downloaded it before this upgrade — the server will pick
+  // whichever is present.
+  const preferredModel = 'small'          // must match WHISPER_MODEL_PREFERENCE[0]
+  const modelPath = path.join(whisperCppPath, 'models', `ggml-${preferredModel}.bin`)
+  const basePath = path.join(whisperCppPath, 'models', 'ggml-base.bin')
+
+  if (await fs.pathExists(modelPath)) {
+    Output.success(`Whisper ${preferredModel} model is already downloaded`)
+  } else {
+    if (await fs.pathExists(basePath)) {
+      console.log(chalk.gray(
+        `Existing Whisper base model detected. Upgrading to ${preferredModel} for better accuracy (~465MB). ` +
+        'Original base model stays as fallback.\n'
+      ))
+    } else {
+      console.log(chalk.gray(`Downloading Whisper ${preferredModel} model (~465MB)...\n`))
+    }
     try {
-      console.log(chalk.gray('Downloading Whisper base model (~142MB)...\n'))
-      await runVisible('bash', ['./models/download-ggml-model.sh', 'base'], {
+      await runVisible('bash', ['./models/download-ggml-model.sh', preferredModel], {
         cwd: whisperCppPath,
-        timeout: 300000,
+        timeout: 900000,
       })
-      Output.success('Whisper base model downloaded')
+      Output.success(`Whisper ${preferredModel} model downloaded`)
     } catch (error: any) {
-      Output.error('Failed to download Whisper model')
+      Output.error(`Failed to download Whisper ${preferredModel} model`)
       console.log(chalk.red(`\nError: ${error.message}`))
       console.log(chalk.yellow('\nTry downloading manually:'))
       console.log(chalk.cyan(`  cd ${whisperCppPath}`))
-      console.log(chalk.cyan('  bash ./models/download-ggml-model.sh base'))
+      console.log(chalk.cyan(`  bash ./models/download-ggml-model.sh ${preferredModel}`))
+      if (!await fs.pathExists(basePath)) {
+        console.log(chalk.yellow('\nOr download the smaller base model (~142MB) as a fallback:'))
+        console.log(chalk.cyan(`  bash ./models/download-ggml-model.sh base`))
+      } else {
+        console.log(chalk.gray('\nOrka will still work with the existing base model in the meantime.'))
+      }
     }
-  } else {
-    Output.success('Whisper base model is already downloaded')
   }
 }
 
