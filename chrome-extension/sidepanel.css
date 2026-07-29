@@ -376,6 +376,101 @@ body.collapsed .sp-shell { display: none; }
   color: var(--sp-text-muted);
 }
 .sp-saved-cta { align-self: flex-start; margin-top: 4px; font-size: 12px; padding: 6px 12px; }
+.sp-saved-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.sp-saved-actions .sp-btn { font-size: 12px; padding: 6px 12px; }
+.sp-btn.flash-ok {
+  background: var(--sp-good) !important;
+  color: var(--sp-bg) !important;
+  transition: background 0.15s;
+}
+.sp-saved-edit-prompt {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--sp-text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.sp-saved-edit-prompt:hover { color: var(--sp-accent); }
+.sp-saved-note {
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: var(--sp-text-muted);
+  line-height: 1.4;
+}
+
+/* KB prompt modal — sidepanel-scoped so it doesn't collide with any
+   global modal styles that might come along later. */
+.sp-kb-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(11, 11, 20, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.sp-kb-modal.hidden { display: none; }
+.sp-kb-modal-panel {
+  background: var(--sp-surface);
+  border: 1px solid var(--sp-border);
+  border-radius: 10px;
+  width: min(100%, 520px);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  gap: 10px;
+}
+.sp-kb-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--sp-text);
+}
+.sp-kb-modal-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--sp-text-muted);
+  line-height: 1.45;
+}
+.sp-kb-modal-panel textarea {
+  flex: 1;
+  min-height: 200px;
+  resize: vertical;
+  padding: 10px;
+  background: var(--sp-bg);
+  color: var(--sp-text);
+  border: 1px solid var(--sp-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: ui-monospace, monospace;
+}
+.sp-kb-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sp-kb-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+.sp-kb-modal-foot .sp-btn { font-size: 12px; padding: 6px 12px; }
 .sp-record-status {
   display: flex;
   align-items: center;

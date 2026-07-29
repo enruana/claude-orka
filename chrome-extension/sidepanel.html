@@ -105,7 +105,15 @@
         </div>
         <div class="sp-saved-name" id="saved-name">—</div>
         <div class="sp-saved-meta" id="saved-meta">—</div>
-        <button class="sp-btn primary sp-saved-cta" id="btn-open-recordings">Open Recordings →</button>
+        <div class="sp-saved-actions">
+          <button class="sp-btn primary" id="btn-copy-kb">Copy for Claude KB</button>
+          <button class="sp-btn ghost" id="btn-open-recordings">Open Recordings →</button>
+        </div>
+        <button class="sp-saved-edit-prompt" id="btn-edit-kb-prompt" title="Edit the KB prompt template">✎ Edit KB prompt</button>
+        <p class="sp-saved-note">
+          The copy uses the live transcript + topic segmentation from this session. For a batch-quality
+          rewrite of the transcript, open Recordings and generate a report on the saved audio.
+        </p>
       </div>
       <div class="sp-record-bar">
         <div class="sp-record-status">
@@ -158,6 +166,30 @@
     </div>
 
     <div id="run-log" class="sp-runlog" hidden></div>
+  </div>
+
+  <!-- KB prompt editor — same template + storage key that recordings.js uses,
+       so tweaking it here also tweaks the version behind the "Copy for KB"
+       button on the Recordings page. -->
+  <div class="sp-kb-modal hidden" id="kb-prompt-modal" role="dialog" aria-modal="true">
+    <div class="sp-kb-modal-panel">
+      <header class="sp-kb-modal-head">
+        <span>Edit KB prompt</span>
+        <button class="sp-icon-btn" id="kb-prompt-close" title="Close" aria-label="Close">×</button>
+      </header>
+      <p class="sp-kb-modal-hint">
+        Prepended to the transcript + topic segmentation when you hit "Copy for Claude KB".
+        Uses the same template as the Recordings page.
+      </p>
+      <textarea id="kb-prompt-textarea" rows="12" spellcheck="false"></textarea>
+      <footer class="sp-kb-modal-foot">
+        <button class="sp-btn ghost" id="kb-prompt-reset">Reset to default</button>
+        <div class="sp-kb-modal-actions">
+          <button class="sp-btn ghost" id="kb-prompt-cancel">Cancel</button>
+          <button class="sp-btn primary" id="kb-prompt-save">Save</button>
+        </div>
+      </footer>
+    </div>
   </div>
 
   <script src="storage.js"></script>

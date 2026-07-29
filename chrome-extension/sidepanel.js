@@ -44,6 +44,14 @@ const els = {
   savedName: document.getElementById('saved-name'),
   savedMeta: document.getElementById('saved-meta'),
   btnOpenRecordings: document.getElementById('btn-open-recordings'),
+  btnCopyKb: document.getElementById('btn-copy-kb'),
+  btnEditKbPrompt: document.getElementById('btn-edit-kb-prompt'),
+  kbModal: document.getElementById('kb-prompt-modal'),
+  kbModalClose: document.getElementById('kb-prompt-close'),
+  kbModalCancel: document.getElementById('kb-prompt-cancel'),
+  kbModalSave: document.getElementById('kb-prompt-save'),
+  kbModalReset: document.getElementById('kb-prompt-reset'),
+  kbModalTextarea: document.getElementById('kb-prompt-textarea'),
   recDot: document.getElementById('rec-dot'),
   duration: document.getElementById('duration'),
   audioBars: document.getElementById('audio-bars'),
@@ -445,12 +453,20 @@ function showSavedCard(name, duration, size) {
   els.savedName.textContent = name + '.webm'
   const mb = (size / (1024 * 1024)).toFixed(2)
   els.savedMeta.textContent = `Duration ${fmtDuration(duration)} · Size ${mb} MB · Saved in Orka Recordings (IndexedDB)`
+  // Remember what we have so the "Copy for KB" button can build a
+  // payload with real metadata (name, duration) not just the transcript.
+  view.lastSavedName = name
+  view.lastSavedDuration = duration
+  view.lastSavedSize = size
 }
 
 function hideSavedCard() {
   els.savedCard.classList.add('hidden')
   els.savedName.textContent = '—'
   els.savedMeta.textContent = '—'
+  view.lastSavedName = null
+  view.lastSavedDuration = null
+  view.lastSavedSize = null
 }
 
 function exitReviewToSetup() {
@@ -746,3 +762,169 @@ function enableCloudFromCta() {
   els.cloudToggle.dispatchEvent(new Event('change'))
 }
 els.topicEmptyCta.addEventListener('click', enableCloudFromCta)
+
+// ---------- Copy for Claude KB --------------------------------------------
+//
+// Post-Stop, the review view has everything we need to feed a Claude
+// session that just needs to load the KB skills and register the meeting:
+//   - Full transcript (view.transcriptChunks)
+//   - Topic segmentation (view.topics) — the last successful call to
+//     /api/ai/topic-stream. If topics never ran (cloud opt-in off), we
+//     still ship the transcript.
+//   - Recording metadata (view.lastSavedName / duration / size)
+//   - The user's KB prompt template (chrome.storage.local via
+//     getKbPromptTemplate — SAME storage key the recordings page uses,
+//     so tweaking it here also tweaks it there).
+//
+// Composed text goes to the clipboard via the same
+// clipboard-with-execCommand-fallback pattern as recordings.js.
+
+async function composeKbPayload() {
+  const prompt = await getKbPromptTemplate()
+  const parts = [prompt.trim(), '---']
+
+  // Metadata block — Claude uses this to build the meeting entity.
+  const meta = []
+  if (view.lastSavedName) meta.push(`- Recording: ${view.lastSavedName}.webm`)
+  if (typeof view.lastSavedDuration === 'number') {
+    meta.push(`- Duration: ${fmtDuration(view.lastSavedDuration)}`)
+  }
+  meta.push(`- Language: ${view.liveLanguage || 'auto'}`)
+  meta.push(`- Captured: ${new Date().toISOString()}`)
+  if (meta.length > 0) {
+    parts.push('## Meeting metadata\n' + meta.join('\n'))
+  }
+
+  // Topic segmentation, chronological (earliest → latest). This mirrors
+  // what Claude produced in the Topics tab.
+  if (view.topics && view.topics.length > 0) {
+    const lines = ['## Topics discussed (' + view.topics.length + ')']
+    view.topics.forEach((topic, i) => {
+      lines.push('')
+      lines.push(`### ${i + 1}. ${topic.title || '(untitled)'}`)
+      if (topic.summary) lines.push(topic.summary)
+      if (topic.keyPoints && topic.keyPoints.length > 0) {
+        lines.push('')
+        lines.push('Key points:')
+        topic.keyPoints.forEach((kp) => lines.push('- ' + kp))
+      }
+      if (topic.sentiment && topic.sentiment !== 'neutral') {
+        lines.push('')
+        lines.push('Sentiment: ' + topic.sentiment)
+      }
+    })
+    parts.push(lines.join('\n'))
+  }
+
+  // Full transcript last — Claude has the summaries above for context.
+  const transcript = view.transcriptChunks.map((c) => c.text).join(' ').trim()
+  if (transcript) {
+    parts.push('## Full transcript\n\n' + transcript)
+  }
+
+  return parts.join('\n\n')
+}
+
+/**
+ * Copy text via the Async Clipboard API when we're in a secure context;
+ * fall back to a throwaway textarea + execCommand("copy") when we're
+ * not (e.g. http://localhost tests). Same shape as recordings.js.
+ */
+async function copyPlainText(text) {
+  try {
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+function flashCopyButton(btn) {
+  if (!btn) return
+  btn.classList.add('flash-ok')
+  const original = btn.textContent
+  btn.textContent = '✓ Copied'
+  setTimeout(() => {
+    btn.classList.remove('flash-ok')
+    btn.textContent = original
+  }, 1500)
+}
+
+els.btnCopyKb.addEventListener('click', async () => {
+  const transcriptChars = view.transcriptChunks.map((c) => c.text).join(' ').trim().length
+  if (transcriptChars < 20) {
+    logView('nothing to copy — transcript is empty', 'err')
+    return
+  }
+  try {
+    const payload = await composeKbPayload()
+    const ok = await copyPlainText(payload)
+    if (ok) {
+      flashCopyButton(els.btnCopyKb)
+      logView(`copied ${payload.length} chars (${view.topics.length} topics, ${transcriptChars} transcript chars)`, 'ok')
+    } else {
+      logView('clipboard copy failed — no secure context?', 'err')
+    }
+  } catch (err) {
+    logView('copy failed: ' + err.message, 'err')
+  }
+})
+
+// ---------- KB prompt editor modal -----------------------------------------
+
+async function openKbPromptEditor() {
+  try {
+    els.kbModalTextarea.value = await getKbPromptTemplate()
+  } catch {
+    els.kbModalTextarea.value = ''
+  }
+  els.kbModal.classList.remove('hidden')
+  setTimeout(() => els.kbModalTextarea.focus(), 20)
+}
+function closeKbPromptEditor() {
+  els.kbModal.classList.add('hidden')
+}
+els.btnEditKbPrompt.addEventListener('click', openKbPromptEditor)
+els.kbModalClose.addEventListener('click', closeKbPromptEditor)
+els.kbModalCancel.addEventListener('click', closeKbPromptEditor)
+els.kbModal.addEventListener('click', (e) => {
+  if (e.target === els.kbModal) closeKbPromptEditor()
+})
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !els.kbModal.classList.contains('hidden')) closeKbPromptEditor()
+})
+els.kbModalSave.addEventListener('click', async () => {
+  const v = els.kbModalTextarea.value.trim()
+  if (!v) return
+  try {
+    await setKbPromptTemplate(v)
+    logView('KB prompt saved', 'ok')
+    closeKbPromptEditor()
+  } catch (err) {
+    logView('KB prompt save failed: ' + err.message, 'err')
+  }
+})
+els.kbModalReset.addEventListener('click', async () => {
+  try {
+    await resetKbPromptTemplate()
+    els.kbModalTextarea.value = await getKbPromptTemplate()
+    logView('KB prompt reset to default', 'ok')
+  } catch (err) {
+    logView('KB prompt reset failed: ' + err.message, 'err')
+  }
+})
