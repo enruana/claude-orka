@@ -191,6 +191,12 @@ export async function startBoardMaster(
   } catch {
     await execa('tmux', ['new-session', '-d', '-s', tmuxSessionId, '-c', opts.projectPath])
     created = true
+    // Apply the Orka tmux theme (mouse mode, colored status bar, big
+    // history, etc.) — this is what TmuxCommands.createSession does for
+    // regular Claude sessions. Without it the board tmux has no mouse
+    // support, so you can't click to select panes, and the status bar
+    // falls back to tmux defaults.
+    await TmuxCommands.applyOrkaTheme(tmuxSessionId, opts.projectPath)
   }
 
   // 2. Get the main pane + label it.
@@ -326,6 +332,10 @@ export async function startBoardTask(
   } catch {
     await execa('tmux', ['new-session', '-d', '-s', tmuxSessionId, '-c', opts.projectPath])
     created = true
+    // Same theme+mouse config that regular sessions get. Without this
+    // the task terminal drops to tmux defaults — no clickable panes,
+    // no colored status bar.
+    await TmuxCommands.applyOrkaTheme(tmuxSessionId, opts.projectPath)
   }
 
   const paneId = await TmuxCommands.getMainPaneId(tmuxSessionId)
