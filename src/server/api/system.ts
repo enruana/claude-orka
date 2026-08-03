@@ -2,7 +2,16 @@ import { Router } from 'express'
 import fs from 'fs-extra'
 import os from 'os'
 import execa from 'execa'
-import { logger } from '../../utils'
+import { logger, TmuxCommands } from '../../utils'
+import { getGlobalStateManager } from '../../core/GlobalStateManager'
+import { StateManager } from '../../core/StateManager'
+import { BoardManager } from '../../core/BoardManager'
+import { getAgentManager } from '../../agent/AgentManager'
+import {
+  getWhisperServer,
+  getWhisperServerStatus,
+  stopWhisperServer,
+} from '../../utils/whisper'
 
 export const systemRouter = Router()
 
@@ -506,6 +515,531 @@ systemRouter.get('/metrics', async (_req, res) => {
     res.json(payload)
   } catch (error: any) {
     logger.error('Failed to sample system metrics:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// ============================================================
+// ORKA SERVICES — enumerate + control
+// ============================================================
+//
+// The /status page in the web UI needs a single feed of every long-lived
+// process the orka server manages: the persistent whisper-server, the
+// hook server (agent bridge), each agent daemon, the ttyd instances
+// backing every session, and the shared system terminal. Users get a
+// row per service with live CPU / RAM plus the ability to stop things
+// that are safe to stop (whisper, agents) without breaking anything
+// else.
+
+export type ServiceCategory =
+  | 'transcription'
+  | 'hooks'
+  | 'agents'
+  | 'terminals'
+  | 'other'
+
+export type ServiceAction = 'stop' | 'start' | 'restart'
+
+export interface ServiceInfo {
+  id: string
+  category: ServiceCategory
+  name: string
+  description: string
+  status: 'running' | 'ready' | 'stopped' | 'unknown'
+  pid?: number
+  port?: number
+  cpuPercent?: number
+  rssBytes?: number
+  memPercent?: number
+  startedAt?: number
+  actions: ServiceAction[]
+  /** Free-form context — model name for whisper, project path for a
+   *  ttyd, agent name, etc. Rendered as key/value under the row. */
+  metadata?: Record<string, string | number | undefined>
+}
+
+interface PsRow {
+  pid: number
+  cpuPercent: number
+  memPercent: number
+  rssBytes: number
+}
+
+/**
+ * Batched `ps` lookup — one shell-out for every pid the caller cares
+ * about. Empty input returns an empty map without invoking `ps`.
+ * Missing rows (process already gone) simply don't appear in the map.
+ */
+async function readPsForPids(pids: number[]): Promise<Map<number, PsRow>> {
+  const map = new Map<number, PsRow>()
+  const unique = Array.from(new Set(pids.filter((p) => Number.isFinite(p) && p > 1)))
+  if (unique.length === 0) return map
+  try {
+    const { stdout } = await execa(
+      'ps',
+      ['-p', unique.join(','), '-o', 'pid,%cpu,%mem,rss', '--no-headers'],
+      { timeout: 3000 }
+    )
+    for (const line of stdout.split('\n')) {
+      const parts = line.trim().split(/\s+/)
+      if (parts.length < 4) continue
+      const pid = parseInt(parts[0], 10)
+      if (!Number.isFinite(pid)) continue
+      map.set(pid, {
+        pid,
+        cpuPercent: parseFloat(parts[1]) || 0,
+        memPercent: parseFloat(parts[2]) || 0,
+        rssBytes: (parseInt(parts[3], 10) || 0) * 1024,
+      })
+    }
+  } catch (err: any) {
+    logger.debug(`system: ps for services failed: ${err?.message || err}`)
+  }
+  return map
+}
+
+/**
+ * Ask a specific service to do an action. Returns the concrete outcome
+ * for the caller to display. All operations are idempotent: stop-when-
+ * stopped and start-when-running both succeed as no-ops.
+ */
+// --------------------------------------------------------------------------
+// Tmux session correlation — every live tmux session gets tagged with what
+// it belongs to (a project's Claude session, a board master, a board task,
+// the shared system terminal) so the /status UI can show useful context.
+// --------------------------------------------------------------------------
+
+interface TmuxCorrelation {
+  kind: 'session' | 'board-master' | 'board-task' | 'system-terminal' | 'unknown'
+  projectPath?: string
+  projectName?: string
+  sessionName?: string
+  sessionId?: string
+  boardId?: string
+  taskKey?: string
+  ttydPort?: number
+  ttydPid?: number
+}
+
+/**
+ * Build a name → correlation map by walking every registered project's
+ * state + board tasks + master handles + the shared system terminal.
+ * Cost is dominated by the state.json reads (one per project) — cheap.
+ */
+async function buildTmuxCorrelationMap(): Promise<Map<string, TmuxCorrelation>> {
+  const map = new Map<string, TmuxCorrelation>()
+  const globalState = await getGlobalStateManager()
+
+  // System terminal — fixed name.
+  const sysTerm = globalState.getSystemTerminal()
+  if (sysTerm) {
+    map.set(sysTerm.tmuxSessionId, {
+      kind: 'system-terminal',
+      ttydPort: sysTerm.ttydPort,
+      ttydPid: sysTerm.ttydPid,
+    })
+  }
+
+  // Every registered project: its state.sessions[] + its board tasks.
+  const projects = globalState.getProjects()
+  for (const proj of projects) {
+    let projectSessions: any[] = []
+    try {
+      const stateMgr = new StateManager(proj.path)
+      const st = await stateMgr.getState()
+      projectSessions = st.sessions || []
+    } catch (err: any) {
+      logger.debug(`status: failed to read state for ${proj.path}: ${err?.message || err}`)
+    }
+    for (const s of projectSessions) {
+      if (!s.tmuxSessionId) continue
+      map.set(s.tmuxSessionId, {
+        kind: 'session',
+        projectPath: proj.path,
+        projectName: proj.name,
+        sessionName: s.name || s.id,
+        sessionId: s.id,
+        ttydPort: s.ttydPort,
+        ttydPid: s.ttydPid,
+      })
+    }
+
+    // Board tasks + masters — one per board.
+    try {
+      const bm = new BoardManager(proj.path)
+      if (bm.isInitialized()) {
+        const boards = await bm.listBoards()
+        for (const b of boards) {
+          // Master tmux name is deterministic (BoardTerminals.masterTmuxName).
+          const masterName = `orka-board-master-${b.id}`
+          if (!map.has(masterName)) {
+            map.set(masterName, {
+              kind: 'board-master',
+              projectPath: proj.path,
+              projectName: proj.name,
+              boardId: b.id,
+            })
+          }
+          const tasks = await bm.listTasks(b.id)
+          for (const t of tasks) {
+            if (!t.terminalTmuxSessionId) continue
+            map.set(t.terminalTmuxSessionId, {
+              kind: 'board-task',
+              projectPath: proj.path,
+              projectName: proj.name,
+              boardId: b.id,
+              taskKey: t.key,
+              ttydPort: t.ttydPort,
+              ttydPid: t.ttydPid,
+            })
+          }
+        }
+      }
+    } catch (err: any) {
+      logger.debug(`status: failed to read boards for ${proj.path}: ${err?.message || err}`)
+    }
+  }
+
+  return map
+}
+
+async function performServiceAction(id: string, action: ServiceAction): Promise<{ ok: true; note?: string }> {
+  if (id === 'whisper') {
+    if (action === 'stop') {
+      stopWhisperServer()
+      return { ok: true, note: 'whisper-server terminated' }
+    }
+    if (action === 'start' || action === 'restart') {
+      if (action === 'restart') stopWhisperServer()
+      // Kick off the spawn; don't await ready — the /status page will
+      // pick up the transition on its next poll.
+      void getWhisperServer().catch((err: Error) => {
+        logger.error(`whisper start failed: ${err.message}`)
+      })
+      return { ok: true, note: 'whisper-server starting' }
+    }
+  }
+  if (id.startsWith('agent:')) {
+    const agentId = id.slice('agent:'.length)
+    const mgr = await getAgentManager()
+    if (action === 'stop') {
+      await mgr.stopAgent(agentId)
+      return { ok: true, note: `agent ${agentId} stopped` }
+    }
+    if (action === 'start') {
+      await mgr.startAgent(agentId)
+      return { ok: true, note: `agent ${agentId} started` }
+    }
+    if (action === 'restart') {
+      await mgr.stopAgent(agentId)
+      await mgr.startAgent(agentId)
+      return { ok: true, note: `agent ${agentId} restarted` }
+    }
+  }
+  if (id.startsWith('tmux:')) {
+    // Destructive: killing the tmux session tears down the terminal and
+    // loses any unsaved shell state inside it. Only `stop` is offered on
+    // the client; there's nothing to "start" (that's what session
+    // resume / board task start does).
+    const tmuxName = id.slice('tmux:'.length)
+    if (action === 'stop') {
+      try {
+        await execa('tmux', ['kill-session', '-t', tmuxName])
+        return { ok: true, note: `killed tmux session ${tmuxName}` }
+      } catch (err: any) {
+        // "can't find session" — already gone. Treat as success.
+        if (/can't find session|no server running/i.test(err?.stderr || err?.message || '')) {
+          return { ok: true, note: `tmux session ${tmuxName} was already gone` }
+        }
+        throw err
+      }
+    }
+  }
+  throw new Error(`Unsupported action "${action}" on service "${id}"`)
+}
+
+/**
+ * Build the full service list for the /status page. Any per-service
+ * failure (e.g. agent manager not booted) is swallowed so a single sick
+ * subsystem doesn't hide the rest.
+ */
+async function enumerateServices(): Promise<ServiceInfo[]> {
+  const services: ServiceInfo[] = []
+  const pidsWanted: number[] = []
+
+  // -- Transcription: persistent whisper-server ---------------------
+  try {
+    const whisper = await getWhisperServerStatus()
+    const modelName = whisper.modelName || whisper.availableModel?.name || 'not downloaded'
+    if (whisper.running) {
+      services.push({
+        id: 'whisper',
+        category: 'transcription',
+        name: 'Whisper server',
+        description: `Persistent whisper.cpp inference server (model: ${modelName}).`,
+        status: whisper.ready ? 'ready' : 'running',
+        pid: whisper.pid,
+        port: whisper.port,
+        startedAt: whisper.startedAt,
+        actions: ['stop', 'restart'],
+        metadata: {
+          model: modelName,
+          modelPath: whisper.modelPath,
+        },
+      })
+      if (whisper.pid) pidsWanted.push(whisper.pid)
+    } else {
+      services.push({
+        id: 'whisper',
+        category: 'transcription',
+        name: 'Whisper server',
+        description: whisper.availableModel
+          ? `Not running. Model ready: ${whisper.availableModel.name}. Start pre-warms it (~500MB RAM).`
+          : `Not running. No model downloaded — run "orka prepare" to fetch one.`,
+        status: 'stopped',
+        actions: whisper.availableModel ? ['start'] : [],
+        metadata: {
+          model: modelName,
+        },
+      })
+    }
+  } catch (err: any) {
+    logger.debug(`enumerateServices whisper failed: ${err?.message || err}`)
+  }
+
+  // -- Hooks: HTTP endpoint that Claude Code posts to ---------------
+  try {
+    const mgr = await getAgentManager()
+    // hookServer is created inside AgentManager; when it's running the
+    // manager knows. We don't own its pid separately — the whole orka
+    // node process hosts it.
+    const hooksRunning = (mgr as any).hookServer?.isRunning?.() === true
+    services.push({
+      id: 'hooks',
+      category: 'hooks',
+      name: 'Hook server',
+      description: 'HTTP endpoint receiving Claude Code hook payloads for the agent daemons. Runs in-process on port 9999.',
+      status: hooksRunning ? 'running' : 'stopped',
+      port: hooksRunning ? 9999 : undefined,
+      // No stop/start — the manager owns lifecycle and killing this
+      // breaks every active agent. Read-only.
+      actions: [],
+    })
+  } catch (err: any) {
+    logger.debug(`enumerateServices hooks failed: ${err?.message || err}`)
+  }
+
+  // -- Agents: one row per registered agent -------------------------
+  try {
+    const mgr = await getAgentManager()
+    const agents = mgr.getAgents()
+    for (const agent of agents) {
+      const running = agent.status === 'active'
+      services.push({
+        id: `agent:${agent.id}`,
+        category: 'agents',
+        name: `Agent · ${agent.name}`,
+        description: agent.connection?.projectPath
+          ? `Autonomous agent daemon for ${agent.connection.projectPath}.`
+          : 'Autonomous agent daemon.',
+        status: running ? 'running' : 'stopped',
+        actions: running ? ['stop', 'restart'] : ['start'],
+        metadata: {
+          agentId: agent.id,
+          project: agent.connection?.projectPath,
+        },
+      })
+    }
+  } catch (err: any) {
+    logger.debug(`enumerateServices agents failed: ${err?.message || err}`)
+  }
+
+  // -- Terminals: system terminal + per-project ttyds ---------------
+  try {
+    const globalState = await getGlobalStateManager()
+    const sysTerm = globalState.getSystemTerminal()
+    if (sysTerm) {
+      services.push({
+        id: 'system-terminal',
+        category: 'terminals',
+        name: 'System terminal',
+        description: 'Shared shell terminal available from the dashboard.',
+        status: 'running',
+        pid: sysTerm.ttydPid,
+        port: sysTerm.ttydPort,
+        actions: [],
+        metadata: {
+          tmuxSession: sysTerm.tmuxSessionId,
+        },
+      })
+      if (sysTerm.ttydPid) pidsWanted.push(sysTerm.ttydPid)
+    }
+  } catch (err: any) {
+    logger.debug(`enumerateServices system-terminal failed: ${err?.message || err}`)
+  }
+
+  // -- Tmux sessions ------------------------------------------------
+  //
+  // One row per live tmux session with:
+  //  - correlation to project / board / task / system-terminal
+  //  - ttyd port (if we have one on file) so the row deep-links to the
+  //    /terminal/<port> viewer
+  //  - CPU% and RSS aggregated across every pane in that session
+  //
+  // The ttyd pids we already tracked above may also appear as their
+  // own rows only when they belong to a "system-level" thing (system
+  // terminal); per-tmux ttyd metrics are surfaced under the tmux row so
+  // the user isn't looking at two rows that measure the same terminal.
+  const tmuxSessionPidMap: Map<string, number[]> = new Map()
+  try {
+    const [tmuxSessions, tmuxPidsPerSession, correlations] = await Promise.all([
+      TmuxCommands.listSessionsDetailed(),
+      TmuxCommands.listPanePidsBySession(),
+      buildTmuxCorrelationMap(),
+    ])
+    for (const tsess of tmuxSessions) {
+      const paneIds = tmuxPidsPerSession.get(tsess.name) || []
+      tmuxSessionPidMap.set(tsess.name, paneIds)
+      for (const pid of paneIds) pidsWanted.push(pid)
+
+      const corr = correlations.get(tsess.name) || { kind: 'unknown' as const }
+      const startedAtMs = tsess.createdAt > 0 ? tsess.createdAt * 1000 : undefined
+
+      // Compose a friendly name based on what this tmux session is.
+      let displayName: string
+      let description: string
+      const metadata: Record<string, string | number | undefined> = {
+        tmux: tsess.name,
+        attached: tsess.attached ? 'yes' : 'no',
+        windows: tsess.windows,
+        panes: paneIds.length,
+      }
+      if (corr.projectName) metadata.project = corr.projectName
+      if (corr.projectPath) metadata.path = corr.projectPath
+      if (corr.sessionName) metadata.session = corr.sessionName
+      if (corr.boardId) metadata.board = corr.boardId
+      if (corr.taskKey) metadata.task = corr.taskKey
+
+      if (corr.kind === 'system-terminal') {
+        displayName = 'System terminal (tmux)'
+        description = 'Backing tmux session for the shared dashboard shell.'
+      } else if (corr.kind === 'session') {
+        displayName = `${corr.projectName || 'session'} · ${corr.sessionName || corr.sessionId || tsess.name}`
+        description = `Claude Code session inside ${corr.projectName || 'unknown project'}.`
+      } else if (corr.kind === 'board-master') {
+        displayName = `Board master · ${corr.boardId}`
+        description = `Master orchestrator terminal for board ${corr.boardId}.`
+      } else if (corr.kind === 'board-task') {
+        displayName = `Board task · ${corr.taskKey || tsess.name}`
+        description = `Task terminal for ${corr.taskKey || 'unknown task'} on board ${corr.boardId || 'unknown'}.`
+      } else {
+        displayName = tsess.name
+        description = 'Live tmux session not tracked by Orka state — likely stale or user-created.'
+      }
+
+      services.push({
+        id: `tmux:${tsess.name}`,
+        category: 'terminals',
+        name: displayName,
+        description,
+        status: 'running',
+        port: corr.ttydPort,
+        startedAt: startedAtMs,
+        // Killing a tmux session is destructive. We expose stop but the
+        // UI double-guards it with a confirm. No start/restart — those
+        // are session-resume / task-start flows that live elsewhere.
+        actions: ['stop'],
+        metadata,
+      })
+    }
+  } catch (err: any) {
+    logger.debug(`enumerateServices tmux failed: ${err?.message || err}`)
+  }
+
+  // -- Backfill live CPU / RAM from a single ps call ----------------
+  const psInfo = await readPsForPids(pidsWanted)
+  for (const svc of services) {
+    // Tmux sessions: sum across every pane pid we recorded.
+    if (svc.id.startsWith('tmux:')) {
+      const tmuxName = svc.id.slice('tmux:'.length)
+      const paneIds = tmuxSessionPidMap.get(tmuxName) || []
+      let cpuSum = 0, memSum = 0, rssSum = 0, seen = 0
+      for (const pid of paneIds) {
+        const row = psInfo.get(pid)
+        if (!row) continue
+        cpuSum += row.cpuPercent
+        memSum += row.memPercent
+        rssSum += row.rssBytes
+        seen++
+      }
+      if (seen > 0) {
+        svc.cpuPercent = Number(cpuSum.toFixed(1))
+        svc.memPercent = Number(memSum.toFixed(1))
+        svc.rssBytes = rssSum
+      }
+      continue
+    }
+    if (svc.pid == null) continue
+    const row = psInfo.get(svc.pid)
+    if (row) {
+      svc.cpuPercent = row.cpuPercent
+      svc.memPercent = row.memPercent
+      svc.rssBytes = row.rssBytes
+    } else if (svc.status === 'running' || svc.status === 'ready') {
+      // We think it's running but ps didn't return anything — the
+      // process is gone. Downgrade to 'unknown' so the UI can flag it.
+      svc.status = 'unknown'
+    }
+  }
+
+  // Sort: category → status (running first) → name.
+  const catOrder: Record<ServiceCategory, number> = {
+    transcription: 0, hooks: 1, agents: 2, terminals: 3, other: 4,
+  }
+  const statusRank = (s: ServiceInfo['status']): number =>
+    s === 'ready' ? 0 : s === 'running' ? 1 : s === 'unknown' ? 2 : 3
+  services.sort((a, b) => {
+    if (a.category !== b.category) return catOrder[a.category] - catOrder[b.category]
+    const sr = statusRank(a.status) - statusRank(b.status)
+    if (sr !== 0) return sr
+    return a.name.localeCompare(b.name)
+  })
+
+  return services
+}
+
+/**
+ * GET /api/system/services
+ * The web UI polls this every ~3s from /status.
+ */
+systemRouter.get('/services', async (_req, res) => {
+  try {
+    const services = await enumerateServices()
+    res.json({ services, sampledAt: new Date().toISOString() })
+  } catch (error: any) {
+    logger.error('Failed to enumerate services:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/system/services/:id/:action
+ * `:action` ∈ { stop, start, restart } — supported per-service (see
+ * ServiceInfo.actions on the corresponding GET row).
+ */
+systemRouter.post('/services/:id/:action', async (req, res) => {
+  try {
+    const id = decodeURIComponent(req.params.id)
+    const action = req.params.action as ServiceAction
+    if (action !== 'stop' && action !== 'start' && action !== 'restart') {
+      res.status(400).json({ error: `Unsupported action: ${action}` })
+      return
+    }
+    const result = await performServiceAction(id, action)
+    logger.info(`system-services: ${id} ${action} → ${result.note || 'ok'}`)
+    res.json(result)
+  } catch (error: any) {
+    logger.error(`Failed service action ${req.params.id}/${req.params.action}:`, error)
     res.status(500).json({ error: error.message })
   }
 })

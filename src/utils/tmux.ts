@@ -623,4 +623,70 @@ export class TmuxCommands {
       )
     }
   }
+
+  /**
+   * Detailed session listing for the /status dashboard. Same call as
+   * `listSessions` but with a richer format string so the caller gets
+   * creation time, attached flag, and window count without an extra
+   * round-trip. Uses `|` as the field separator because tmux session
+   * names may contain `:`.
+   */
+  static async listSessionsDetailed(): Promise<Array<{
+    id: string
+    name: string
+    createdAt: number    // unix seconds
+    attached: boolean
+    windows: number
+  }>> {
+    try {
+      const { stdout } = await execa('tmux', [
+        'list-sessions',
+        '-F', '#{session_id}|#{session_name}|#{session_created}|#{session_attached}|#{session_windows}',
+      ])
+      const out: Array<{ id: string; name: string; createdAt: number; attached: boolean; windows: number }> = []
+      for (const line of stdout.split('\n')) {
+        const parts = line.split('|')
+        if (parts.length < 5) continue
+        out.push({
+          id: parts[0],
+          name: parts[1],
+          createdAt: parseInt(parts[2], 10) || 0,
+          attached: parseInt(parts[3], 10) > 0,
+          windows: parseInt(parts[4], 10) || 0,
+        })
+      }
+      return out
+    } catch (error: any) {
+      if (error.stderr?.includes('no server running')) return []
+      throw new TmuxError('Failed to list tmux sessions (detailed)', 'tmux list-sessions', error)
+    }
+  }
+
+  /**
+   * Map every live tmux pane to (session_name, pane_pid). Used by the
+   * /status dashboard to aggregate CPU / RSS per tmux session — the
+   * "session pid" concept doesn't exist in tmux; instead we sum ps
+   * numbers across each session's panes.
+   */
+  static async listPanePidsBySession(): Promise<Map<string, number[]>> {
+    const map = new Map<string, number[]>()
+    try {
+      const { stdout } = await execa('tmux', [
+        'list-panes', '-a',
+        '-F', '#{session_name}|#{pane_pid}',
+      ])
+      for (const line of stdout.split('\n')) {
+        const [name, pidStr] = line.split('|')
+        const pid = parseInt(pidStr, 10)
+        if (!name || !Number.isFinite(pid) || pid <= 1) continue
+        const list = map.get(name) || []
+        list.push(pid)
+        map.set(name, list)
+      }
+    } catch (error: any) {
+      if (error.stderr?.includes('no server running')) return map
+      throw new TmuxError('Failed to list tmux panes', 'tmux list-panes -a', error)
+    }
+    return map
+  }
 }

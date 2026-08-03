@@ -255,7 +255,24 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 60%;
+  max-width: 50%;
+  flex: 1;
+}
+
+.system-widget-open-status {
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.12s, background 0.12s;
+}
+.system-widget-open-status:hover {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* Tiles side-by-side; wrap on narrow viewports */

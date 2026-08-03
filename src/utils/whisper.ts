@@ -81,11 +81,13 @@ interface TranscribeOptions {
 
 interface ServerState {
   modelPath: string
+  modelName: string
   proc: ChildProcess
   port: number
   ready: Promise<void>
   readyResolved: boolean
   stopped: boolean
+  startedAt: number
 }
 
 let currentServer: ServerState | null = null
@@ -147,11 +149,13 @@ async function startWhisperServer(modelPath: string, modelName: string): Promise
 
   const state: ServerState = {
     modelPath,
+    modelName,
     proc,
     port,
     ready: Promise.resolve(),
     readyResolved: false,
     stopped: false,
+    startedAt: 0,      // stamped when ready resolves
   }
 
   // Resolved once the HTTP endpoint responds. whisper-server does NOT
@@ -173,6 +177,7 @@ async function startWhisperServer(modelPath: string, modelName: string): Promise
       if (settled) return
       settled = true
       state.readyResolved = true
+      state.startedAt = Date.now()
       logger.info(`[whisper-server] ready on port ${state.port}`)
       resolve()
     }
@@ -324,6 +329,56 @@ export async function getWhisperServer(): Promise<WhisperServerHandle> {
       try { state.proc.kill('SIGTERM') } catch {}
     },
   }
+}
+
+/**
+ * Snapshot of the current whisper-server child, for the /status page.
+ * Returns `running: false` when no server is spawned (the model files
+ * on disk are still resolved so callers can render "not started" info).
+ */
+export interface WhisperServerStatus {
+  running: boolean
+  ready: boolean
+  pid?: number
+  port?: number
+  modelName?: string
+  modelPath?: string
+  startedAt?: number
+  availableModel?: { name: string; path: string } | null
+}
+
+export async function getWhisperServerStatus(): Promise<WhisperServerStatus> {
+  const availableModel = await resolveAvailableWhisperModel()
+  if (!currentServer) return { running: false, ready: false, availableModel }
+  return {
+    running: !currentServer.stopped,
+    ready: currentServer.readyResolved && !currentServer.stopped,
+    pid: currentServer.proc.pid,
+    port: currentServer.port,
+    modelName: currentServer.modelName,
+    modelPath: currentServer.modelPath,
+    startedAt: currentServer.startedAt || undefined,
+    availableModel,
+  }
+}
+
+/**
+ * Signal-terminate the whisper-server child. Idempotent — a no-op if
+ * nothing is running. The singleton is cleared so the next transcribe
+ * call spawns a fresh server (either from the same model or a newer
+ * one if the user just downloaded an upgrade).
+ */
+export function stopWhisperServer(): { stopped: boolean } {
+  if (!currentServer) return { stopped: false }
+  try {
+    currentServer.proc.kill('SIGTERM')
+  } catch {
+    // process may already be gone — clear the singleton either way
+  }
+  currentServer.stopped = true
+  currentServer = null
+  logger.info('[whisper-server] stopped by explicit request')
+  return { stopped: true }
 }
 
 // Kill the whisper-server child on Node process exit so we don't

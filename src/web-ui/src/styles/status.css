@@ -1,0 +1,374 @@
+/* ============================================================
+   /status page — Orka services dashboard
+   ============================================================ */
+
+.status-page {
+  min-height: 100vh;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  padding: 24px 32px 60px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.status-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #313244;
+  margin-bottom: 20px;
+}
+.status-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #cdd6f4;
+  flex: 1;
+}
+.status-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #6c7086;
+  font-family: ui-monospace, monospace;
+}
+.status-refresh {
+  border: 1px solid #313244;
+  background: transparent;
+  color: #a6adc8;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.12s, border-color 0.12s;
+}
+.status-refresh:hover:not(:disabled) { color: #cdd6f4; border-color: #45475a; }
+.status-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.status-error {
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(243,139,168,0.1);
+  border: 1px solid rgba(243,139,168,0.2);
+  color: #f38ba8;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+/* ---------- Host metrics tiles --------------------------------------- */
+
+.status-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+}
+.status-metric-tile {
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.status-metric-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #a6adc8;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+.status-metric-icon { color: #6c7086; }
+.status-metric-label { flex: 1; }
+.status-metric-value {
+  font-family: ui-monospace, monospace;
+  font-size: 16px;
+  font-weight: 700;
+}
+.status-metric-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: #313244;
+  overflow: hidden;
+}
+.status-metric-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease-out, background 0.3s;
+}
+.status-metric-sub {
+  font-size: 11px;
+  color: #6c7086;
+  font-family: ui-monospace, monospace;
+}
+.status-metrics-loading {
+  grid-column: 1 / -1;
+  padding: 20px;
+  text-align: center;
+  color: #6c7086;
+  font-style: italic;
+}
+
+/* ---------- Services grouped by category ----------------------------- */
+
+.status-services {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.status-category-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.status-category-icon { color: #89b4fa; display: inline-flex; }
+.status-category-label {
+  font-weight: 600;
+  color: #cdd6f4;
+  font-size: 14px;
+}
+.status-category-count {
+  color: #6c7086;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #313244;
+}
+.status-category-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #6c7086;
+  line-height: 1.5;
+}
+
+.status-service-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-service {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  gap: 20px;
+  padding: 14px 16px;
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 10px;
+  align-items: start;
+}
+.status-service-ready { border-left: 3px solid #a6e3a1; }
+.status-service-running { border-left: 3px solid #f9e2af; }
+.status-service-stopped { border-left: 3px solid #6c7086; opacity: 0.85; }
+.status-service-unknown { border-left: 3px solid #fab387; }
+
+.status-service-main {
+  min-width: 0;
+}
+.status-service-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.status-service-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #cdd6f4;
+}
+.status-service-desc {
+  margin: 0;
+  font-size: 12px;
+  color: #a6adc8;
+  line-height: 1.5;
+}
+.status-service-meta {
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: #6c7086;
+  font-family: ui-monospace, monospace;
+}
+.status-service-meta-row { display: inline-flex; gap: 4px; }
+.status-service-meta dt {
+  color: #45475a;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.status-service-meta dd {
+  margin: 0;
+  color: #cdd6f4;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-service-metrics {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-family: ui-monospace, monospace;
+  color: #a6adc8;
+}
+.status-service-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.status-service-metric-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #45475a;
+}
+.status-service-metric-value {
+  font-size: 12px;
+  color: #cdd6f4;
+}
+
+.status-service-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.status-service-noop {
+  font-size: 11px;
+  color: #45475a;
+  font-family: ui-monospace, monospace;
+  padding: 4px 8px;
+}
+.status-service-flash {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-family: ui-monospace, monospace;
+}
+.status-service-flash.ok { background: rgba(166,227,161,0.15); color: #a6e3a1; }
+.status-service-flash.err { background: rgba(243,139,168,0.15); color: #f38ba8; }
+
+/* Action buttons */
+.status-action {
+  border: 1px solid #313244;
+  background: transparent;
+  color: #a6adc8;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.status-action:hover:not(:disabled) {
+  color: #cdd6f4;
+  border-color: #45475a;
+}
+.status-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.status-action-stop:hover:not(:disabled) {
+  color: #f38ba8;
+  border-color: rgba(243,139,168,0.4);
+}
+.status-action-start:hover:not(:disabled) {
+  color: #a6e3a1;
+  border-color: rgba(166,227,161,0.4);
+}
+.status-action-restart:hover:not(:disabled) {
+  color: #89b4fa;
+  border-color: rgba(137,180,250,0.4);
+}
+.status-action-open {
+  text-decoration: none;
+}
+.status-action-open:hover {
+  color: #cba6f7;
+  border-color: rgba(203,166,247,0.4);
+}
+
+/* Status pill */
+.status-pill {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+}
+.status-pill-ready {
+  background: rgba(166,227,161,0.15);
+  color: #a6e3a1;
+}
+.status-pill-running {
+  background: rgba(249,226,175,0.15);
+  color: #f9e2af;
+}
+.status-pill-stopped {
+  background: #313244;
+  color: #6c7086;
+}
+.status-pill-unknown {
+  background: rgba(250,179,135,0.15);
+  color: #fab387;
+}
+
+.status-empty {
+  text-align: center;
+  padding: 40px;
+  color: #6c7086;
+  font-style: italic;
+  border: 1px dashed #313244;
+  border-radius: 10px;
+}
+
+.status-footer {
+  margin-top: 32px;
+  text-align: center;
+  font-size: 11px;
+  color: #45475a;
+  font-family: ui-monospace, monospace;
+}
+
+/* Responsive: stack service row on narrow screens */
+@media (max-width: 720px) {
+  .status-page { padding: 16px; }
+  .status-service {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .status-service-metrics {
+    justify-content: flex-start;
+  }
+  .status-service-metric {
+    align-items: flex-start;
+  }
+  .status-service-actions {
+    justify-content: flex-start;
+  }
+}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Cpu, MemoryStick, HardDrive } from 'lucide-react'
+import { Cpu, MemoryStick, HardDrive, Settings2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { api, SystemMetrics } from '../../api/client'
 import { SystemDetailsModal } from './SystemDetailsModal'
 
@@ -94,6 +95,7 @@ function Bar({ percent, color }: { percent: number; color: string }) {
 }
 
 export function SystemWidget() {
+  const navigate = useNavigate()
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null)
   const [error, setError] = useState<string | null>(null)
   const cpuHistoryRef = useRef<number[]>([])
@@ -165,6 +167,15 @@ export function SystemWidget() {
         <span className="system-widget-host" title={`${metrics.hostname} · ${metrics.platform}/${metrics.arch} · up ${formatUptime(metrics.uptimeSeconds)}`}>
           {metrics.hostname} · up {formatUptime(metrics.uptimeSeconds)}
         </span>
+        <button
+          type="button"
+          className="system-widget-open-status"
+          onClick={(e) => { e.stopPropagation(); navigate('/status') }}
+          title="Open the system status page — see + control every running Orka service"
+          aria-label="Open system status"
+        >
+          <Settings2 size={12} />
+        </button>
       </div>
 
       <div className="system-widget-tiles">

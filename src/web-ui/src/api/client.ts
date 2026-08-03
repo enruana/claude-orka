@@ -292,6 +292,26 @@ export interface SystemMetrics {
   sampledAt: string
 }
 
+// Orka-managed service catalog. Mirror of ServiceInfo in
+// src/server/api/system.ts.
+export type ServiceCategory = 'transcription' | 'hooks' | 'agents' | 'terminals' | 'other'
+export type ServiceAction = 'stop' | 'start' | 'restart'
+export interface ServiceInfo {
+  id: string
+  category: ServiceCategory
+  name: string
+  description: string
+  status: 'running' | 'ready' | 'stopped' | 'unknown'
+  pid?: number
+  port?: number
+  cpuPercent?: number
+  memPercent?: number
+  rssBytes?: number
+  startedAt?: number
+  actions: ServiceAction[]
+  metadata?: Record<string, string | number | undefined>
+}
+
 // Use origin-based URL for VPN/remote access compatibility
 const API_BASE = `${window.location.origin}/api`
 
@@ -383,6 +403,21 @@ export const api = {
   // Live host metrics for the launcher widget
   async getSystemMetrics(): Promise<SystemMetrics> {
     const res = await fetch(`${API_BASE}/system/metrics`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  // Orka-managed services (whisper, hooks, agents, ttyds, system term).
+  async getSystemServices(): Promise<{ services: ServiceInfo[]; sampledAt: string }> {
+    const res = await fetch(`${API_BASE}/system/services`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async runServiceAction(id: string, action: 'stop' | 'start' | 'restart'): Promise<{ ok: boolean; note?: string }> {
+    const res = await fetch(`${API_BASE}/system/services/${encodeURIComponent(id)}/${action}`, {
+      method: 'POST',
+    })
     if (!res.ok) throw new Error(await res.text())
     return res.json()
   },
