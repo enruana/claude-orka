@@ -273,6 +273,127 @@ function stripNonSpeech(text: string): string {
     .trim()
 }
 
+// ---------------------------------------------------------------
+// Whisper hallucination-loop guard
+// ---------------------------------------------------------------
+//
+// Whisper's greedy decoding sometimes gets stuck on a single token or
+// short n-gram and produces output like "to. to. to. to. to. to. …" or
+// "OK. OK. OK. OK. …" for the rest of the chunk. It happens most on
+// silence, background noise, or ambiguous transitions.
+//
+// Two things to fix:
+//   1. Collapse the runaway repetition in the emitted text so the user
+//      doesn't see the wall of duplicates.
+//   2. NEVER feed a degenerate chunk back as the `--prompt` for the next
+//      call — otherwise whisper sees "to. to. to." as context and keeps
+//      producing more "to.", cascading the failure across chunks.
+//
+// Detection is heuristic: token-uniqueness ratio + consecutive-repeat
+// runs at both the unigram and bigram level. Cheap enough to run on
+// every chunk; language-agnostic.
+
+/** How many times the same unigram/bigram must repeat consecutively to
+ *  be considered a hallucination run (rather than legit emphasis). */
+const REPEAT_RUN_THRESHOLD = 4
+/** Below this unique/total token ratio (on chunks with >= 8 tokens) the
+ *  chunk is considered degenerate — used as a defense-in-depth signal
+ *  in addition to the run detector. */
+const UNIQUE_RATIO_THRESHOLD = 0.35
+
+/** Split into whitespace tokens preserving punctuation for round-trip,
+ *  and produce a parallel normalized array for comparisons. Both arrays
+ *  have the same length so we can slice by index. */
+function tokenizeForRepeat(text: string): { raw: string[]; norm: string[] } {
+  const raw = text.split(/\s+/).filter(Boolean)
+  const norm = raw.map(normalizeWord)
+  return { raw, norm }
+}
+
+/**
+ * Collapse consecutive same-token runs (unigrams) and consecutive same-
+ * bigram runs into at most 2 occurrences. Preserves the first two so
+ * legitimate emphasis ("no no", "ok ok") survives, but any longer
+ * runaway ("to. to. to. to. …") gets trimmed. Returns the cleaned
+ * string and a boolean flagging whether a "significant" collapse
+ * happened — used by the caller to skip poisoning the prompt.
+ */
+function collapseRepetitions(text: string): { text: string; collapsed: boolean } {
+  const { raw, norm } = tokenizeForRepeat(text)
+  if (raw.length < 2) return { text, collapsed: false }
+
+  const kept: string[] = []
+  const keptNorm: string[] = []
+  let removedRun = 0
+
+  // Bigram-run collapse first: e.g. "muy bien muy bien muy bien" →
+  // "muy bien muy bien". Two-pointer sweep detecting if positions
+  // (i, i+1) match (i+2, i+3) and (i+4, i+5) ... — we skip forward
+  // past the run keeping only the first two repetitions.
+  let i = 0
+  while (i < raw.length) {
+    // Try bigram at position i.
+    if (i + 3 < raw.length && norm[i] && norm[i + 1] &&
+        norm[i] === norm[i + 2] && norm[i + 1] === norm[i + 3]) {
+      // Look ahead: how many bigram-repeats?
+      let repeats = 2
+      while (i + repeats * 2 + 1 < raw.length &&
+             norm[i] === norm[i + repeats * 2] &&
+             norm[i + 1] === norm[i + repeats * 2 + 1]) {
+        repeats++
+      }
+      if (repeats >= 3) {
+        // Keep only the first two bigrams; drop the rest of the run.
+        kept.push(raw[i], raw[i + 1], raw[i + 2], raw[i + 3])
+        keptNorm.push(norm[i], norm[i + 1], norm[i + 2], norm[i + 3])
+        removedRun += (repeats - 2) * 2
+        i += repeats * 2
+        continue
+      }
+    }
+    kept.push(raw[i])
+    keptNorm.push(norm[i])
+    i++
+  }
+
+  // Unigram-run collapse pass over the bigram-collapsed output.
+  const finalRaw: string[] = []
+  let removedUnigram = 0
+  let j = 0
+  while (j < kept.length) {
+    let runEnd = j + 1
+    while (runEnd < kept.length && keptNorm[runEnd] === keptNorm[j] && keptNorm[j].length > 0) {
+      runEnd++
+    }
+    const runLen = runEnd - j
+    if (runLen >= REPEAT_RUN_THRESHOLD) {
+      // Keep the first two, drop the rest.
+      finalRaw.push(kept[j], kept[j + 1])
+      removedUnigram += runLen - 2
+    } else {
+      for (let k = j; k < runEnd; k++) finalRaw.push(kept[k])
+    }
+    j = runEnd
+  }
+
+  const totalRemoved = removedRun + removedUnigram
+  // "Significant" collapse = we stripped at least 3 tokens AND stripped
+  // more than we kept (i.e. this chunk was mostly hallucination). This
+  // threshold is what gates the prompt-poisoning avoidance below.
+  const collapsed = totalRemoved >= 3 && totalRemoved > finalRaw.length
+  return { text: finalRaw.join(' '), collapsed }
+}
+
+/** Compression-ratio style secondary check: if a chunk has many tokens
+ *  but very few unique ones, treat it as degenerate even if no single
+ *  run tripped the threshold (edge case: interleaved "a b a b a b …"). */
+function isDegenerateChunk(text: string): boolean {
+  const { norm } = tokenizeForRepeat(text)
+  if (norm.length < 8) return false
+  const unique = new Set(norm.filter(Boolean))
+  return unique.size / norm.length < UNIQUE_RATIO_THRESHOLD
+}
+
 /**
  * Levenshtein distance — small helper for the fuzzy tail matcher below.
  * Two strings under distance 2 are treated as "the same word" for
@@ -417,7 +538,19 @@ async function tryFinalize(sess: Session): Promise<void> {
     // Strip [Música], (music), etc. BEFORE the dedup pass so the
     // annotation isn't the thing that gets matched between chunks.
     const speechOnly = stripNonSpeech(raw)
-    const cleaned = dedupHead(speechOnly, sess.emittedTail)
+    const seamCleaned = dedupHead(speechOnly, sess.emittedTail)
+    // Collapse whisper hallucination loops ("to. to. to. …") to at most
+    // two occurrences. Also flag when the collapse was significant so
+    // we can protect the next chunk's prompt from cascading the bug.
+    const { text: cleaned, collapsed } = collapseRepetitions(seamCleaned)
+    const degenerate = collapsed || isDegenerateChunk(seamCleaned)
+    if (degenerate) {
+      logger.warn(
+        `[transcribe-live ${sess.id}] hallucination-loop guard: ` +
+        `raw="${speechOnly.slice(0, 80)}${speechOnly.length > 80 ? '…' : ''}" ` +
+        `→ collapsed="${cleaned.slice(0, 80)}${cleaned.length > 80 ? '…' : ''}"`
+      )
+    }
     if (!sess.closed && cleaned) {
       sendJson(sess.ws, {
         type: 'transcript',
@@ -433,7 +566,15 @@ async function tryFinalize(sess: Session): Promise<void> {
       })
       // Keep a rolling window of emitted text for the next prompt +
       // dedup pass. Bounded so it doesn't grow without limit.
-      sess.emittedTail = (sess.emittedTail + ' ' + cleaned).trim().slice(-EMITTED_TAIL_KEEP_CHARS)
+      //
+      // Prompt-poisoning guard: if this chunk was degenerate, DO NOT
+      // append it to the tail — whisper uses emittedTail as `--prompt`
+      // and a runaway pattern in the prompt biases the model to keep
+      // producing the same runaway, cascading the failure. Skipping
+      // just this chunk leaves the previous good context in place.
+      if (!degenerate) {
+        sess.emittedTail = (sess.emittedTail + ' ' + cleaned).trim().slice(-EMITTED_TAIL_KEEP_CHARS)
+      }
     }
   } catch (err) {
     logger.error(`[transcribe-live ${sess.id}] whisper failed`, err)
