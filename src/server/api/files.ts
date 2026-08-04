@@ -58,19 +58,29 @@ function escapeForJsString(s: string): string {
 }
 
 /**
- * Build the HTML/JS/CSS overlay that turns an HTML preview into a
- * review surface: text selection anywhere inside the document brings up
- * a floating "Add comment" button anchored to the end of the selection;
- * clicking it opens an inline dialog to type + save the comment.
+ * Build the HTML/JS/CSS overlay that turns an HTML preview into a full
+ * review surface with a persistent side rail (GitHub-PR-style):
  *
- * Everything is self-contained (no external requests except the two
- * `fetch`es to Orka's own API) so the injected snippet works in any
- * browser tab without depending on the parent SPA.
+ *  ┌──────────────────────────────────┬───────────────────────┐
+ *  │  Document (unchanged, ~65% wide) │  Rail (35% wide):     │
+ *  │                                  │   header + "Apply"    │
+ *  │  Selection → floating "+" btn    │   card 1              │
+ *  │                                  │   card 2              │
+ *  │  Selected phrases stay marked    │   …                   │
+ *  │  and click-linked to their card. │                       │
+ *  └──────────────────────────────────┴───────────────────────┘
  *
- * `filePath` is passed to the widget so the created comment carries the
- * project-relative path (comments are looked up by filePath elsewhere).
- * Line numbers are computed against the file's own source, fetched
- * once via `/api/files/content` and cached for subsequent comments.
+ * On save, the new comment appears as a card in the rail with a slide-
+ * in animation; the source phrase in the doc gets a subtle yellow
+ * highlight linked back to the card.
+ *
+ * "Apply with Claude" composes a Spanish prompt (doc path + all
+ * pending comments + instructions to edit the file AND append an entry
+ * to the doc's `.changelog` — using a short note referencing the
+ * INTENT of the comment, not the full body) and copies it to the
+ * clipboard, ready to paste in a Claude session.
+ *
+ * Everything self-contained — same-origin fetch to Orka's own API only.
  */
 function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): string {
   const projectJs = escapeForJsString(opts.projectB64)
@@ -78,6 +88,202 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   const filePathQs = escapeForJsString(encodeURIComponent(opts.filePath))
   return `
 <style id="orka-comments-style">
+  /* ---- Rail as a FIXED overlay — the document's own layout is left
+          completely untouched. The rail lives on the right edge; by
+          default it's translated off-screen with just a small handle
+          poking in. Click the handle (or a highlighted phrase in the
+          doc) to open it. ---- */
+  #orka-review-rail {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 380px;
+    max-width: 90vw;
+    background: #f6f8fa;
+    border-left: 1px solid #d0d7de;
+    display: flex;
+    flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #1f2328;
+    z-index: 2147483645;
+    /* Fully off-screen by default — no strip of the rail poking out. */
+    transform: translateX(100%);
+    transition: transform 0.22s ease-out;
+    box-shadow: -8px 0 32px rgba(0,0,0,0.10);
+  }
+  body.orka-rail-open #orka-review-rail {
+    transform: translateX(0);
+  }
+  .orka-rail-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid #d0d7de;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: sticky; top: 0; z-index: 5;
+  }
+  .orka-rail-title {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; font-weight: 600;
+  }
+  .orka-rail-count {
+    background: #eaeef2; color: #57606a;
+    padding: 1px 8px; border-radius: 999px;
+    font-family: ui-monospace, monospace; font-size: 11px;
+  }
+  .orka-rail-apply {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 0;
+    background: #ea580c;
+    color: white;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .orka-rail-apply:hover { filter: brightness(1.08); }
+  .orka-rail-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+  .orka-rail-apply.flash-ok { background: #16a34a; }
+  .orka-rail-actions {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .orka-rail-toggle {
+    border: 1px solid #d0d7de;
+    background: white;
+    color: #57606a;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .orka-rail-toggle:hover { color: #24292f; }
+
+  .orka-rail-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .orka-rail-empty {
+    text-align: center;
+    color: #6e7781;
+    font-style: italic;
+    font-size: 13px;
+    padding: 40px 20px;
+    line-height: 1.5;
+  }
+
+  /* ---- Comment card ---- */
+  .orka-comment-card {
+    background: white;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+    padding: 12px;
+    animation: orka-card-in 0.22s ease-out;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .orka-comment-card:hover {
+    border-color: #ea580c;
+  }
+  .orka-comment-card.active {
+    border-color: #ea580c;
+    box-shadow: 0 0 0 2px rgba(234,88,12,0.15);
+  }
+  .orka-comment-card.resolved {
+    opacity: 0.6;
+    border-style: dashed;
+  }
+  .orka-card-snippet {
+    background: #fff8e1;
+    border-left: 3px solid #eab308;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: #57606a;
+    font-family: ui-monospace, monospace;
+    border-radius: 3px;
+    max-height: 70px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: pre-wrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    margin-bottom: 8px;
+  }
+  .orka-card-body {
+    font-size: 13px;
+    color: #1f2328;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    margin-bottom: 6px;
+  }
+  .orka-card-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: #6e7781;
+    padding-top: 6px;
+    border-top: 1px dashed #eaeef2;
+  }
+  .orka-card-actions { display: flex; gap: 4px; }
+  .orka-card-btn {
+    background: transparent;
+    border: 0;
+    color: #6e7781;
+    cursor: pointer;
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: inherit;
+    transition: color 0.12s, background 0.12s;
+  }
+  .orka-card-btn:hover { background: #eaeef2; color: #1f2328; }
+  .orka-card-btn.danger:hover { background: #ffe5e5; color: #dc2626; }
+
+  @keyframes orka-card-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* ---- Highlighted phrase in the doc ----
+     Kept minimal on purpose: just a soft yellow background so it works
+     over any host document. !important because many host docs set their
+     own 'mark' styles that would otherwise win. box-decoration-break
+     keeps the background visually contiguous when a mark wraps across
+     several lines within the same block. Marks NEVER contain block
+     elements — the JS splits big selections into one <mark> per text
+     node, so this style always paints only inline text. */
+  mark.orka-comment-mark,
+  .orka-comment-mark {
+    background: rgba(234,179,8,0.35) !important;
+    color: inherit !important;
+    padding: 0 1px !important;
+    border-radius: 2px !important;
+    cursor: pointer !important;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    transition: background 0.15s;
+  }
+  mark.orka-comment-mark:hover,
+  .orka-comment-mark:hover {
+    background: rgba(234,179,8,0.55) !important;
+  }
+  mark.orka-comment-mark.active,
+  .orka-comment-mark.active {
+    background: rgba(234,88,12,0.45) !important;
+    outline: 1px solid rgba(234,88,12,0.85) !important;
+    outline-offset: 0;
+  }
+
+  /* ---- Floating "add" button on selection ---- */
   .orka-add-comment-btn {
     position: absolute;
     z-index: 2147483646;
@@ -89,55 +295,56 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     color: white;
     font-size: 12px;
     font-weight: 600;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     cursor: pointer;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     line-height: 1;
     user-select: none;
   }
   .orka-add-comment-btn:hover { filter: brightness(1.08); }
+
+  /* ---- Write dialog (modal for typing) ---- */
   .orka-comment-dialog-overlay {
     position: fixed; inset: 0; z-index: 2147483647;
     background: rgba(0,0,0,0.45); backdrop-filter: blur(2px);
     display: flex; align-items: center; justify-content: center;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
   }
   .orka-comment-dialog {
-    background: #ffffff; color: #1a1a1a;
+    background: white; color: #1a1a1a;
     border-radius: 12px; width: min(520px, 92vw);
     padding: 20px 22px; box-shadow: 0 30px 60px rgba(0,0,0,0.3);
     display: flex; flex-direction: column; gap: 12px;
   }
-  .orka-comment-dialog-title {
-    font-size: 15px; font-weight: 600; color: #1a1a1a; margin: 0;
-  }
+  .orka-comment-dialog-title { font-size: 15px; font-weight: 600; margin: 0; }
   .orka-comment-dialog-snippet {
     font-size: 12px; color: #444;
-    background: #f5f5f5; border-radius: 6px; padding: 8px 10px;
+    background: #fff8e1; border-radius: 6px; padding: 8px 10px;
     max-height: 100px; overflow: auto; white-space: pre-wrap;
-    border-left: 3px solid #ea580c;
+    border-left: 3px solid #eab308;
+    font-family: ui-monospace, monospace;
   }
   .orka-comment-dialog-textarea {
     width: 100%; min-height: 100px; padding: 10px;
     border: 1px solid #d1d5db; border-radius: 8px;
     font-family: inherit; font-size: 14px; resize: vertical;
-    color: #1a1a1a; background: white;
+    color: #1a1a1a; background: white; box-sizing: border-box;
   }
   .orka-comment-dialog-textarea:focus { outline: 2px solid #ea580c; outline-offset: 0; }
   .orka-comment-dialog-actions {
     display: flex; justify-content: flex-end; gap: 8px;
   }
   .orka-comment-dialog-btn {
-    padding: 8px 14px; border-radius: 8px; border: none;
+    padding: 8px 14px; border-radius: 8px; border: 0;
     font-family: inherit; font-size: 13px; font-weight: 600;
     cursor: pointer;
   }
   .orka-comment-dialog-btn.primary { background: #ea580c; color: white; }
   .orka-comment-dialog-btn.primary:hover { filter: brightness(1.08); }
-  .orka-comment-dialog-btn.secondary {
-    background: transparent; color: #444;
-  }
+  .orka-comment-dialog-btn.secondary { background: transparent; color: #444; }
   .orka-comment-dialog-btn.secondary:hover { background: #f0f0f0; }
+
+  /* ---- Toast ---- */
   .orka-comment-toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
     z-index: 2147483647;
@@ -153,6 +360,63 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     from { opacity: 0; transform: translate(-50%, 10px); }
     to { opacity: 1; transform: translate(-50%, 0); }
   }
+
+  /* ---- Handle — always-visible orange button pinned to the viewport
+          right edge (or bottom on mobile). Fixed positioning means it
+          survives the rail sliding on/off screen. Hidden when the rail
+          is open so it doesn't overlap the close button. ---- */
+  .orka-rail-handle {
+    position: fixed;
+    right: 0; top: 20px;
+    width: 44px; min-height: 52px;
+    background: #ea580c; color: white;
+    border: 0;
+    border-radius: 8px 0 0 8px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 2px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 20px;
+    box-shadow: -4px 0 14px rgba(0,0,0,0.18);
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    padding: 8px 0;
+    z-index: 2147483646;
+    transition: transform 0.18s ease-out;
+  }
+  .orka-rail-handle:hover { transform: translateX(-3px); }
+  .orka-rail-handle-badge {
+    font-size: 10px;
+    font-weight: 700;
+    background: white;
+    color: #ea580c;
+    border-radius: 999px;
+    padding: 1px 6px;
+    min-width: 16px;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .orka-rail-handle-badge[data-count="0"] { display: none; }
+  body.orka-rail-open .orka-rail-handle { display: none; }
+
+  @media (max-width: 800px) {
+    #orka-review-rail {
+      width: 100vw;
+      max-width: 100vw;
+      top: auto; height: 70vh;
+      transform: translateY(100%);
+      border-left: 0;
+      border-top: 1px solid #d0d7de;
+    }
+    body.orka-rail-open #orka-review-rail { transform: translateY(0); }
+    .orka-rail-handle {
+      right: 20px; bottom: 20px; top: auto;
+      border-radius: 999px;
+      width: 52px; height: 52px;
+      flex-direction: row;
+    }
+    .orka-rail-handle:hover { transform: translateY(-3px); }
+  }
 </style>
 <script id="orka-comments-widget">
 (function() {
@@ -161,51 +425,136 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   var FILE_PATH_QS = '${filePathQs}';
   var API_BASE = window.location.origin + '/api';
 
-  var sourceText = null;
+  // Local mirror of the rail state — comments array + a map by id for
+  // quick lookup when highlighting / deleting.
+  var comments = [];        // sorted newest-first
+  var byId = Object.create(null);
+  var activeId = null;
+
   // Fetch the raw file source once so we can compute accurate line
-  // numbers for each comment. If it fails (network / permissions), we
-  // fall back to line 1 — the comment still carries selectedText so
-  // context is preserved for review consumers.
+  // numbers for each comment. Cached; falls back to line 1 on failure.
+  var sourceText = null;
   fetch(API_BASE + '/files/content?project=' + encodeURIComponent(PROJECT_B64) + '&path=' + FILE_PATH_QS)
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(d) { if (d && typeof d.content === 'string') sourceText = d.content; })
     .catch(function() {});
 
-  var btn = document.createElement('button');
-  btn.className = 'orka-add-comment-btn';
-  btn.type = 'button';
-  btn.textContent = '💬 Add comment';
-  document.body.appendChild(btn);
+  // -------- DOM shell: rail as a FIXED overlay -----------------------
+  //
+  // We DO NOT touch the document body's layout — the doc keeps rendering
+  // exactly as it would without the overlay. The rail is a fixed panel
+  // on the right edge, hidden by transform, with a small handle that
+  // pokes out (and shows a count badge when there are comments). Click
+  // the handle OR any highlighted phrase to open the rail. Click a
+  // card's × or use Esc to close it again. reviewContent is just an
+  // alias so the rest of the code can pretend "the doc content" is
+  // still a container — but we resolve it to document.body so
+  // selection lookups + highlight walks work over the whole document.
+  var reviewContent = document.body;
 
-  var savedSelection = null;
+  // Handle button lives OUTSIDE the rail so position:fixed on it is
+  // not affected by the rail own transform.
+  var handleBtn = document.createElement('button');
+  handleBtn.type = 'button';
+  handleBtn.className = 'orka-rail-handle';
+  handleBtn.id = 'orka-rail-handle';
+  handleBtn.title = 'Abrir comentarios de revisión';
+  handleBtn.innerHTML =
+    '<span>💬</span>' +
+    '<span class="orka-rail-handle-badge" id="orka-rail-handle-badge" data-count="0">0</span>';
+  document.body.appendChild(handleBtn);
+
+  var rail = document.createElement('aside');
+  rail.id = 'orka-review-rail';
+  rail.innerHTML =
+    '<div class="orka-rail-header">' +
+      '<div class="orka-rail-title">' +
+        '<span>Comentarios de revisión</span>' +
+        '<span class="orka-rail-count" id="orka-rail-count">0</span>' +
+      '</div>' +
+      '<div class="orka-rail-actions">' +
+        '<button type="button" class="orka-rail-apply" id="orka-rail-apply" disabled title="Copia un prompt para Claude con todos los comentarios y las instrucciones para aplicarlos + registrar en el changelog">' +
+          '<span>Aplicar con Claude</span>' +
+        '</button>' +
+        '<button type="button" class="orka-rail-toggle" id="orka-rail-toggle-btn" title="Cerrar panel">×</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="orka-rail-body" id="orka-rail-body">' +
+      '<div class="orka-rail-empty" id="orka-rail-empty">' +
+        'Aún no hay comentarios.<br>' +
+        'Selecciona texto en el documento y usa el botón flotante para agregar.' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(rail);
+
+  var railBody = rail.querySelector('#orka-rail-body');
+  var railEmpty = rail.querySelector('#orka-rail-empty');
+  var railCount = rail.querySelector('#orka-rail-count');
+  var applyBtn = rail.querySelector('#orka-rail-apply');
+  var toggleBtn = rail.querySelector('#orka-rail-toggle-btn');
+  var handleBadge = document.getElementById('orka-rail-handle-badge');
+
+  function openRail() { document.body.classList.add('orka-rail-open'); }
+  function closeRail() { document.body.classList.remove('orka-rail-open'); }
+  handleBtn.addEventListener('click', openRail);
+  toggleBtn.addEventListener('click', closeRail);
+  // Esc closes the rail (only if focus isn't inside a textarea).
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    var t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
+    if (document.body.classList.contains('orka-rail-open')) closeRail();
+  });
+
+  // -------- Selection → floating "+" button --------------------------
+
+  var addBtn = document.createElement('button');
+  addBtn.className = 'orka-add-comment-btn';
+  addBtn.type = 'button';
+  addBtn.textContent = '💬 Comentar';
+  document.body.appendChild(addBtn);
+
   var currentSelectedText = '';
 
-  function hideBtn() { btn.style.display = 'none'; }
-  function positionBtn(range) {
+  function hideAddBtn() { addBtn.style.display = 'none'; }
+
+  function positionAddBtn(range) {
     var rect = range.getBoundingClientRect();
     var top = window.scrollY + rect.bottom + 6;
     var left = Math.min(window.scrollX + rect.right, window.scrollX + window.innerWidth - 140);
-    btn.style.top = top + 'px';
-    btn.style.left = left + 'px';
-    btn.style.display = 'block';
+    addBtn.style.top = top + 'px';
+    addBtn.style.left = left + 'px';
+    addBtn.style.display = 'block';
   }
 
   function checkSelection() {
     var sel = window.getSelection();
-    if (!sel || sel.isCollapsed) { hideBtn(); return; }
+    if (!sel || sel.isCollapsed) { hideAddBtn(); return; }
     var text = sel.toString().trim();
-    if (!text) { hideBtn(); return; }
+    if (!text) { hideAddBtn(); return; }
+    // Only accept selections inside the doc content (not in the rail).
+    var anchorEl = sel.anchorNode && sel.anchorNode.nodeType === 3
+      ? sel.anchorNode.parentElement : sel.anchorNode;
+    if (!anchorEl || !reviewContent.contains(anchorEl)) { hideAddBtn(); return; }
     var range = sel.getRangeAt(0);
     currentSelectedText = text;
-    positionBtn(range);
+    positionAddBtn(range);
   }
 
   document.addEventListener('mouseup', function() { setTimeout(checkSelection, 10); });
   document.addEventListener('touchend', function() { setTimeout(checkSelection, 150); });
   document.addEventListener('selectionchange', function() {
     var sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.toString().trim()) hideBtn();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) hideAddBtn();
   });
+
+  addBtn.addEventListener('mousedown', function(e) { e.preventDefault(); });
+  addBtn.addEventListener('click', function() {
+    if (!currentSelectedText) return;
+    openDialog(currentSelectedText);
+  });
+
+  // -------- Helpers --------------------------------------------------
 
   function computeLineRange(text) {
     if (!sourceText) return { startLine: 1, endLine: 1 };
@@ -229,32 +578,340 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     }, 1800);
   }
 
+  function relTime(iso) {
+    var t = Date.parse(iso);
+    if (isNaN(t)) return '';
+    var s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (s < 60) return 'hace ' + s + 's';
+    var m = Math.floor(s / 60);
+    if (m < 60) return 'hace ' + m + ' min';
+    var h = Math.floor(m / 60);
+    if (h < 24) return 'hace ' + h + ' h';
+    return new Date(t).toISOString().slice(0, 10);
+  }
+
+  // -------- Highlight matching text in the doc ----------------------
+
+  // Highlight the phrase in the doc — 3-tier strategy so that most
+  // selections (even ones spanning inline tags) get a visible mark:
+  //
+  //  1. FAST PATH: TreeWalker finds the phrase inside a single text
+  //     node, wrap with surroundContents. Works for ~80% of selections.
+  //
+  //  2. CROSS-NODE PATH: normalize the doc's text content into a flat
+  //     string, find the phrase's offset, then reconstruct a Range that
+  //     spans multiple text nodes. Use extractContents + insertNode to
+  //     wrap it — surroundContents throws on partial-node ranges but
+  //     extract/insert does not. Works when the selection crossed
+  //     inline formatting like <strong>, <em>, <a>.
+  //
+  //  3. FALLBACK: on any failure, do nothing visually — the comment is
+  //     still saved and shows up in the rail, just without a mark in
+  //     the doc.
+  //
+  // The walker skips the rail's own DOM so we never highlight text
+  // inside a card snippet by accident.
+  function isInRail(node) {
+    var el = node && (node.nodeType === 3 ? node.parentElement : node);
+    return el ? !!el.closest('#orka-review-rail') : false;
+  }
+
+  function attachMark(mark, commentId) {
+    mark.className = 'orka-comment-mark';
+    mark.dataset.commentId = commentId;
+    mark.addEventListener('click', function(e) {
+      e.stopPropagation();
+      openRail();
+      setActive(commentId, 'from-doc');
+    });
+  }
+
+  function highlightPhrase(phrase, commentId) {
+    if (!phrase) return null;
+
+    // Tier 1: single-text-node substring match.
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    var node;
+    while ((node = walker.nextNode())) {
+      if (isInRail(node)) continue;
+      if (node.parentElement && node.parentElement.closest('mark.orka-comment-mark')) continue;
+      var idx = node.nodeValue.indexOf(phrase);
+      if (idx === -1) continue;
+      var range = document.createRange();
+      range.setStart(node, idx);
+      range.setEnd(node, idx + phrase.length);
+      try {
+        var mark = document.createElement('mark');
+        range.surroundContents(mark);
+        attachMark(mark, commentId);
+        return mark;
+      } catch (e) {
+        // fall through to tier 2
+      }
+      break;
+    }
+
+    // Tier 2: cross-node span. Build a flat map of every text node
+    // outside the rail with its cumulative character offset, find the
+    // phrase in the joined string, then reconstruct the Range.
+    var textNodes = [];
+    var joined = '';
+    var w2 = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    var n2;
+    while ((n2 = w2.nextNode())) {
+      if (isInRail(n2)) continue;
+      if (n2.parentElement && n2.parentElement.closest('mark.orka-comment-mark')) continue;
+      textNodes.push({ node: n2, start: joined.length, end: joined.length + n2.nodeValue.length });
+      joined += n2.nodeValue;
+    }
+    // Normalize the phrase's whitespace the same way the browser
+    // renders it — selection strings often collapse consecutive
+    // whitespace whereas source text keeps it. If the exact phrase
+    // isn't there, try a whitespace-collapsed variant on both sides.
+    var idx2 = joined.indexOf(phrase);
+    if (idx2 < 0) {
+      var collapsed = phrase.replace(/\\s+/g, ' ');
+      var joinedCol = joined.replace(/\\s+/g, ' ');
+      var idxCol = joinedCol.indexOf(collapsed);
+      if (idxCol >= 0) {
+        idx2 = idxCol;
+      }
+    }
+    if (idx2 < 0) return null;
+    var startAbs = idx2;
+    var endAbs = idx2 + phrase.length;
+    var startNode = null, startOffset = 0;
+    var endNode = null, endOffset = 0;
+    for (var i = 0; i < textNodes.length; i++) {
+      var tn = textNodes[i];
+      if (startNode == null && tn.end >= startAbs) {
+        startNode = tn.node;
+        startOffset = Math.max(0, startAbs - tn.start);
+      }
+      if (endNode == null && tn.end >= endAbs) {
+        endNode = tn.node;
+        endOffset = Math.max(0, Math.min(tn.node.nodeValue.length, endAbs - tn.start));
+        break;
+      }
+    }
+    if (!startNode || !endNode) return null;
+
+    // Wrap EACH text node inside the range independently. Never wrap
+    // a Range that spans block elements — a single <mark> containing a
+    // whole <section>/<div>/<li> would render as a giant colored
+    // rectangle around block content (a <mark> is an inline element).
+    // We visit every text node between start and end, compute the
+    // sub-slice of that text node that falls inside the range, and
+    // wrap only that slice.
+    try {
+      var full = document.createRange();
+      full.setStart(startNode, startOffset);
+      full.setEnd(endNode, endOffset);
+      var common = full.commonAncestorContainer;
+      // Range narrowed to the common ancestor's tree walker.
+      var w3 = document.createTreeWalker(
+        common.nodeType === 3 ? common.parentNode : common,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      var toWrap = [];
+      var seenStart = false;
+      var n3;
+      while ((n3 = w3.nextNode())) {
+        if (isInRail(n3)) continue;
+        if (n3.parentElement && n3.parentElement.closest('mark.orka-comment-mark')) continue;
+        if (!seenStart) {
+          if (n3 === startNode) seenStart = true; else continue;
+        }
+        var localStart = (n3 === startNode) ? startOffset : 0;
+        var localEnd = (n3 === endNode) ? endOffset : n3.nodeValue.length;
+        if (localEnd > localStart) toWrap.push({ node: n3, start: localStart, end: localEnd });
+        if (n3 === endNode) break;
+      }
+      if (toWrap.length === 0) return null;
+      var firstMark = null;
+      for (var k = 0; k < toWrap.length; k++) {
+        var it = toWrap[k];
+        // Skip whitespace-only slices — wrapping " " between blocks
+        // just adds visual noise on the page.
+        if (!it.node.nodeValue.slice(it.start, it.end).trim()) continue;
+        var sub = document.createRange();
+        sub.setStart(it.node, it.start);
+        sub.setEnd(it.node, it.end);
+        try {
+          var m = document.createElement('mark');
+          sub.surroundContents(m);
+          attachMark(m, commentId);
+          if (!firstMark) firstMark = m;
+        } catch (subErr) {
+          // Skip this slice; keep going with the rest.
+        }
+      }
+      return firstMark;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setActive(id, source) {
+    activeId = id;
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.orka-comment-mark.active, .orka-comment-card.active'),
+      function(el) { el.classList.remove('active'); }
+    );
+    var card = document.querySelector('.orka-comment-card[data-comment-id="' + id + '"]');
+    // A single comment may be split across MULTIPLE <mark>s when the
+    // selection crossed inline formatting (e.g. plain text + <em> ...).
+    // Activate every mark that carries this comment id so they all
+    // switch to the orange focus state together — otherwise you get an
+    // orange + yellow split for one logical highlight.
+    var marks = document.querySelectorAll('.orka-comment-mark[data-comment-id="' + id + '"]');
+    if (card) card.classList.add('active');
+    for (var i = 0; i < marks.length; i++) marks[i].classList.add('active');
+    if (source === 'from-doc' && card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (source === 'from-rail' && marks.length > 0) {
+      marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  // -------- Rail rendering ------------------------------------------
+
+  function updateRailChrome() {
+    var n = comments.length;
+    railCount.textContent = String(n);
+    handleBadge.textContent = n > 99 ? '99+' : String(n);
+    handleBadge.dataset.count = String(n);
+    applyBtn.disabled = n === 0;
+    railEmpty.style.display = n === 0 ? '' : 'none';
+  }
+
+  function makeCard(c) {
+    var card = document.createElement('div');
+    card.className = 'orka-comment-card' + (c.resolved ? ' resolved' : '');
+    card.dataset.commentId = c.id;
+    card.innerHTML =
+      '<div class="orka-card-snippet"></div>' +
+      '<div class="orka-card-body"></div>' +
+      '<div class="orka-card-meta">' +
+        '<span class="orka-card-time"></span>' +
+        '<div class="orka-card-actions">' +
+          '<button type="button" class="orka-card-btn" data-action="resolve" title="Marcar como resuelto">✓</button>' +
+          '<button type="button" class="orka-card-btn danger" data-action="delete" title="Borrar comentario">✕</button>' +
+        '</div>' +
+      '</div>';
+    card.querySelector('.orka-card-snippet').textContent =
+      c.selectedText.length > 240 ? c.selectedText.slice(0, 240) + '…' : c.selectedText;
+    card.querySelector('.orka-card-body').textContent = c.body;
+    card.querySelector('.orka-card-time').textContent = relTime(c.createdAt) +
+      (c.startLine ? ' · L' + c.startLine + (c.endLine > c.startLine ? '-' + c.endLine : '') : '');
+
+    card.addEventListener('click', function(e) {
+      if (e.target.closest('.orka-card-btn')) return;
+      setActive(c.id, 'from-rail');
+    });
+    card.querySelector('[data-action="delete"]').addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (!window.confirm('¿Borrar este comentario?')) return;
+      fetch(API_BASE + '/projects/comments/' + encodeURIComponent(c.id) + '?project=' + encodeURIComponent(PROJECT_B64), {
+        method: 'DELETE',
+      }).then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        removeCommentLocal(c.id);
+        showToast('Comentario borrado');
+      }).catch(function(err) {
+        showToast('Falló borrado: ' + err.message, true);
+      });
+    });
+    card.querySelector('[data-action="resolve"]').addEventListener('click', function(e) {
+      e.stopPropagation();
+      var newState = !c.resolved;
+      fetch(API_BASE + '/projects/comments/' + encodeURIComponent(c.id) + '?project=' + encodeURIComponent(PROJECT_B64), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolved: newState }),
+      }).then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        c.resolved = newState;
+        card.classList.toggle('resolved', newState);
+      }).catch(function(err) {
+        showToast('Falló actualización: ' + err.message, true);
+      });
+    });
+    return card;
+  }
+
+  function addCommentLocal(c, opts) {
+    comments.unshift(c);
+    byId[c.id] = c;
+    var card = makeCard(c);
+    railBody.insertBefore(card, railBody.firstChild === railEmpty ? railEmpty.nextSibling : railBody.firstChild);
+    highlightPhrase(c.selectedText, c.id);
+    updateRailChrome();
+    if (opts && opts.focus) {
+      // User just wrote this — pop the rail open so they see the card land.
+      openRail();
+      setTimeout(function() { setActive(c.id, 'from-rail'); }, 100);
+    }
+  }
+
+  function removeCommentLocal(id) {
+    var idx = -1;
+    for (var i = 0; i < comments.length; i++) if (comments[i].id === id) { idx = i; break; }
+    if (idx >= 0) comments.splice(idx, 1);
+    delete byId[id];
+    var card = document.querySelector('.orka-comment-card[data-comment-id="' + id + '"]');
+    if (card) card.remove();
+    // Same "one comment can have many marks" story as setActive — unwrap
+    // every mark that belongs to this comment.
+    var allMarks = document.querySelectorAll('.orka-comment-mark[data-comment-id="' + id + '"]');
+    for (var mi = 0; mi < allMarks.length; mi++) {
+      var mm = allMarks[mi];
+      var parent = mm.parentNode;
+      while (mm.firstChild) parent.insertBefore(mm.firstChild, mm);
+      parent.removeChild(mm);
+    }
+    updateRailChrome();
+  }
+
+  // -------- Initial load: fetch existing comments for this file ------
+
+  fetch(API_BASE + '/projects/comments?project=' + encodeURIComponent(PROJECT_B64))
+    .then(function(r) { return r.ok ? r.json() : []; })
+    .then(function(all) {
+      if (!Array.isArray(all)) return;
+      var mine = all.filter(function(c) { return c.filePath === FILE_PATH; });
+      // Sort newest first (createdAt desc) so freshest goes on top.
+      mine.sort(function(a, b) { return (b.createdAt || '').localeCompare(a.createdAt || ''); });
+      // Insert in reverse so DOM order matches sorted-desc (unshift prepends).
+      for (var i = mine.length - 1; i >= 0; i--) addCommentLocal(mine[i], null);
+    })
+    .catch(function() {});
+
+  // -------- Write dialog --------------------------------------------
+
   function openDialog(selectedText) {
     var overlay = document.createElement('div');
     overlay.className = 'orka-comment-dialog-overlay';
     overlay.innerHTML =
       '<div class="orka-comment-dialog" role="dialog" aria-modal="true">' +
-        '<h3 class="orka-comment-dialog-title">Add review comment</h3>' +
+        '<h3 class="orka-comment-dialog-title">Nuevo comentario de revisión</h3>' +
         '<div class="orka-comment-dialog-snippet"></div>' +
-        '<textarea class="orka-comment-dialog-textarea" placeholder="Write your comment…"></textarea>' +
+        '<textarea class="orka-comment-dialog-textarea" placeholder="Escribí tu comentario… (Cmd/Ctrl+Enter para guardar)"></textarea>' +
         '<div class="orka-comment-dialog-actions">' +
-          '<button type="button" class="orka-comment-dialog-btn secondary" data-action="cancel">Cancel</button>' +
-          '<button type="button" class="orka-comment-dialog-btn primary" data-action="save">Save comment</button>' +
+          '<button type="button" class="orka-comment-dialog-btn secondary" data-action="cancel">Cancelar</button>' +
+          '<button type="button" class="orka-comment-dialog-btn primary" data-action="save">Guardar</button>' +
         '</div>' +
       '</div>';
-
-    // Fill snippet via textContent to avoid HTML injection from the file.
     overlay.querySelector('.orka-comment-dialog-snippet').textContent =
       selectedText.length > 500 ? selectedText.slice(0, 500) + '…' : selectedText;
-
     document.body.appendChild(overlay);
+
     var textarea = overlay.querySelector('.orka-comment-dialog-textarea');
     setTimeout(function() { textarea.focus(); }, 30);
 
     function close() { overlay.remove(); }
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) close();
-    });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
 
     var saveBtn = overlay.querySelector('[data-action="save"]');
@@ -262,7 +919,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
       var body = textarea.value.trim();
       if (!body) return;
       saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving…';
+      saveBtn.textContent = 'Guardando…';
       var range = computeLineRange(selectedText);
       fetch(API_BASE + '/projects/comments?project=' + encodeURIComponent(PROJECT_B64), {
         method: 'POST',
@@ -277,16 +934,17 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
       }).then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
-      }).then(function() {
+      }).then(function(saved) {
         close();
         var sel = window.getSelection();
         if (sel) sel.removeAllRanges();
-        hideBtn();
-        showToast('Comment saved');
+        hideAddBtn();
+        addCommentLocal(saved, { focus: true });
+        showToast('Comentario guardado');
       }).catch(function(err) {
         saveBtn.disabled = false;
-        saveBtn.textContent = 'Save comment';
-        showToast('Failed: ' + (err && err.message ? err.message : 'unknown'), true);
+        saveBtn.textContent = 'Guardar';
+        showToast('Falló: ' + (err && err.message ? err.message : 'desconocido'), true);
       });
     }
     saveBtn.addEventListener('click', save);
@@ -296,10 +954,77 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     });
   }
 
-  btn.addEventListener('mousedown', function(e) { e.preventDefault(); });
-  btn.addEventListener('click', function() {
-    if (!currentSelectedText) return;
-    openDialog(currentSelectedText);
+  // -------- Apply with Claude: compose prompt + copy -----------------
+
+  function composeApplyPrompt() {
+    var active = comments.filter(function(c) { return !c.resolved; });
+    var lines = [];
+    lines.push('Aplicá los siguientes ' + active.length + ' comentarios de revisión al documento \`' + FILE_PATH + '\`.');
+    lines.push('');
+    lines.push('Para cada comentario:');
+    lines.push('1. Editá el archivo aplicando lo que el comentario pide.');
+    lines.push('2. Agregá una NUEVA entrada al \`.changelog ul\` del documento (más recientes primero si esa es la convención del archivo, sino al final). Incrementá \`data-version\` un patch (ej v1.0 → v1.1) o minor si el cambio es mayor.');
+    lines.push('3. La NOTA del changelog debe ser breve (~1 frase, en el mismo idioma del documento) y describir la INTENCIÓN del cambio — no copies el comentario textual, resumí. Ejemplo: "Ajustada la sección X para reflejar la corrección solicitada en revisión."');
+    lines.push('4. Actualizá el \`<p class="meta">\` "Versión actual" para que coincida con la nueva versión.');
+    lines.push('');
+    lines.push('Cuando termines:');
+    lines.push('- Resumí en 3-5 bullets qué cambios hiciste.');
+    lines.push('- Si algún comentario no se pudo aplicar (ambiguo, contradice otro, requiere aclaración), listalo aparte con el motivo.');
+    lines.push('- Marcá los comentarios aplicados como resueltos vía: \`orka\` no expone CLI para esto, así que sólo mencioná los IDs.');
+    lines.push('');
+    lines.push('Documento a editar (path relativo al proyecto): \`' + FILE_PATH + '\`');
+    lines.push('');
+    lines.push('Comentarios pendientes:');
+    for (var i = 0; i < active.length; i++) {
+      var c = active[i];
+      lines.push('');
+      lines.push('--- Comentario ' + (i + 1) + '/' + active.length + ' (id ' + c.id + ') ---');
+      lines.push('Texto seleccionado (L' + c.startLine + (c.endLine > c.startLine ? '-' + c.endLine : '') + '):');
+      lines.push('  """');
+      var snippet = c.selectedText.length > 400 ? c.selectedText.slice(0, 400) + '…' : c.selectedText;
+      snippet.split('\\n').forEach(function(line) { lines.push('  ' + line); });
+      lines.push('  """');
+      lines.push('Comentario:');
+      c.body.split('\\n').forEach(function(line) { lines.push('  ' + line); });
+    }
+    return lines.join('\\n');
+  }
+
+  function copyText(text) {
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        ok ? resolve() : reject(new Error('execCommand copy failed'));
+      } catch (e) { reject(e); }
+    });
+  }
+
+  applyBtn.addEventListener('click', function() {
+    var active = comments.filter(function(c) { return !c.resolved; });
+    if (active.length === 0) return;
+    var prompt = composeApplyPrompt();
+    copyText(prompt).then(function() {
+      applyBtn.classList.add('flash-ok');
+      var origHtml = applyBtn.innerHTML;
+      applyBtn.innerHTML = '<span>✓ Copiado (' + active.length + ')</span>';
+      setTimeout(function() {
+        applyBtn.classList.remove('flash-ok');
+        applyBtn.innerHTML = origHtml;
+      }, 1800);
+      showToast('Prompt copiado — pegalo en una sesión de Claude');
+    }).catch(function(err) {
+      showToast('Falló copia: ' + err.message, true);
+    });
   });
 })();
 </script>
