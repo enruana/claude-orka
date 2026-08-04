@@ -70,15 +70,20 @@ For each Jira issue:
 
 ## Step 4 — Apply the diff
 
-All human-facing text you write into the local board must be in **Spanish**
-— that includes `--title` and `--description`. Titles you can usually
-translate literally; `description` should be a short *explanatory* summary
-in Spanish (not a raw dump of the Jira description). See "Spanish
-description shape" below.
+All human-facing text you write into the local board must be in
+**English** — that includes `--title` and `--description`. Titles can
+usually be a direct translation; `description` should be a short
+*explanatory* summary in English (not a raw dump of the Jira
+description). See "English description shape" below.
+
+**Output language: English throughout.** Use natural, moderate
+vocabulary — the kind a technical friend would use over Slack. Prefer
+common verbs (`fix`, `add`, `update`, `check`) over academic ones. Keep
+sentences short.
 
 For each ticket:
 
-- **New in Jira, absent locally** → `orka board add-task --board <id> --key <k> --title "<título en español>" --description "<resumen en español>" --status <mapped> --assignee "..." --priority "..." --labels "l1,l2"`. Include `--raw '<escaped JSON>'` if the ticket has custom fields worth preserving.
+- **New in Jira, absent locally** → `orka board add-task --board <id> --key <k> --title "<English title>" --description "<English summary>" --status <mapped> --assignee "..." --priority "..." --labels "l1,l2"`. Include `--raw '<escaped JSON>'` if the ticket has custom fields worth preserving.
 
 - **Local exists, Jira changed non-status fields** → `orka board update-task --board <id> --key <k> --title "..." --description "..." --priority "..." --assignee "..."`. Never overwrite `kbEntityId`, `claudeSessionId`, `terminalPaneId`, `ttydPort`, `worktreePath`, or `branchName` — those are local-only.
 
@@ -86,26 +91,29 @@ For each ticket:
 
 - **Status changed in Jira** — see Step 5 (drift).
 
-### Spanish description shape
+### English description shape
 
-For every task you add or update, synthesize a 3–8 sentence description in
-Spanish that a developer landing on the board can read and grasp fast.
+For every task you add or update, write a 3–8 sentence description in
+English that a developer landing on the board can read and grasp fast.
 Prefer explanatory prose over bullet lists. Cover, in this order:
 
-1. **¿Qué es?** — resumen concreto de lo que pide el ticket, en 1–2 frases.
-2. **¿Por qué?** — motivación / problema que resuelve o intención del PM,
-   inferida del cuerpo del ticket, los comentarios, y el label / componente.
-3. **Contexto útil** — dependencias, tickets relacionados (por key),
-   componentes del código si el ticket los menciona.
+1. **What is it?** — a concrete summary of what the ticket asks for,
+   in 1–2 sentences.
+2. **Why?** — the motivation, the problem it solves, or the PM's
+   intent, inferred from the ticket body, comments, and the label /
+   component.
+3. **Useful context** — dependencies, related tickets (by key), and
+   code components if the ticket mentions them.
 
-Ejemplo (tono buscado):
-> Añade filtros por país al listado de facturas para que el equipo de
-> finanzas pueda cerrar mes sin exportar todo a Excel. El ticket nace de
-> una petición de Legal (comentario del 12/07) y bloquea PROJ-98, que ya
-> depende de este filtro para el reporte trimestral.
+Example (this is the tone we want):
+> Add country filters to the invoice list so the finance team can close
+> the month without exporting everything to Excel. This ticket comes
+> from a request Legal made in the July 12 comment thread. It blocks
+> PROJ-98, which already depends on this filter for the quarterly
+> report.
 
-Nunca escribas la descripción como "traducción literal del ticket" — es
-una explicación pensada para el humano que va a trabajar en la tarea.
+Never write the description as a "literal translation of the ticket" —
+it is an explanation aimed at the human who will work on the task.
 
 ---
 

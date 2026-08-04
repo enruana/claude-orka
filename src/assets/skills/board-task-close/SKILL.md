@@ -1,6 +1,6 @@
 ---
 name: board-task-close
-description: Post-merge cleanup ritual for a board task-terminal — the ticket work is DONE (PR already merged / feature already in prod). Enumerates every artifact the task produced (PR, code files, docs, spin-off KB entities, infra changes, feature flags, tests, repro commands), enriches the task's overview.html with a "Cierre" section that indexes all of it in Spanish plus a "Replica y validación" section covering how to reproduce locally, verify in prod, tests executed, edge cases handled, and rollback plan. Then closes the KB entity, comments + transitions Jira, and finally cleans up the worktree + terminal. Load when the user hits Wrap up in the task modal.
+description: Post-merge cleanup ritual for a board task-terminal — the ticket work is DONE (PR already merged / feature already in prod). Enumerates every artifact the task produced (PR, code files, docs, spin-off KB entities, infra changes, feature flags, tests, repro commands), enriches the task's overview.html with a "Wrap-up" section that indexes all of it in English plus a "Reproduction & validation" section covering how to reproduce locally, verify in prod, tests executed, edge cases handled, and rollback plan. Then closes the KB entity, comments + transitions Jira, and finally cleans up the worktree + terminal. Load when the user hits Wrap up in the task modal.
 ---
 
 # Board Task — Wrap Up (post-merge cleanup)
@@ -12,6 +12,14 @@ whatever the definition of shipped is for this repo). Your job is
 stop and warn the user before doing anything else — see Failure modes.
 
 Prerequisite reading: `board-guide` (schema + CLI), `kb-guide`, `board-jira-api`.
+
+**Output language: English throughout** — every user-visible artifact
+this skill produces (the overview.html wrap-up section, the KB entity
+properties, the Jira comment, the terminal recap). Use natural,
+moderate vocabulary — the kind a technical friend would use over Slack.
+Prefer common verbs (`fix`, `add`, `update`, `check`, `ship`) over
+academic ones. Keep sentences short. Avoid idioms. Being direct is
+fine.
 
 Placeholders provided:
 - `taskKey`, `taskTitle`, `jiraUrl`, `boardId`, `projectPath`
@@ -35,10 +43,10 @@ gh pr view --json state,mergedAt,url 2>/dev/null || echo "no PR"
 If `state` is `MERGED`: capture `url` and `mergedAt`, continue.
 
 If `state` is `OPEN` or `DRAFT`: **stop**. Print a warning to the user:
-"El PR aún está abierto en <url>. Wrap up asume que el ticket ya está
-cerrado — si quieres cerrar el PR primero mergéalo o corre este ritual
-después." Do not proceed with worktree removal or Jira transition until
-the user confirms.
+"The PR is still open at <url>. Wrap up assumes the ticket has already
+shipped — if you want to close it, merge the PR first or run this
+ritual afterwards." Do not proceed with worktree removal or the Jira
+transition until the user confirms.
 
 If `state` is `CLOSED` without merge: ask the user — abandoned or WIP?
 Don't assume.
@@ -177,7 +185,7 @@ back if it starts misbehaving. Gather:
      git diff --name-only <baseBranch>..<mergedRef> -- \
        '*test*' '*spec*' '__tests__/' 'tests/' 'e2e/' 'cypress/' 'playwright/'
      ```
-     Para cada archivo, 1 frase de qué caso cubre.
+     For each file, one sentence about what case it covers.
   3. **QA manual** que hayas hecho vos o el usuario durante la sesión.
      Escaneá el historial de tool calls: sesiones de browser
      automation, ejecuciones ad-hoc de curl, invocaciones de scripts
@@ -195,15 +203,15 @@ back if it starts misbehaving. Gather:
   de datos si hubo migración destructiva (link al backup / snapshot).
   Si la feature es "safe to leave forward" (idempotente, backward-
   compatible, sin migración), anotá "no requiere rollback — safe to
-  leave forward" con el motivo en 1 frase.
+  leave forward" with the reason in one sentence.
 
 Guardá esto en el índice en memoria como `validation = { repro, flags, verifyProd, dashboards, tests, edgeCases, rollback }`. Vas a
 inyectarlo en el `overview.html` en el Step 3 dentro de la sección
-"Replica y validación".
+"Reproduction & validation".
 
 ---
 
-## Step 3 — Update overview.html with a "Cierre" section
+## Step 3 — Update overview.html with a "Wrap-up" section
 
 **Do this BEFORE the destructive steps.** If wrap-up aborts halfway
 (user cancels, transition fails, whatever), the paper trail is still
@@ -213,203 +221,204 @@ Read the current `<worktreePath>/.claude-orka/.orka-kb/entities/.../<kbEntityId>
 (path is the entity's `master_doc` property from init).
 
 Insert a NEW `<section>` **immediately before** the `<p class="meta">`
-line, and bump the changelog + `.meta` "Versión actual" to the next
+line, and bump the changelog + `.meta` "Current version" to the next
 version. Structure:
 
 ```html
-<section id="cierre">
-  <h2>Cierre — trabajo entregado</h2>
+<section id="wrap-up">
+  <h2>Wrap-up — work delivered</h2>
 
   <p class="closing-summary">
-    <!-- 2-3 párrafos en español, hablados, naturales. Qué se hizo,
-         cómo, con qué consecuencias. Escribe como si le explicaras al
-         próximo dev que tome esta área. No copies el título del PR ni
-         el checklist del ticket — sintetiza el desenlace real. -->
-    Se implementó ... resolviendo ... . La aproximación fue ... porque
-    ... . Como consecuencia, ... .
+    <!-- 2-3 short paragraphs, spoken and natural. What was done, how,
+         and what changed as a result. Write as if you were explaining
+         it to the next developer who will pick up this area. Do not
+         copy the PR title or the ticket checklist — describe the real
+         outcome. -->
+    We built ... so that ... . The approach was ... because ... . As a
+    result, ... .
   </p>
 
-  <h3>Cambios entregados</h3>
+  <h3>Changes delivered</h3>
   <ul>
-    <li>PR principal: <a href="<prUrl>">#<prNumber></a> — mergeado <mergedAt (fecha corta ES)>.</li>
-    <!-- Si hubo PRs adicionales: uno por línea -->
-    <li>Archivos clave (top del diff):
+    <li>Main PR: <a href="<prUrl>">#<prNumber></a> — merged on <mergedAt (short date)>.</li>
+    <!-- If there were extra PRs: one per line -->
+    <li>Key files (top of the diff):
       <ul>
-        <li><code><path/1></code> — <1 frase de qué cambia></li>
-        <li><code><path/2></code> — <1 frase></li>
-        <!-- máximo 5-8; si hay mucho más, cierra con "y N más — ver PR" -->
+        <li><code><path/1></code> — <one sentence about what changes></li>
+        <li><code><path/2></code> — <one sentence></li>
+        <!-- max 5-8; if there is more, close with "and N more — see the PR" -->
       </ul>
     </li>
-    <!-- Si hubo cambios de config/infra que NO están en el diff -->
-    <li>Config / infra: <breve descripción></li>
+    <!-- Config / infra changes that did NOT show up in the diff -->
+    <li>Config / infra: <short description></li>
   </ul>
 
-  <h3>Replica y validación</h3>
-  <!-- Todo lo del índice `validation` de la sub-sección 2.d.
-       Omite cualquier sub-bloque que no aplique (ej. sin feature flag →
-       sin bloque "Feature flags"). Nunca inventes URLs / comandos que
-       no probaste — mejor menos y correctos que muchos y ficticios. -->
+  <h3>Reproduction & validation</h3>
+  <!-- Everything from the `validation` index in Step 2.d. Skip any
+       sub-block that does not apply (e.g. no feature flag → drop the
+       "Feature flags" block). Never invent URLs or commands you did
+       not actually try — fewer and correct beats many and made-up. -->
 
-  <h4>Cómo reproducir localmente</h4>
+  <h4>How to reproduce locally</h4>
   <ol class="repro-steps">
     <li>
-      Requisitos previos: <ej. Node 20, docker corriendo, cuenta en X con permiso Y>.
+      Prerequisites: <e.g. Node 20, docker running, an account on X with permission Y>.
     </li>
     <li>
       Setup:
-      <pre><code>git checkout &lt;branchName o main&gt;
-&lt;install command, ej. pnpm install&gt;
-&lt;migración / seed si aplica&gt;</code></pre>
+      <pre><code>git checkout &lt;branchName or main&gt;
+&lt;install command, e.g. pnpm install&gt;
+&lt;migration / seed if needed&gt;</code></pre>
     </li>
     <li>
-      Arrancar:
-      <pre><code>&lt;dev command, ej. pnpm dev&gt;</code></pre>
+      Start:
+      <pre><code>&lt;dev command, e.g. pnpm dev&gt;</code></pre>
     </li>
     <li>
-      Verificar: abrí <a href="&lt;url local ej. http://localhost:3000/foo&gt;">&lt;path local&gt;</a>
-      y esperá &lt;el comportamiento observable, en 1 frase&gt;.
+      Check: open <a href="&lt;local URL e.g. http://localhost:3000/foo&gt;">&lt;local path&gt;</a>
+      and expect &lt;the observable behavior, in one sentence&gt;.
     </li>
-    <!-- Steps no-obvios (feature flag flip manual, seed, credencial
-         de prueba) van como <li> propios. -->
+    <!-- Non-obvious steps (manual feature flag flip, seed data, test
+         credential) go as their own <li>. -->
   </ol>
 
-  <h4>Feature flags y config</h4>
-  <!-- Omite este <h4>+<ul> si la entrega no tocó flags ni env. -->
+  <h4>Feature flags & config</h4>
+  <!-- Skip this <h4>+<ul> if the change did not touch flags or env vars. -->
   <ul>
     <li>
-      <code>&lt;flag_name&gt;</code> — &lt;qué controla en 1 frase&gt;.
-      Encendido en: dev · staging · prod. Se prende desde
-      <a href="&lt;dashboard/link/al/panel/de/flags&gt;">&lt;dónde&gt;</a>.
+      <code>&lt;flag_name&gt;</code> — &lt;what it controls, one sentence&gt;.
+      Turned on in: dev · staging · prod. Toggle it from
+      <a href="&lt;dashboard/link/to/flags panel&gt;">&lt;where&gt;</a>.
     </li>
     <li>
-      Env vars nuevas: <code>&lt;VAR_NAME&gt;</code> — &lt;qué es&gt;
-      (configurada en <code>&lt;.env / vercel / secret manager&gt;</code>,
-      NO inline).
+      New env vars: <code>&lt;VAR_NAME&gt;</code> — &lt;what it is&gt;
+      (configured in <code>&lt;.env / vercel / secret manager&gt;</code>,
+      NOT inline).
     </li>
   </ul>
 
-  <h4>Cómo verificar en producción</h4>
+  <h4>How to verify in production</h4>
   <ul>
     <li>
       URL / endpoint:
-      <a href="&lt;url prod ej. https://app.acme.com/foo&gt;">&lt;path prod&gt;</a>
-      · esperá &lt;comportamiento observable&gt;.
+      <a href="&lt;prod URL e.g. https://app.acme.com/foo&gt;">&lt;prod path&gt;</a>
+      · expect &lt;observable behavior&gt;.
     </li>
-    <!-- Para APIs: -->
+    <!-- For APIs: -->
     <li>
-      Endpoint API: <code>GET /api/…</code> — ejemplo:
+      API endpoint: <code>GET /api/…</code> — example:
       <pre><code>curl -sS 'https://api.acme.com/v1/…' \
-  -H 'Authorization: Bearer &lt;token de prueba, NO literal&gt;'</code></pre>
-      Respuesta esperada: &lt;shape + status en 1 frase&gt;.
+  -H 'Authorization: Bearer &lt;test token, NOT literal&gt;'</code></pre>
+      Expected response: &lt;shape + status in one sentence&gt;.
     </li>
-    <!-- Para jobs/workers: -->
+    <!-- For jobs / workers: -->
     <li>
-      Job / worker: se corre &lt;cuándo&gt;.
-      Verificar en <a href="&lt;dashboard/logs&gt;">&lt;dónde&gt;</a>
-      que aparece &lt;señal esperada&gt;.
-    </li>
-  </ul>
-
-  <h4>Observabilidad</h4>
-  <!-- Omite si no hay dashboards específicos. -->
-  <ul>
-    <li>
-      <a href="&lt;grafana/datadog/sentry link específico al panel&gt;">&lt;nombre del panel&gt;</a>
-      — &lt;qué métrica mira / cuál es el "healthy" esperado&gt;.
+      Job / worker: runs at &lt;when&gt;.
+      Check <a href="&lt;dashboard/logs&gt;">&lt;where&gt;</a>
+      to see &lt;the expected signal&gt;.
     </li>
   </ul>
 
-  <h4>Tests ejecutados</h4>
+  <h4>Observability</h4>
+  <!-- Skip if there are no relevant dashboards. -->
   <ul>
     <li>
-      CI del PR: &lt;N checks en verde, M en amarillo (con detalle)&gt;.
-      Ver <a href="&lt;url del PR /checks&gt;">status del PR</a>.
+      <a href="&lt;grafana/datadog/sentry link to the specific panel&gt;">&lt;panel name&gt;</a>
+      — &lt;what metric it shows / what "healthy" looks like&gt;.
+    </li>
+  </ul>
+
+  <h4>Tests executed</h4>
+  <ul>
+    <li>
+      PR CI: &lt;N checks green, M yellow (with detail)&gt;.
+      See <a href="&lt;PR /checks URL&gt;">PR status</a>.
     </li>
     <li>
-      Test files agregados / modificados:
+      Test files added / changed:
       <ul>
-        <li><code>&lt;path/to/foo.spec.ts&gt;</code> — &lt;caso que cubre en 1 frase&gt;.</li>
-        <!-- uno por archivo relevante, máximo ~8 -->
+        <li><code>&lt;path/to/foo.spec.ts&gt;</code> — &lt;what case it covers, one sentence&gt;.</li>
+        <!-- one per relevant file, max ~8 -->
       </ul>
     </li>
     <li>
-      QA manual durante la sesión: &lt;lista corta de escenarios que se
-      probaron a mano, con resultado&gt;.
-      <!-- ej: "manual: intentar login con email inválido → mostró el
-                error inline correcto"; "manual: cargar la vista con
-                200 filas → renderizó en &lt;300ms" -->
+      Manual QA during the session: &lt;short list of scenarios tried by
+      hand, with the result&gt;.
+      <!-- e.g. "manual: tried to log in with an invalid email → showed
+                 the inline error correctly"; "manual: loaded the view
+                 with 200 rows → rendered in under 300ms" -->
     </li>
   </ul>
 
-  <h4>Casos borde considerados</h4>
+  <h4>Edge cases considered</h4>
   <dl class="edge-cases">
-    <dt>Cubierto</dt>
-    <dd>&lt;qué escenarios manejamos deliberadamente, uno por línea&gt;</dd>
-    <dt>Fuera de scope (intencional)</dt>
-    <dd>&lt;qué escenarios NO se cubrieron y por qué — evita que alguien
-        lo reporte como bug más adelante&gt;</dd>
+    <dt>Covered</dt>
+    <dd>&lt;scenarios we deliberately handle, one per line&gt;</dd>
+    <dt>Out of scope (on purpose)</dt>
+    <dd>&lt;scenarios we did NOT cover and why — so no one later
+        reports it as a bug&gt;</dd>
   </dl>
 
   <h4>Rollback</h4>
   <p class="rollback">
-    <!-- Elegí UNO según aplique: -->
-    <!-- (a) Revert del PR -->
-    Si algo se rompe: revertir con
-    <code>git revert -m 1 &lt;merge-sha&gt;</code> o desde
-    <a href="&lt;url del PR&gt;">el botón Revert del PR</a>.
+    <!-- Pick ONE that matches: -->
+    <!-- (a) Revert the PR -->
+    If something breaks: revert with
+    <code>git revert -m 1 &lt;merge-sha&gt;</code> or use
+    <a href="&lt;PR URL&gt;">the PR's Revert button</a>.
     <!-- (b) Feature flag off -->
-    Si el problema es solo comportamental, apagar el flag
-    <code>&lt;flag_name&gt;</code> desde
-    <a href="&lt;dashboard&gt;">el panel de flags</a> — reversión
-    inmediata sin re-deploy.
-    <!-- (c) Restore de datos -->
-    Si hubo migración destructiva: restaurar desde
-    <a href="&lt;backup/snapshot&gt;">el snapshot pre-migración</a>
-    tomado el &lt;fecha&gt;.
-    <!-- (d) No aplica -->
-    No requiere rollback — la entrega es backward-compatible /
-    idempotente / detrás de un flag apagado por default.
+    If the issue is behavioral only, turn off the
+    <code>&lt;flag_name&gt;</code> flag from
+    <a href="&lt;dashboard&gt;">the flags panel</a> — instant reversal
+    without a redeploy.
+    <!-- (c) Data restore -->
+    If there was a destructive migration: restore from
+    <a href="&lt;backup/snapshot&gt;">the pre-migration snapshot</a>
+    taken on &lt;date&gt;.
+    <!-- (d) Not needed -->
+    No rollback needed — the delivery is backward-compatible /
+    idempotent / behind a flag that is off by default.
   </p>
 
-  <h3>Documentos generados</h3>
-  <!-- Si NO se generó ningún documento, omite este <h3> y su <ul>.
-       Si sí, uno por línea. Los paths son RELATIVOS al proyecto para que
-       el link funcione dentro del preview HTML de Orka. -->
+  <h3>Generated documents</h3>
+  <!-- If NO document was generated, drop this <h3> and its <ul>. If
+       there are some, one per line. Paths are RELATIVE to the project
+       so the links work inside the Orka HTML preview. -->
   <ul>
     <li>
       <a href="../../../../../<doc.path>"><doc.title></a>
       — <doc.summary>
     </li>
     <li>
-      <a href="../../../../../<otro>"><otro título></a>
-      — <resumen>
+      <a href="../../../../../<other>"><other title></a>
+      — <summary>
     </li>
   </ul>
 
-  <h3>Entidades KB relacionadas</h3>
-  <!-- Omite si no hubo spin-offs. Si sí, incluye el id + type + link al
-       overview.html de cada una. Los links son relativos entre
-       overview.html de entidades hermanas. -->
+  <h3>Related KB entities</h3>
+  <!-- Skip if there were no spin-offs. Otherwise include id + type +
+       a link to each one's overview.html. Links are relative between
+       sibling entities' overview.html files. -->
   <ul>
     <li>
       <code><type></code> ·
       <a href="../<type>/<spinoffId>/overview.html"><spinoffId></a>
-      — <título> · <1 frase de qué captura>
+      — <title> · <one sentence about what it captures>
     </li>
   </ul>
 
-  <h3>Contexto de cierre</h3>
+  <h3>Close context</h3>
   <ul>
-    <li>Ticket Jira: <a href="<jiraUrl>"><taskKey></a> · movido a <nextStatus>.</li>
-    <li>Rama: <code><branchName></code>.</li>
-    <li>Worktree: <code><worktreePath></code> — <"eliminado tras merge" | "conservado (template close-keep-worktree)">.</li>
+    <li>Jira ticket: <a href="<jiraUrl>"><taskKey></a> · moved to <nextStatus>.</li>
+    <li>Branch: <code><branchName></code>.</li>
+    <li>Worktree: <code><worktreePath></code> — <"removed after merge" | "kept (close-keep-worktree template)">.</li>
   </ul>
 </section>
 ```
 
 Then bump the version. In the same edit:
 
-- Change `<p class="meta">` to say `<strong>Versión actual: v2.0</strong>`
+- Change `<p class="meta">` to say `<strong>Current version: v2.0</strong>`
   (or `vN+1.0` if v1.0 already existed as a normal edit — pick the next
   semantic MAJOR since a wrap-up is a milestone).
 - Prepend a new `<li>` at the top of `.changelog ul`:
@@ -417,8 +426,8 @@ Then bump the version. In the same edit:
   <li data-version="v2.0">
     <span class="ver">v2.0</span>
     <span class="when"><ISO date></span>
-    Cierre — <taskKey> mergeado en <a href="<prUrl>">PR</a>. Se agregó
-    la sección de cierre con índice de documentos y contexto de entrega.
+    Wrap-up — <taskKey> shipped in <a href="<prUrl>">PR</a>. Added the
+    wrap-up section with an index of documents and delivery context.
   </li>
   ```
 
@@ -441,7 +450,7 @@ orka kb update <kbEntityId> \
   --property pr_url=<prUrl>            # omit if no PR
   --property merged_at=<mergedAt>       # omit if no PR
   --property closed_at=<isoNow> \
-  --property outcome_summary="<1-3 frases en español: qué se hizo, cómo, y cualquier consecuencia importante — puede ser el mismo primer párrafo del <p class='closing-summary'> del overview>"
+  --property outcome_summary="<1-3 English sentences: what was done, how, and any important consequence — this can be the same first paragraph of the <p class='closing-summary'> in the overview>"
 ```
 
 If additional PRs shipped, add them as `--property extra_prs=<comma-separated urls>`.
@@ -476,14 +485,14 @@ orka kb link <newId> resulted_from <kbEntityId>
 Skip this step entirely if nothing warrants capture — most tasks won't.
 
 **If you create spin-offs here (not in Step 2.b), also go back and add
-them to the "Entidades KB relacionadas" section of overview.html so the
+them to the "Related KB entities" section of overview.html so the
 close doc stays complete.** Just an Edit on that one `<ul>`.
 
 ---
 
 ## Step 6 — Short comment on the Jira ticket
 
-Post a brief summary in Spanish so anyone looking at the ticket in Jira
+Post a brief summary in English so anyone looking at the ticket in Jira
 knows what happened locally. Keep it 2-4 sentences — Jira isn't the KB.
 
 ```
@@ -495,7 +504,7 @@ POST /rest/api/3/issue/<taskKey>/comment
     "content": [{
       "type": "paragraph",
       "content": [
-        { "type": "text", "text": "<Spanish summary: qué se entregó y dónde. Ej: 'Feature liberada en PR #123, mergeado 2026-07-24. Ver KB spk-... para detalle técnico.'>" }
+        { "type": "text", "text": "<English summary: what shipped and where. e.g. 'Feature shipped in PR #123, merged on 2026-07-24. See KB spk-... for the technical detail.'>" }
       ]
     }]
   }
@@ -518,7 +527,7 @@ GET  /rest/api/3/issue/<taskKey>?fields=status
 ```
 
 If `fields.status.name` is already Done: skip the transition. Just log
-"Jira ya estaba en Done, no hice transición".
+"Jira was already Done, so no transition was applied".
 
 Otherwise transition:
 
@@ -583,15 +592,15 @@ task:
 orka board close-task --board <boardId> --key <taskKey> --terminal shutdown
 ```
 
-Then print a compact one-paragraph recap in Spanish:
+Then print a compact one-paragraph recap in English:
 
 ```
-✓ <taskKey> cerrado.
-  overview.html actualizado con sección de Cierre + Replica y validación
-    (índice de N docs, M spin-offs, K tests, rollback plan).
-  KB actualizado: <kbEntityId> → done (+ N entidades spin-off si aplica).
-  Comentario en Jira publicado. Ticket movido a Done.
-  Worktree removido: <worktreePath>.
+✓ <taskKey> closed.
+  overview.html updated with Wrap-up + Reproduction & validation
+    (index of N docs, M spin-offs, K tests, rollback plan).
+  KB updated: <kbEntityId> → done (+ N spin-off entities if any).
+  Jira comment posted. Ticket moved to Done.
+  Worktree removed: <worktreePath>.
 ```
 
 ---
@@ -614,16 +623,16 @@ Then print a compact one-paragraph recap in Spanish:
   isn't broken.
 - **Duplicate Jira comment** — if a prior wrap-up comment exists,
   edit or append rather than posting a fresh copy.
-- **No CI on the repo / no tests written** — the "Tests ejecutados"
-  sub-block still gets rendered but with a candid note: "Sin CI
-  automatizado en este repo · sin test files agregados en este PR ·
-  QA manual: <lo que se probó a mano>". Nunca inventes tests que no
-  existen — es peor que decir "no había".
-- **No sabés cómo verificar en prod porque nunca lo viste correr allá**
-  — no adivines URLs ni dashboards. Anotá "Verificación en prod
-  pendiente — el owner del ticket debe confirmar antes de cerrar" y
-  seguí adelante. La sección queda incompleta pero honesta.
-- **Feature todavía no llegó a prod** (mergeado pero pendiente de
-  deploy) — anotá en el rollback + verificación "Aún no desplegado en
-  prod al momento del cierre — deploy programado para <fecha o release
-  train>. Verificar allá cuando aterrice."
+- **No CI on the repo / no tests written** — the "Tests executed"
+  sub-block still gets rendered, with a candid note: "No automated CI
+  in this repo · no test files added in this PR · manual QA: <what was
+  tried by hand>". Never invent tests that do not exist — that is
+  worse than saying "there were none".
+- **You don't know how to verify in prod because you never saw it run
+  there** — do not guess URLs or dashboards. Write "Prod verification
+  pending — the ticket owner should confirm before this can be closed"
+  and move on. The section stays incomplete but honest.
+- **Feature has not landed in prod yet** (merged but waiting on a
+  deploy) — write in the rollback + verification blocks: "Not deployed
+  to prod at close time — deploy scheduled for <date or release
+  train>. Check there once it lands."
