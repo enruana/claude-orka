@@ -75,6 +75,35 @@ export interface VersionCheckResult {
 }
 
 /**
+ * Module-level per-project write queue.
+ *
+ * StateManager is instantiated FRESH per API call (`new StateManager(path)`
+ * inside every route handler), so an instance-level mutex would not
+ * serialize anything — two concurrent hook handlers each get their own
+ * fresh instance. We key the queue on the resolved projectPath so every
+ * write for the same project waits its turn regardless of which handler
+ * fired it.
+ *
+ * The bug this closes: Notification and UserPromptSubmit hooks arriving
+ * ~milliseconds apart (which happens whenever Claude approves one tool
+ * and immediately queues another that also needs permission) both did
+ * `read → merge → save`. Since read happened before either save,
+ * whichever wrote LAST clobbered the other's intent. The visible symptom
+ * was the launcher's red badge sticking on `true` even after the user
+ * opened the session and interacted — the "clear waiting" write was
+ * silently overwritten by a concurrent Notification write.
+ */
+const _writeQueues = new Map<string, Promise<unknown>>()
+async function _serializeWrite<T>(projectPath: string, task: () => Promise<T>): Promise<T> {
+  const prev = _writeQueues.get(projectPath) || Promise.resolve()
+  const next = prev.then(task, task)
+  // Keep the chain alive even if the task rejects — otherwise a single
+  // failure would break every subsequent write for the project.
+  _writeQueues.set(projectPath, next.then(() => undefined, () => undefined))
+  return next as Promise<T>
+}
+
+/**
  * Manages state persistence in .claude-orka/state.json
  */
 export class StateManager {
@@ -399,54 +428,63 @@ export class StateManager {
    * Actualizar el estado de una sesión
    */
   async updateSessionStatus(sessionId: string, status: Session['status']): Promise<void> {
-    const state = await this.read()
-    const session = state.sessions.find(s => s.id === sessionId)
+    return _serializeWrite(this.projectPath, async () => {
+      const state = await this.read()
+      const session = state.sessions.find(s => s.id === sessionId)
 
-    if (!session) {
-      throw new Error(`Session not found: ${sessionId}`)
-    }
+      if (!session) {
+        throw new Error(`Session not found: ${sessionId}`)
+      }
 
-    session.status = status
-    session.lastActivity = new Date().toISOString()
-    await this.save(state)
-    logger.info(`Session ${sessionId} status updated to: ${status}`)
+      session.status = status
+      session.lastActivity = new Date().toISOString()
+      await this.save(state)
+      logger.info(`Session ${sessionId} status updated to: ${status}`)
+    })
   }
 
   /**
-   * Actualizar una sesión completa
+   * Actualizar una sesión completa. Runs inside the module-level per-
+   * project write queue so concurrent updateSession calls on separate
+   * StateManager instances (one per hook handler) don't race on
+   * read-modify-save.
    */
   async updateSession(sessionId: string, updates: Partial<Session>): Promise<void> {
-    const state = await this.read()
-    const sessionIndex = state.sessions.findIndex(s => s.id === sessionId)
+    return _serializeWrite(this.projectPath, async () => {
+      const state = await this.read()
+      const sessionIndex = state.sessions.findIndex(s => s.id === sessionId)
 
-    if (sessionIndex === -1) {
-      throw new Error(`Session not found: ${sessionId}`)
-    }
+      if (sessionIndex === -1) {
+        throw new Error(`Session not found: ${sessionId}`)
+      }
 
-    state.sessions[sessionIndex] = {
-      ...state.sessions[sessionIndex],
-      ...updates,
-      lastActivity: new Date().toISOString(),
-    }
+      state.sessions[sessionIndex] = {
+        ...state.sessions[sessionIndex],
+        ...updates,
+        lastActivity: new Date().toISOString(),
+      }
 
-    await this.save(state)
-    logger.debug(`Session ${sessionId} updated`)
+      await this.save(state)
+      logger.debug(`Session ${sessionId} updated`)
+    })
   }
 
   /**
    * Reemplazar una sesión completa
    */
   async replaceSession(session: Session): Promise<void> {
-    const state = await this.read()
-    const sessionIndex = state.sessions.findIndex(s => s.id === session.id)
+    return _serializeWrite(this.projectPath, async () => {
+      const state = await this.read()
+      const sessionIndex = state.sessions.findIndex(s => s.id === session.id)
 
-    if (sessionIndex === -1) {
-      throw new Error(`Session not found: ${session.id}`)
-    }
+      if (sessionIndex === -1) {
+        throw new Error(`Session not found: ${session.id}`)
+      }
 
-    state.sessions[sessionIndex] = session
-    await this.save(state)
-    logger.debug(`Session ${session.id} replaced`)
+      state.sessions[sessionIndex] = session
+      await this.save(state)
+      logger.debug(`Session ${session.id} replaced`)
+    })
   }
 
   /**

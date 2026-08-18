@@ -91,6 +91,14 @@ For each ticket:
 
 - **Status changed in Jira** — see Step 5 (drift).
 
+- **Local-origin tasks** (any task with `origin: 'local'` in the local
+  state, or whose key starts with `LOCAL-`) → **skip entirely**. These
+  are user-created internal tasks (research, design docs, spikes) that
+  live only on this board and by definition have no Jira ticket to
+  reconcile against. Never add, update, delete, or drift-check them
+  during sync. They only change via the UI or the `orka board
+  update-task` / `close-task` CLI.
+
 ### English description shape
 
 For every task you add or update, write a 3–8 sentence description in

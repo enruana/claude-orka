@@ -1,6 +1,6 @@
 ---
 name: board-task-close
-description: Post-merge cleanup ritual for a board task-terminal — the ticket work is DONE (PR already merged / feature already in prod). Enumerates every artifact the task produced (PR, code files, docs, spin-off KB entities, infra changes, feature flags, tests, repro commands), enriches the task's overview.html with a "Wrap-up" section that indexes all of it in English plus a "Reproduction & validation" section covering how to reproduce locally, verify in prod, tests executed, edge cases handled, and rollback plan. Then closes the KB entity, comments + transitions Jira, and finally cleans up the worktree + terminal. Load when the user hits Wrap up in the task modal.
+description: Wrap-up ritual for a board task-terminal. Two flavors — Jira-origin tasks: the ticket work is DONE (PR merged / feature in prod); enumerates every artifact produced (PR, code files, docs, spin-off KB entities, infra changes, feature flags, tests, repro commands), enriches overview.html with a "Wrap-up" section + a "Reproduction & validation" section, closes the KB entity, comments + transitions Jira, cleans worktree + terminal. Local-origin tasks (research / doc / design / spike; keys start with LOCAL-): skips PR gate + Jira steps and focuses on wrapping the deliverable — the overview.html + KB entity IS the artifact. Load when the user hits Wrap up in the task modal.
 ---
 
 # Board Task — Wrap Up (post-merge cleanup)
@@ -28,11 +28,32 @@ Placeholders provided:
 - `template` — which close template ran (`close-default` = remove worktree by default, `close-keep-worktree` = keep it)
 - `nextStatus` — usually `done`
 
+**Two flavors** — check `origin` on the BoardTask before starting:
+
+```
+orka board show-task --board <boardId> --key <taskKey> --json | jq '{origin, taskType, jiraUrl}'
+```
+
+- **Jira-origin** (default) — the ritual below runs in full.
+- **Local-origin** (`origin: 'local'` or `taskKey` starts with `LOCAL-`)
+  — skip Step 1 (no PR to gate on), Step 6 (no Jira comment), Step 7
+  (no Jira transition). Everything else — artifact enumeration,
+  overview.html enrichment, KB update, worktree remove (if any),
+  terminal close — still applies. The "delivered artifact" for a local
+  task IS the overview.html + the linked KB entities, not a PR.
+
+Each step below carries a **`Local:`** note whenever its behavior
+changes for local tasks.
+
 ---
 
 ## Step 1 — Sanity check: confirm the work has actually shipped
 
-Before touching anything, verify the PR is merged. Skip only if the user
+**Local: SKIP entirely.** A local task has no PR to gate on. The
+deliverable is the doc / research / design captured in the KB
+entity — that's already there or you'll write it in Step 3.
+
+Before touching anything (Jira tasks only), verify the PR is merged. Skip only if the user
 explicitly told you the ticket has no PR (spike / research / doc-only).
 
 ```
@@ -492,6 +513,10 @@ close doc stays complete.** Just an Edit on that one `<ul>`.
 
 ## Step 6 — Short comment on the Jira ticket
 
+**Local: SKIP entirely.** No Jira ticket to comment on. The
+`outcome_summary` on the KB entity + the "Wrap-up" section on
+overview.html carry the same information for local tasks.
+
 Post a brief summary in English so anyone looking at the ticket in Jira
 knows what happened locally. Keep it 2-4 sentences — Jira isn't the KB.
 
@@ -521,6 +546,10 @@ pure-noise comment on Jira is worse than no comment.
 ---
 
 ## Step 7 — Transition Jira to Done (if it isn't already)
+
+**Local: SKIP entirely.** No Jira ticket. Step 8 updates the local
+BoardTask column to `done` (or whatever `nextStatus` says) — that's
+the only "transition" a local task needs.
 
 ```
 GET  /rest/api/3/issue/<taskKey>?fields=status
@@ -592,8 +621,9 @@ task:
 orka board close-task --board <boardId> --key <taskKey> --terminal shutdown
 ```
 
-Then print a compact one-paragraph recap in English:
+Then print a compact one-paragraph recap in English. Two shapes:
 
+**Jira-origin:**
 ```
 ✓ <taskKey> closed.
   overview.html updated with Wrap-up + Reproduction & validation
@@ -601,6 +631,16 @@ Then print a compact one-paragraph recap in English:
   KB updated: <kbEntityId> → done (+ N spin-off entities if any).
   Jira comment posted. Ticket moved to Done.
   Worktree removed: <worktreePath>.
+```
+
+**Local-origin:**
+```
+✓ <taskKey> closed  (local · <taskType>).
+  overview.html updated with Wrap-up section
+    (index of N docs, M spin-offs).
+  KB updated: <kbEntityId> → done (+ N spin-off entities if any).
+  No Jira ticket (local task).
+  Worktree: <"removed" | "n/a — doc-only task">.
 ```
 
 ---

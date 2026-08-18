@@ -28,13 +28,38 @@ export const BOARD_SCHEMA_VERSION = 'v1'
 export const DEFAULT_BOARD_COLUMNS = ['todo', 'in-progress', 'review', 'done'] as const
 
 /**
- * A single ticket mirrored from Jira. Fields are frozen at the moment we
- * pull (or a user command runs); anything the local UI adds — the linked
- * KB entity, the task terminal handles, the worktree — lives inline so the
- * UI can render without a join.
+ * How this task got onto the board. Undefined = 'jira' (back-compat with
+ * boards that predate local tasks — every existing task was Jira-mirrored).
+ *
+ *  - 'jira'  → mirrored from Jira; sync add/updates it, `jiraUrl` is set.
+ *  - 'local' → user created it directly in Orka; sync ignores it. Used for
+ *              internal research spikes, design docs, TDRs / PRDs, etc.
+ *              that the user wants to track like tickets but that never
+ *              live in Jira.
+ */
+export type BoardTaskOrigin = 'jira' | 'local'
+
+/**
+ * Semantic tag for local-origin tasks. Guides the init flow (which
+ * skill branch to run) and the Kanban card icon. Not enforced by
+ * anything downstream — it's a hint, not a status.
+ */
+export type BoardLocalTaskType = 'research' | 'document' | 'design' | 'spike' | 'other'
+
+/**
+ * A single task on a board. Two flavors:
+ *   - Jira-mirrored (origin='jira'): frozen at pull time, has `jiraUrl`.
+ *   - Local (origin='local'): user-created inside Orka, no Jira link.
+ *
+ * Anything the local UI adds — the linked KB entity, the task terminal
+ * handles, the worktree — lives inline on either flavor so the UI can
+ * render without a join.
  */
 export interface BoardTask {
-  /** Jira issue key, e.g. "PROJ-123". Doubles as the primary key locally. */
+  /** Task key, doubles as the primary key locally. For Jira-origin
+   *  tasks this is the Jira issue key (e.g. "PROJ-123"). For local
+   *  tasks it follows the pattern `LOCAL-<nanoid>` — visually distinct
+   *  so nobody thinks it corresponds to a Jira ticket. */
   key: string
 
   /** Title / summary shown on the Kanban card. */
@@ -58,8 +83,21 @@ export interface BoardTask {
   /** Jira labels array. */
   labels?: string[]
 
-  /** Canonical URL to the ticket. */
-  jiraUrl: string
+  /** Canonical URL to the Jira ticket. Required for `origin='jira'`;
+   *  absent (or empty) for `origin='local'`. Kept optional in the type
+   *  since the sync skill and init flow both branch on `origin` and
+   *  never dereference the URL blindly. */
+  jiraUrl?: string
+
+  /** How the task got here. Absent = 'jira' for back-compat. Local
+   *  tasks are ignored by sync and follow a lighter init/close flow
+   *  (no PR, no Jira transition). */
+  origin?: BoardTaskOrigin
+
+  /** For `origin='local'` only — a semantic tag that lets the init
+   *  skill pick the right template (research vs design doc vs spike),
+   *  and lets the Kanban render a matching icon. Ignored on jira. */
+  taskType?: BoardLocalTaskType
 
   /** Orka KB entity id for the linked `task` entity. Set at task boot. */
   kbEntityId?: string

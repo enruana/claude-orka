@@ -1,23 +1,37 @@
 ---
 name: board-task-init
-description: Boot ritual for a board task-terminal — create the worktree (moxikit), read docs and the Jira ticket, register the task in Orka KB, link everything back, and move the Jira ticket to In Progress. Load when a task-terminal spawns and its init prompt fires.
+description: Boot ritual for a board task-terminal — for Jira-mirrored tasks it creates the worktree (moxikit), reads docs and the Jira ticket, registers the task in Orka KB, links everything back, and moves the Jira ticket to In Progress. For local (non-Jira) tasks it runs a lighter branch tailored to the task type (research / document / design / spike) — no Jira reads, no PR-oriented setup. Load when a task-terminal spawns and its init prompt fires.
 ---
 
 # Board Task — Init Ritual
 
-You are running inside a **task-terminal** for a Jira ticket. You just booted. Your job is to get the workspace ready to start coding and to make sure the ticket, the local BoardTask, and the KB entity are all linked.
+You are running inside a **task-terminal** for a board task. You just booted. Your job is to get the workspace ready to start working and to make sure the task, the local BoardTask, and the KB entity are all linked.
 
-Prerequisite reading: `board-guide` (board schema + CLI), `kb-guide` (KB shape), `kb-project` (**la convención de tier + carpeta + `path` property que debes seguir**), `board-jira-api` (Jira endpoints).
+Prerequisite reading: `board-guide` (board schema + CLI), `kb-guide` (KB shape), `kb-project` (**la convención de tier + carpeta + `path` property que debes seguir**), `board-jira-api` (Jira endpoints — only for Jira-origin tasks).
+
+**Two flavors of task exist**, and they follow different branches of this ritual:
+
+1. **Jira-origin task** (default; mirrored from a real Jira ticket) — full ritual: worktree, read Jira, KB entity, link, transition Jira to In Progress.
+2. **Local-origin task** (`origin: 'local'` on the BoardTask, or `taskKey` starts with `LOCAL-`) — user-created internal work (research, design doc, spike). No Jira, no PR. Skip Steps 2 (Jira read), 5 (Jira transition), and adapt Step 3 (worktree is optional and only for tasks that produce code artifacts). Do everything else normally.
+
+You can detect which flavor you are in by running `orka board show-task --board <boardId> --key <taskKey> --json` and checking `origin` and `taskType`. If either indicates local, run the local branch called out inline in each step.
+
+**Special sub-case: Port from KB.** A local task can be created pre-linked to an existing KB entity (created via the board's "New task → Port from KB entity" flow, or via CLI with `--kb-entity`). You can detect this because:
+
+- The init prompt contains a non-empty `kbEntityId` placeholder, and/or
+- `orka board show-task --json` returns a `kbEntityId` on the task.
+
+When that's the case, treat this as a **RESUME**, not a fresh start. Step 1 already covers most of it — the twist is that you never create a new KB entity; you always land on the pre-linked one, load its full context (overview.html, decisions, timeline, linked docs), and bump its changelog with a "Resumed as board task {{taskKey}} on <today>" entry. Skip Step 5 (create folder) and Step 6 (create entity) entirely. Just make sure Step 7 (link back to BoardTask) writes the entity id — it should already match.
 
 Placeholders provided to you in the init prompt:
-- `taskKey` — Jira issue key (e.g. `PROJ-123`)
-- `taskTitle` — issue title
-- `jiraUrl` — canonical URL
+- `taskKey` — task key (e.g. `PROJ-123` for Jira, `LOCAL-XYZAB123` for local)
+- `taskTitle` — task title
+- `jiraUrl` — canonical URL (empty string for local tasks)
 - `boardId` — the parent board
 - `projectPath` — absolute path to the Orka project
 - `template` — which init template ran (`full`, `spike`, or a custom name)
-- `branchName` — suggested branch (e.g. `PROJ-123-short-slug`)
-- `worktreeParent` — where worktrees go (from moxikit config)
+- `branchName` — suggested branch (empty / n/a for local tasks that don't touch code)
+- `worktreeParent` — where worktrees go (from moxikit config; ignored for pure-doc local tasks)
 
 ---
 
@@ -64,9 +78,15 @@ llegues al Step 5 harás el `orka kb add` normal.
 
 ---
 
-## Step 2 — Read the ticket
+## Step 2 — Read the ticket (Jira-origin tasks only)
 
-Fetch fresh from Jira (don't rely on the local mirror alone):
+**Local-origin tasks (`LOCAL-*`, `origin: 'local'`) — SKIP this step.**
+There is no Jira ticket. Everything you need is already in the local
+BoardTask (`title`, `description`, `taskType`) — read it with
+`orka board show-task --board <boardId> --key <taskKey> --json` and
+treat that as the source of truth. Skip to Step 3.
+
+For Jira-origin tasks, fetch fresh from Jira (don't rely on the local mirror alone):
 
 ```
 GET /rest/api/3/issue/<taskKey>?fields=summary,description,priority,labels,assignee,status,comment,subtasks
@@ -320,9 +340,12 @@ orka board update-task \
 
 ---
 
-## Step 8 — Move the Jira ticket to In Progress
+## Step 8 — Move the Jira ticket to In Progress (Jira-origin only)
 
-Get the available transitions and pick the "In Progress" one:
+**Local-origin tasks — SKIP this step.** There's no Jira ticket to
+transition. The Kanban column already reflects the move locally.
+
+For Jira-origin tasks, get the available transitions and pick the "In Progress" one:
 
 ```
 GET  /rest/api/3/issue/<taskKey>/transitions
@@ -335,7 +358,9 @@ If the ticket is already In Progress (e.g. drift acceptance path), skip this ste
 
 ## Step 9 — Report ready
 
-Print a short summary in the terminal:
+Print a short summary in the terminal. Two shapes depending on origin:
+
+**Jira-origin:**
 ```
 Ready to work on <taskKey> — <taskTitle>
 - Worktree: <worktreePath> (branch <branchName>)
@@ -343,7 +368,44 @@ Ready to work on <taskKey> — <taskTitle>
 - Jira: moved to In Progress
 ```
 
+**Local-origin:**
+```
+Ready to work on <taskKey> — <taskTitle>  (local · <taskType>)
+- Worktree: <worktreePath if created, else "n/a — doc-only work">
+- KB: <kbEntityId>
+- No Jira ticket (local task)
+```
+
 You're now in normal working mode — the user drives from here.
+
+---
+
+## Local-task specifics — how `taskType` shapes the initial work
+
+For local-origin tasks, adapt the initial overview.html and your
+opening moves to what the user asked for:
+
+- **`research`** — deep dive into an area. Skip the worktree unless you
+  need to run code to answer the question. Focus overview.html on:
+  *the question*, *what you already know*, *what you plan to check*,
+  *how you'll know you're done*. Expect to spawn spike / decision KB
+  entities as findings land.
+- **`document`** — the outcome IS a doc (runbook, migration guide,
+  README overhaul). Skip the worktree unless the doc lives in the code
+  repo. overview.html plays the role of the doc's outline + drafts;
+  keep bumping the changelog as you write.
+- **`design`** — TDR / PRD / architecture proposal. Frame overview.html
+  as a design doc: problem statement, options considered, chosen
+  approach with tradeoffs. Reader is a peer reviewing the design later.
+- **`spike`** — timeboxed exploration to answer one specific question.
+  Worktree is usually needed (throwaway branch is fine). overview.html
+  should end with a clear "answer to the question" section and a
+  recommendation (build / defer / drop).
+- **`other`** — treat like `document` unless the description makes the
+  intent obvious.
+
+None of these need a Jira comment, none need a PR to merge. The KB
+entity + overview.html is the artifact.
 
 ---
 

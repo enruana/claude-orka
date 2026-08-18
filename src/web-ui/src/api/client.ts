@@ -1118,6 +1118,54 @@ export const api = {
     return res.json()
   },
 
+  /**
+   * Add a local (non-Jira) task — research, design doc, spike, etc. The
+   * key is auto-generated as `LOCAL-<8char-nanoid>` so it never collides
+   * with a Jira issue key.
+   *
+   * `kbEntityId` links the new task to an existing KB entity (the "Port
+   * from KB" flow). When set, the init skill resumes that entity in
+   * Step 1 instead of creating a fresh one — you keep all its docs,
+   * decisions, and links.
+   */
+  async addLocalBoardTask(
+    projectPath: string,
+    boardId: string,
+    input: {
+      title: string
+      description?: string
+      status?: string
+      taskType?: BoardLocalTaskType
+      priority?: string
+      labels?: string[]
+      kbEntityId?: string
+    }
+  ): Promise<BoardTask> {
+    const p = encodeProjectPath(projectPath)
+    // Same key format as the CLI (see generateLocalTaskKey in
+    // src/cli/commands/board.ts). Kept in sync manually.
+    const suffix = Math.random().toString(36).slice(2, 10).toUpperCase().padEnd(8, 'X')
+    const key = `LOCAL-${suffix}`
+    const body = {
+      key,
+      title: input.title,
+      description: input.description,
+      status: input.status || 'todo',
+      priority: input.priority,
+      labels: input.labels,
+      origin: 'local' as const,
+      taskType: input.taskType || 'other',
+      kbEntityId: input.kbEntityId,
+    }
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   async startBoardMaster(
     projectPath: string,
     boardId: string
@@ -1398,6 +1446,12 @@ export interface BoardConfig {
   schemaVersion: string
 }
 
+/** Mirror of the server-side discriminator (see src/models/Board.ts).
+ *  Undefined = 'jira' for back-compat with tasks stored before the
+ *  local-task feature landed. */
+export type BoardTaskOrigin = 'jira' | 'local'
+export type BoardLocalTaskType = 'research' | 'document' | 'design' | 'spike' | 'other'
+
 export interface BoardTask {
   key: string
   title: string
@@ -1407,7 +1461,13 @@ export interface BoardTask {
   assignee?: string
   reporter?: string
   labels?: string[]
-  jiraUrl: string
+  /** Optional now — local-origin tasks have no Jira URL. */
+  jiraUrl?: string
+  /** 'jira' (default when absent) mirrored from a Jira ticket, or
+   *  'local' for user-created internal work (research, design docs). */
+  origin?: BoardTaskOrigin
+  /** Semantic tag for local-origin tasks; undefined for Jira tasks. */
+  taskType?: BoardLocalTaskType
   kbEntityId?: string
   terminalPaneId?: string
   terminalTmuxSessionId?: string

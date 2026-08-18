@@ -104,9 +104,13 @@ function makeSessionId(): string {
  * whisper-cli reads WAV files natively via drwav.h, so this avoids
  * spawning ffmpeg for every chunk.
  */
-function buildWavHeader(pcmBytes: number): Buffer {
+export function buildWavHeader(pcmBytes: number, sampleRate: number = SAMPLE_RATE): Buffer {
+  return buildWavHeaderInternal(pcmBytes, sampleRate)
+}
+
+function buildWavHeaderInternal(pcmBytes: number, sampleRate: number): Buffer {
   const header = Buffer.alloc(44)
-  const byteRate = SAMPLE_RATE * BYTES_PER_SAMPLE
+  const byteRate = sampleRate * BYTES_PER_SAMPLE
   const blockAlign = BYTES_PER_SAMPLE
   header.write('RIFF', 0)
   header.writeUInt32LE(36 + pcmBytes, 4)
@@ -115,13 +119,35 @@ function buildWavHeader(pcmBytes: number): Buffer {
   header.writeUInt32LE(16, 16)             // fmt chunk size
   header.writeUInt16LE(1, 20)              // PCM
   header.writeUInt16LE(1, 22)              // mono
-  header.writeUInt32LE(SAMPLE_RATE, 24)
+  header.writeUInt32LE(sampleRate, 24)
   header.writeUInt32LE(byteRate, 28)
   header.writeUInt16LE(blockAlign, 32)
   header.writeUInt16LE(16, 34)             // bits per sample
   header.write('data', 36)
   header.writeUInt32LE(pcmBytes, 40)
   return header
+}
+
+/**
+ * Public entrypoint used by voice-live.ts: transcribe a raw PCM16 mono
+ * @ 16 kHz buffer (an entire user utterance, not a streaming chunk).
+ * Wraps in a WAV header on the fly and shells out to whisper-cli — the
+ * simpler sibling of the streaming path this file's session loop uses.
+ * `prompt` is optional decoder conditioning for continuity of style.
+ */
+export async function transcribeUtterancePcm16(
+  pcm: Buffer,
+  language: string,
+  prompt?: string
+): Promise<string> {
+  const wavBuffer = Buffer.concat([buildWavHeaderInternal(pcm.length, SAMPLE_RATE), pcm])
+  const tmpPath = path.join(os.tmpdir(), `orka-voice-${Date.now()}.wav`)
+  await fs.writeFile(tmpPath, wavBuffer)
+  try {
+    return await transcribeChunk(tmpPath, wavBuffer, language, prompt)
+  } finally {
+    fs.unlink(tmpPath).catch(() => {})
+  }
 }
 
 /**

@@ -106,6 +106,30 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
     if (exitTimerRef.current !== null) window.clearTimeout(exitTimerRef.current)
   }, [])
 
+  // Mobile task modal is fullscreen over the board page. Without a
+  // page-lock a swipe inside the embedded task terminal iframe bubbles
+  // out of the modal and triggers the browser's pull-to-refresh
+  // instead of scrolling the terminal. Same fix IPhoneLauncher uses
+  // for its session modals.
+  useEffect(() => {
+    if (!isMobile) return
+    const html = document.documentElement
+    const body = document.body
+    const prev = {
+      htmlOverscroll: html.style.overscrollBehavior,
+      bodyOverflow: body.style.overflow,
+      bodyOverscroll: body.style.overscrollBehavior,
+    }
+    html.style.overscrollBehavior = 'none'
+    body.style.overflow = 'hidden'
+    body.style.overscrollBehavior = 'none'
+    return () => {
+      html.style.overscrollBehavior = prev.htmlOverscroll
+      body.style.overflow = prev.bodyOverflow
+      body.style.overscrollBehavior = prev.bodyOverscroll
+    }
+  }, [isMobile])
+
   // Track viewport so switching desktop/mobile via devtools rotate does
   // not orphan the layout mode.
   useEffect(() => {
@@ -143,7 +167,11 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
     let target: string
     if (isHtml) {
       const pathSegments = clean.split('/').map((s) => encodeURIComponent(s)).join('/')
-      target = `/api/files/preview/${encodedProject}/${pathSegments}?comments=1`
+      // `?comments=1&voice=1` mounts both overlays — the review-comment
+      // rail and the voice widget. Board task artifacts (overview.html,
+      // report.html, etc.) are the docs users most often open on mobile
+      // to talk about, so voice is on by default here.
+      target = `/api/files/preview/${encodedProject}/${pathSegments}?comments=1&voice=1`
     } else if (isFile) {
       target = `/projects/${encodedProject}/files/view?path=${encodeURIComponent(clean)}`
     } else {
@@ -203,7 +231,15 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
     if (starting) return
     setStarting(true)
     try {
-      await api.startBoardTask(projectPath, boardId, task.key, 'full')
+      // Pick the right init template based on the task's flavor.
+      // Local + pre-linked to a KB entity → `port-kb-default` so the
+      // init skill loads that entity's context instead of creating a
+      // duplicate. Local from scratch → `local-default`. Jira → `full`.
+      const templateId =
+        task.origin === 'local'
+          ? (task.kbEntityId ? 'port-kb-default' : 'local-default')
+          : 'full'
+      await api.startBoardTask(projectPath, boardId, task.key, templateId)
       resumedForKeyRef.current = null
       await onChanged()
     } catch (err) {

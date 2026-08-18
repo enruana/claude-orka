@@ -82,6 +82,24 @@ function escapeForJsString(s: string): string {
  *
  * Everything self-contained — same-origin fetch to Orka's own API only.
  */
+/**
+ * Build the HTML fragment injected when the preview is requested with
+ * `?voice=1`. Small — the actual widget bundle lives at
+ * /api/voice/widget.js and is loaded via a <script> tag so the browser
+ * can cache it across documents. The overlay itself is empty; the
+ * widget takes over on load, mounts its own FAB and captions rail
+ * anchored to document.body, and auto-discovers project + file path
+ * from the preview URL it lives in.
+ *
+ * Coexists with the comments overlay: both mount independent DOM
+ * subtrees under document.body, no z-index or event conflicts.
+ */
+function buildVoiceOverlay(): string {
+  return `
+<script src="/api/voice/widget.js" defer></script>
+`
+}
+
 function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): string {
   const projectJs = escapeForJsString(opts.projectB64)
   const filePathJs = escapeForJsString(opts.filePath)
@@ -473,8 +491,8 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
         '<span class="orka-rail-count" id="orka-rail-count">0</span>' +
       '</div>' +
       '<div class="orka-rail-actions">' +
-        '<button type="button" class="orka-rail-apply" id="orka-rail-apply" disabled title="Copia un prompt para Claude con todos los comentarios y las instrucciones para aplicarlos + registrar en el changelog">' +
-          '<span>Aplicar con Claude</span>' +
+        '<button type="button" class="orka-rail-apply" id="orka-rail-apply" disabled title="Copies a Claude prompt that regenerates this document from scratch, weaving every unresolved comment into a fresh version + a changelog entry. Paste it into any Claude Code terminal.">' +
+          '<span>✨ Regenerate with Claude</span>' +
         '</button>' +
         '<button type="button" class="orka-rail-toggle" id="orka-rail-toggle-btn" title="Cerrar panel">×</button>' +
       '</div>' +
@@ -956,37 +974,58 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
 
   // -------- Apply with Claude: compose prompt + copy -----------------
 
+  // Mirror of buildRegeneratePrompt() in
+  // src/web-ui/src/components/CommentWidget.tsx — the same prompt that
+  // the KB detail panel's magic-wand button ships to a terminal. Kept
+  // in sync manually. Tells Claude to (a) read the current file + the
+  // .changelog section for prior context, (b) rewrite the doc from
+  // scratch weaving in every unresolved comment, (c) Write full-file
+  // replacement, (d) bump version in the .changelog with a proper log
+  // entry.
   function composeApplyPrompt() {
     var active = comments.filter(function(c) { return !c.resolved; });
+    var isHtml = /\\.html?$/i.test(FILE_PATH);
     var lines = [];
-    lines.push('Aplicá los siguientes ' + active.length + ' comentarios de revisión al documento \`' + FILE_PATH + '\`.');
+    lines.push('Regenerate the document \`' + FILE_PATH + '\` from scratch, incorporating the review comments below and any prior resolutions.');
     lines.push('');
-    lines.push('Para cada comentario:');
-    lines.push('1. Editá el archivo aplicando lo que el comentario pide.');
-    lines.push('2. Agregá una NUEVA entrada al \`.changelog ul\` del documento (más recientes primero si esa es la convención del archivo, sino al final). Incrementá \`data-version\` un patch (ej v1.0 → v1.1) o minor si el cambio es mayor.');
-    lines.push('3. La NOTA del changelog debe ser breve (~1 frase, en el mismo idioma del documento) y describir la INTENCIÓN del cambio — no copies el comentario textual, resumí. Ejemplo: "Ajustada la sección X para reflejar la corrección solicitada en revisión."');
-    lines.push('4. Actualizá el \`<p class="meta">\` "Versión actual" para que coincida con la nueva versión.');
+    lines.push('## Steps');
     lines.push('');
-    lines.push('Cuando termines:');
-    lines.push('- Resumí en 3-5 bullets qué cambios hiciste.');
-    lines.push('- Si algún comentario no se pudo aplicar (ambiguo, contradice otro, requiere aclaración), listalo aparte con el motivo.');
-    lines.push('- Marcá los comentarios aplicados como resueltos vía: \`orka\` no expone CLI para esto, así que sólo mencioná los IDs.');
+    lines.push('1. Read the current file to understand its structure and intent.');
+    if (isHtml) {
+      lines.push('2. Read the \`<section class="changelog">\` at the bottom to see prior versions and what each addressed — keep decisions consistent across regens.');
+    } else {
+      lines.push('2. Read the comments log at \`.claude-orka/comments/log.md\` and grep it for prior entries referencing this file.');
+    }
+    lines.push('3. For each comment below, treat it as scoped feedback. **QUESTION**-type comments must be investigated (read code, related tickets, or do a deep-research pass) before being reflected in the rewrite.');
+    lines.push('4. Rewrite the document from scratch, preserving its intent and structure but resolving every comment.');
+    lines.push('5. Save the new content with the \`Write\` tool (full-file replacement, not patch). Path: \`' + FILE_PATH + '\`.');
+    if (isHtml) {
+      lines.push('6. Bump the version (major bump for a regen: \`v1.x → v2.0\`, chain further regens as \`v3.0\`, \`v4.0\`, etc.). Prepend a new \`<li>\` to the changelog with the version, ISO date, and a one-paragraph summary of what changed AND which comments it resolved (reference them inline). Update the \`.meta\` line to show the new "Current version" (or "Versión actual" if the file uses Spanish labels).');
+    } else {
+      lines.push('6. Append a **REGENERATE** entry to \`.claude-orka/comments/log.md\` with the version, timestamp, and what changed.');
+    }
     lines.push('');
-    lines.push('Documento a editar (path relativo al proyecto): \`' + FILE_PATH + '\`');
+    lines.push('## Comments to incorporate');
     lines.push('');
-    lines.push('Comentarios pendientes:');
     for (var i = 0; i < active.length; i++) {
       var c = active[i];
+      var lineRange = 'L' + c.startLine + (c.endLine > c.startLine ? '-' + c.endLine : '');
+      lines.push('**' + lineRange + '**');
+      if (c.selectedText) {
+        var snippet = c.selectedText.length > 240 ? c.selectedText.slice(0, 240) + '…' : c.selectedText;
+        lines.push(' — selected:');
+        lines.push('');
+        lines.push('\`\`\`');
+        snippet.split('\\n').forEach(function(l) { lines.push(l); });
+        lines.push('\`\`\`');
+        lines.push('');
+      } else {
+        lines.push('');
+      }
+      lines.push('> ' + c.body.replace(/\\n/g, '\\n> '));
       lines.push('');
-      lines.push('--- Comentario ' + (i + 1) + '/' + active.length + ' (id ' + c.id + ') ---');
-      lines.push('Texto seleccionado (L' + c.startLine + (c.endLine > c.startLine ? '-' + c.endLine : '') + '):');
-      lines.push('  """');
-      var snippet = c.selectedText.length > 400 ? c.selectedText.slice(0, 400) + '…' : c.selectedText;
-      snippet.split('\\n').forEach(function(line) { lines.push('  ' + line); });
-      lines.push('  """');
-      lines.push('Comentario:');
-      c.body.split('\\n').forEach(function(line) { lines.push('  ' + line); });
     }
+    lines.push('After saving, print a compact summary: what sections you changed, which comments you weaved in, and any research/deep-dive links.');
     return lines.join('\\n');
   }
 
@@ -1016,12 +1055,12 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     copyText(prompt).then(function() {
       applyBtn.classList.add('flash-ok');
       var origHtml = applyBtn.innerHTML;
-      applyBtn.innerHTML = '<span>✓ Copiado (' + active.length + ')</span>';
+      applyBtn.innerHTML = '<span>✓ Copied (' + active.length + ')</span>';
       setTimeout(function() {
         applyBtn.classList.remove('flash-ok');
         applyBtn.innerHTML = origHtml;
-      }, 1800);
-      showToast('Prompt copiado — pegalo en una sesión de Claude');
+      }, 2000);
+      showToast('Prompt copied — paste it into any Claude Code terminal');
     }).catch(function(err) {
       showToast('Falló copia: ' + err.message, true);
     });
@@ -1540,19 +1579,17 @@ filesRouter.get('/preview/:encodedProject/*path', async (req, res) => {
     }
 
     if (ext === 'html' || ext === 'htm') {
-      // `?comments=1` opts into the comment-overlay build: the response
-      // still contains the file's own HTML/JS/CSS untouched, but we
-      // inject a tiny self-contained script at the end of <body> that
-      // adds a floating "Add comment" button on text selection and
-      // POSTs the comment via the existing /api/projects/comments
-      // endpoint. CSP is relaxed for that case (files may need their
-      // own scripts to render correctly).
+      // Two independent opt-in overlays, both live on this same route:
+      //   ?comments=1  — floating "add comment" button + rail
+      //   ?voice=1     — floating mic FAB + captions rail
+      // They coexist: FAB (bottom-right) and comment-rail (right side)
+      // don't collide, and each overlay is its own DOM subtree.
+      // CSP is relaxed identically when either is on — inline scripts,
+      // same-origin fetch, same-origin WS.
       const commentsMode = req.query.comments === '1' || req.query.comments === 'true'
+      const voiceMode    = req.query.voice    === '1' || req.query.voice    === 'true'
 
-      if (commentsMode) {
-        // Permissive CSP: allow the file's own scripts + our injected
-        // widget. Same-origin only, no remote hosts. This matches what
-        // opening the file directly in the browser would allow.
+      if (commentsMode || voiceMode) {
         res.setHeader(
           'Content-Security-Policy',
           [
@@ -1560,6 +1597,9 @@ filesRouter.get('/preview/:encodedProject/*path', async (req, res) => {
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob:",
+            // Voice mode plays Kokoro-synthesized PCM back through Web Audio.
+            "media-src 'self' data: blob:",
+            // 'self' covers wss:// to the same origin (needed by voice WS).
             "connect-src 'self'",
             "frame-ancestors 'self'",
           ].join('; ')
@@ -1593,19 +1633,39 @@ filesRouter.get('/preview/:encodedProject/*path', async (req, res) => {
         body = '<!DOCTYPE html>\n' + body
       }
 
-      if (commentsMode) {
-        // Query-string base64 for the comments endpoint (standard
-        // base64, `Buffer.from(x,'base64')` on the server). Different
-        // alphabet than `encodedProject` in this path (URL-safe) so we
-        // recompute rather than reuse.
+      if (commentsMode || voiceMode) {
+        // Compose the two overlays (either or both). Both inject just
+        // before </body> — for HTML files without </body> we append.
         const projectB64 = Buffer.from(projectPath, 'utf-8').toString('base64')
-        const overlay = buildCommentsOverlay({ projectB64, filePath })
-        // Inject just before </body> if present, else append at the end.
+        let overlay = ''
+        if (commentsMode) overlay += buildCommentsOverlay({ projectB64, filePath })
+        if (voiceMode)    overlay += buildVoiceOverlay()
         const bodyCloseIdx = body.search(/<\/body\s*>/i)
         if (bodyCloseIdx >= 0) {
           body = body.slice(0, bodyCloseIdx) + overlay + body.slice(bodyCloseIdx)
         } else {
           body = body + overlay
+        }
+
+        // Force a mobile viewport meta so the overlay renders at 1:1
+        // instead of shrunk to the 980px legacy viewport when the
+        // source HTML doesn't declare one. `viewport-fit=cover` is
+        // required for `env(safe-area-inset-*)` in the widget to
+        // actually pick up iPhone notch/home-indicator insets.
+        // Only inject when neither the doc nor a prior overlay has
+        // already provided one, so authored preview pages keep their
+        // own viewport declaration.
+        if (!/<meta\s+[^>]*name=["']?viewport["']?/i.test(body)) {
+          const viewportTag = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+          const headOpenMatch = body.match(/<head\b[^>]*>/i)
+          if (headOpenMatch) {
+            const insertAt = headOpenMatch.index! + headOpenMatch[0].length
+            body = body.slice(0, insertAt) + '\n' + viewportTag + body.slice(insertAt)
+          } else {
+            // No <head> tag at all — prepend after the doctype so it
+            // still lands in the pre-body region.
+            body = body.replace(/(<!DOCTYPE[^>]*>\s*)/i, `$1${viewportTag}\n`) || (viewportTag + '\n' + body)
+          }
         }
       }
 

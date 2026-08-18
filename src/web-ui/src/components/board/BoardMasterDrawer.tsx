@@ -99,6 +99,32 @@ export function BoardMasterDrawer({ expanded, onToggle, port, lastSyncedAt, sync
     if (exitTimerRef.current !== null) window.clearTimeout(exitTimerRef.current)
   }, [])
 
+  // Mobile fullscreen modal opens over the board page — but the board
+  // page itself is scrollable, so a swipe inside the embedded terminal
+  // bubbles up and either scrolls the board or triggers the browser's
+  // pull-to-refresh. Lock the document while the modal is up. Same
+  // pattern IPhoneLauncher uses for its session/terminal modals; kept
+  // inline (not a shared hook) because it's small and the trigger
+  // condition varies by caller.
+  useEffect(() => {
+    if (!isMobile || !expanded) return
+    const html = document.documentElement
+    const body = document.body
+    const prev = {
+      htmlOverscroll: html.style.overscrollBehavior,
+      bodyOverflow: body.style.overflow,
+      bodyOverscroll: body.style.overscrollBehavior,
+    }
+    html.style.overscrollBehavior = 'none'
+    body.style.overflow = 'hidden'
+    body.style.overscrollBehavior = 'none'
+    return () => {
+      html.style.overscrollBehavior = prev.htmlOverscroll
+      body.style.overflow = prev.bodyOverflow
+      body.style.overscrollBehavior = prev.bodyOverscroll
+    }
+  }, [isMobile, expanded])
+
   useEffect(() => {
     if (!isMobile || !expanded) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') startClose() }

@@ -103,6 +103,15 @@ export interface Session {
   /** Which branch is the one waiting — 'main' or a fork id. Lets the UI
    *  point the user at the right pane. */
   waitingBranch?: string
+
+  /** ISO timestamp of the last user-side acknowledgment (either the
+   *  explicit `/acknowledge-waiting` endpoint or the launcher / session
+   *  page auto-ack when the user opens the session). Notification hooks
+   *  that arrive within `WAITING_ACK_GRACE_MS` of this timestamp are
+   *  ignored — otherwise a Notification already in flight when the
+   *  user hits Open would re-flag the session and the badge would
+   *  never clear. */
+  waitingAckAt?: string
 }
 
 /** A tmux pane the user created manually (not a Claude fork) */

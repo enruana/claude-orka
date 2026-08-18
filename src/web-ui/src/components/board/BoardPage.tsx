@@ -15,6 +15,7 @@ import {
   ExternalLink,
   SplitSquareHorizontal,
   Newspaper,
+  Plus,
 } from 'lucide-react'
 import {
   api,
@@ -25,6 +26,8 @@ import {
 import { decodeProjectPath } from '../ProjectDashboard'
 import { BoardKanban } from './BoardKanban'
 import { BoardTaskModal } from './BoardTaskModal'
+import { AddLocalTaskDialog } from './AddLocalTaskDialog'
+import { BoardSearchBar, filterBoardTasks } from './BoardSearchBar'
 import { SessionCodeEditor } from '../code-editor'
 import { FinderExplorer } from '../finder'
 import { KBGraph } from '../kb'
@@ -68,6 +71,15 @@ export function BoardPage() {
   const [syncing, setSyncing] = useState(false)
   const [masterPort, setMasterPort] = useState<number | null>(null)
   const [openTaskKey, setOpenTaskKey] = useState<string | null>(null)
+  // Toggle for the "New internal task" dialog (Add Local Task feature).
+  // Local tasks live only on this board and never sync to Jira; sync
+  // ignores them and the init/close skills run their non-Jira branch.
+  const [showAddLocalTask, setShowAddLocalTask] = useState(false)
+  // Kanban search query. Filters visible cards across key / title /
+  // labels / assignee / description / branch. Kept in-memory only —
+  // reset on board reload / navigation is intentional so the user
+  // isn't surprised by a lingering filter later.
+  const [searchQuery, setSearchQuery] = useState('')
   // Active content tab. Persisted per-board so the user's last view is
   // restored on refresh / re-entry.
   const [tab, setTab] = useState<BoardTab>(() => {
@@ -195,10 +207,11 @@ export function BoardPage() {
   const standupReportPath = `.claude-orka/.boards/${boardId}/standup.html`
   const standupPreviewUrl = (() => {
     const segments = standupReportPath.split('/').map(encodeURIComponent).join('/')
-    // `?comments=1` matches the query the file viewer / KB detail
-    // panel use — needed for the preview endpoint to render the
-    // page with the same comments overlay the app expects.
-    return `/api/files/preview/${encodedPath}/${segments}?comments=1`
+    // `?comments=1&voice=1` mounts both overlays — the review-comment
+    // rail (select text → dialog) and the voice widget (mic FAB → chat
+    // with the doc). Board reports are the primary artifact the user
+    // opens on mobile, so voice mode is on by default here.
+    return `/api/files/preview/${encodedPath}/${segments}?comments=1&voice=1`
   })()
   const hasStandupReport = !!board?.lastStandupAt
 
@@ -238,6 +251,18 @@ export function BoardPage() {
     return `${d}d ago`
   }
 
+  // Which task-init template does this task deserve?
+  //   - Jira-backed (default, `origin` undefined or 'jira') → `full`.
+  //   - Local + linked to a KB entity → `port-kb-default` so the init
+  //     skill resumes that entity instead of creating a duplicate.
+  //   - Local from scratch → `local-default` — same skill, LOCAL branch.
+  const initTemplateFor = (task: BoardTask): string => {
+    if (task.origin === 'local') {
+      return task.kbEntityId ? 'port-kb-default' : 'local-default'
+    }
+    return 'full'
+  }
+
   const handleMoveTask = async (task: BoardTask, newStatus: string) => {
     if (task.status === newStatus) return
     try {
@@ -249,7 +274,7 @@ export function BoardPage() {
       // ritual (PR / Jira / KB / worktree) is opt-in via the modal's
       // explicit "Wrap up" button so an accidental drag can't fire it.
       if (newStatus === 'in-progress' && task.status !== 'in-progress') {
-        await api.startBoardTask(projectPath, boardId, task.key, 'full', 'in-progress')
+        await api.startBoardTask(projectPath, boardId, task.key, initTemplateFor(task), 'in-progress')
       } else {
         await api.updateBoardTask(projectPath, boardId, task.key, { status: newStatus })
       }
@@ -267,6 +292,22 @@ export function BoardPage() {
       setError(err?.message || 'Failed to ack drift')
     }
   }
+
+  // Apply the search filter once and reuse for both the Kanban and the
+  // count in the search bar. useMemo so a re-render triggered by an
+  // unrelated bit of state (fullscreen toggle, drawer expand) doesn't
+  // re-scan every task.
+  //
+  // MUST live before ANY conditional early-return below (the loading /
+  // !board / terminalFullscreen branches). React's rules-of-hooks
+  // enforce that every render call the same hooks in the same order,
+  // and moving this after `if (loading) return ...` triggered the
+  // production error #310 ("more hooks than during the previous
+  // render") when the board finished loading.
+  const visibleTasks = useMemo(
+    () => filterBoardTasks(tasks, searchQuery),
+    [tasks, searchQuery],
+  )
 
   if (loading) {
     return (
@@ -387,6 +428,14 @@ export function BoardPage() {
           )}
           <button
             className="board-header-btn"
+            onClick={() => setShowAddLocalTask(true)}
+            title="Add a local (non-Jira) task — research, doc, design, spike"
+          >
+            <Plus size={14} />
+            <span>Task</span>
+          </button>
+          <button
+            className="board-header-btn"
             onClick={() => navigate(`/projects/${encodedPath}/boards/${boardId}/settings`)}
             title="Board settings"
           >
@@ -425,9 +474,18 @@ export function BoardPage() {
           switch. The KB graph is heavy so we only mount it on demand. */}
       <div className="board-tab-content">
         <div className={`board-tab-panel ${tab === 'kanban' ? 'visible' : 'hidden'}`}>
+          {/* Search bar sits above the kanban and only lives on this
+              tab — other tabs (terminal / code / files / kb) already
+              have their own navigation model. */}
+          <BoardSearchBar
+            query={searchQuery}
+            onQueryChange={setSearchQuery}
+            matchCount={visibleTasks.length}
+            totalCount={tasks.length}
+          />
           <BoardKanban
             columns={board.columns}
-            tasks={tasks}
+            tasks={visibleTasks}
             driftByKey={driftByKey}
             onOpenTask={(t) => setOpenTaskKey(t.key)}
             onMoveTask={handleMoveTask}
@@ -538,6 +596,51 @@ export function BoardPage() {
           onMoveTask={handleMoveTask}
           onClose={() => setOpenTaskKey(null)}
           onChanged={load}
+        />
+      )}
+
+      {showAddLocalTask && (
+        <AddLocalTaskDialog
+          boardName={board.name}
+          projectPath={projectPath}
+          // Real columns from the board config — used for the status
+          // picker in the dialog. `'todo'` was hardcoded before and blew
+          // up on any board that didn't have that column (`backlog / open
+          // / in-progress / review / done` is the common shape).
+          columns={board.columns}
+          onClose={() => setShowAddLocalTask(false)}
+          onSave={async (input) => {
+            const created = await api.addLocalBoardTask(projectPath, boardId, {
+              title: input.title,
+              description: input.description,
+              taskType: input.taskType,
+              status: input.status,
+              // "Port from KB" — pre-link the KB entity so the init
+              // skill resumes it instead of creating a duplicate.
+              kbEntityId: input.kbEntityId,
+            })
+            // If the user landed the card directly in `in-progress`,
+            // fire the init template right away — otherwise the "pick
+            // in-progress to run init now" hint in the dialog would be
+            // a lie. Non-in-progress columns just create the card
+            // silently; the user starts the terminal later by dragging.
+            if (input.status === 'in-progress') {
+              try {
+                await api.startBoardTask(
+                  projectPath,
+                  boardId,
+                  created.key,
+                  initTemplateFor(created),
+                )
+              } catch (err) {
+                console.error('Failed to auto-start in-progress local task', err)
+              }
+            }
+            // Refresh so the new card appears + auto-open it so the user
+            // lands right in the task modal to add more detail.
+            await load()
+            setOpenTaskKey(created.key)
+          }}
         />
       )}
     </div>

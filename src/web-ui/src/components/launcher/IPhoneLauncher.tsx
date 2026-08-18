@@ -261,6 +261,19 @@ export function IPhoneLauncher() {
       if (aliveRef.current) {
         setProjects(withSessions)
         setLoading(false)
+        // If a session modal is open, refresh the session prop it holds
+        // so the modal's ack useEffect can react to waitingForInput
+        // flipping mid-open (Claude fires a new Notification while the
+        // user is already inside). Otherwise the modal keeps the stale
+        // snapshot from click time and never re-acks.
+        setSessionModal((prev) => {
+          if (!prev) return prev
+          const freshProject = withSessions.find((p) => p.path === prev.project.path)
+          if (!freshProject) return prev
+          const freshSession = freshProject.sessions.find((s) => s.id === prev.session.id)
+          if (!freshSession) return prev
+          return { ...prev, project: freshProject, session: freshSession }
+        })
       }
     } catch (err: any) {
       if (aliveRef.current) {
@@ -1402,12 +1415,20 @@ function DesktopSessionModal({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // Re-ack every time the flag transitions to true while the modal is
+  // open. Previously the deps only tracked session.id so an ack fired
+  // ONCE at open time; if a Notification arrived seconds later (very
+  // common — Claude asks for one permission, then a second tool right
+  // after), the flag went back to true and the badge stuck. Adding
+  // waitingForInput to deps + a server-side grace period on ack
+  // (WAITING_ACK_GRACE_MS) means: user opens → we clear, in-flight
+  // Notification is ignored; a genuinely-new prompt after grace still
+  // wins so the badge is not dead. Idempotent — the endpoint is cheap.
   useEffect(() => {
     if (session.waitingForInput) {
       void api.acknowledgeWaiting(project.path, session.id)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.id])
+  }, [session.id, session.waitingForInput, project.path])
 
   // The `GlobalProjectWidgets` in App.tsx (TaskWidget + Cmd+K dialog +
   // copy-from-terminal Cmd+L) only mount on `/projects/...` routes — so on

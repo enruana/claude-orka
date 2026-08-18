@@ -1,9 +1,19 @@
 import { Command } from 'commander'
 import chalk from 'chalk'
+import { nanoid } from 'nanoid'
 import { Output } from '../utils/output'
 import { handleError } from '../utils/errors'
 import { BoardManager } from '../../core/BoardManager'
-import { BoardTask } from '../../models/Board'
+import { BoardTask, BoardLocalTaskType } from '../../models/Board'
+
+/** Local task keys use a short, unique suffix so they never collide
+ *  with a real Jira issue key. `LOCAL-` prefix makes the origin obvious
+ *  at a glance in every UI + log. */
+function generateLocalTaskKey(): string {
+  return `LOCAL-${nanoid(8).toUpperCase()}`
+}
+
+const VALID_LOCAL_TASK_TYPES: BoardLocalTaskType[] = ['research', 'document', 'design', 'spike', 'other']
 
 /**
  * Parse a repeatable `--property key=value` flag into a plain object.
@@ -204,6 +214,45 @@ export function boardCommand(program: Command): void {
           raw,
         })
         Output.success(`Added task ${created.key} in board ${opts.board}`)
+      } catch (error) {
+        handleError(error)
+      }
+    })
+
+  // Local (non-Jira) tasks — internal research spikes, design docs,
+  // TDRs / PRDs, etc. that the user wants to track like tickets but
+  // that never live in Jira. Sync ignores them; init/close skills run
+  // their non-Jira branches (no PR gate, no Jira transition).
+  board
+    .command('add-local-task')
+    .description('Add a local (non-Jira) task to a board — research, design doc, spike, etc.')
+    .requiredOption('--board <id>', 'Board id')
+    .requiredOption('--title <title>', 'Task title')
+    .option('--key <key>', 'Custom task key (defaults to LOCAL-<nanoid>)')
+    .option('--status <status>', 'Column name — must match one of the board columns (default: todo)')
+    .option('--description <text>', 'Longer description')
+    .option('--type <type>', `Kind of local work — one of: ${VALID_LOCAL_TASK_TYPES.join(', ')}`, 'other')
+    .option('--priority <p>', 'Priority label (High / Medium / Low)')
+    .option('--labels <csv>', 'Comma-separated labels')
+    .action(async (opts) => {
+      try {
+        const type = (opts.type || 'other') as BoardLocalTaskType
+        if (!VALID_LOCAL_TASK_TYPES.includes(type)) {
+          throw new Error(`Invalid --type "${type}". Valid: ${VALID_LOCAL_TASK_TYPES.join(', ')}`)
+        }
+        const mgr = new BoardManager(process.cwd())
+        const key = opts.key || generateLocalTaskKey()
+        const created = await mgr.addTask(opts.board, {
+          key,
+          title: opts.title,
+          status: opts.status || 'todo',
+          description: opts.description,
+          priority: opts.priority,
+          labels: parseCsv(opts.labels),
+          origin: 'local',
+          taskType: type,
+        })
+        Output.success(`Added local task ${created.key} (${type}) in board ${opts.board}`)
       } catch (error) {
         handleError(error)
       }

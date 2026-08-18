@@ -97,12 +97,26 @@ sessionsRouter.post('/hook', async (req, res) => {
     const { sm, sessionId, branch } = target
     if (event === 'Notification') {
       if (isUserBlockingMessage(message)) {
-        await sm.updateSession(sessionId, {
-          waitingForInput: true,
-          waitingSince: new Date().toISOString(),
-          waitingMessage: message,
-          waitingBranch: branch,
-        })
+        // Grace period: if the user just acknowledged this session
+        // (opened it in the UI or hit the manual /acknowledge endpoint),
+        // ignore a Notification that arrives in the next few seconds —
+        // it was almost certainly already in flight when they clicked
+        // Open, so re-flagging would leave the badge stuck. The user
+        // is looking at the terminal now; if the block is still real
+        // Claude will emit another Notification after the grace window
+        // and we'll pick that one up.
+        const session = await sm.getSession(sessionId)
+        const ackedAt = session?.waitingAckAt ? Date.parse(session.waitingAckAt) : 0
+        if (ackedAt && Date.now() - ackedAt < WAITING_ACK_GRACE_MS) {
+          logger.debug(`hook: Notification for ${sessionId.slice(0, 8)}… suppressed (within ${WAITING_ACK_GRACE_MS}ms of ack)`)
+        } else {
+          await sm.updateSession(sessionId, {
+            waitingForInput: true,
+            waitingSince: new Date().toISOString(),
+            waitingMessage: message,
+            waitingBranch: branch,
+          })
+        }
       }
       // Non-blocking notifications (idle 60s reminders) are intentionally
       // ignored to avoid false positives.
@@ -242,11 +256,21 @@ async function findSessionByTmuxPane(
   return null
 }
 
+/** Grace window after a user acknowledgment during which any incoming
+ *  Notification hook is treated as stale/in-flight and ignored. Longer
+ *  than the launcher's 2s poll (so a subsequent poll can prove the flag
+ *  cleared) but short enough that a REAL new permission prompt still
+ *  wins the moment the user starts interacting. */
+const WAITING_ACK_GRACE_MS = 5000
+
 /**
  * POST /api/sessions/:sessionId/acknowledge-waiting?project=<base64>
  *
  * Manual ack: the user opened the session in the UI, so clear the
  * `waitingForInput` flag regardless of whether Claude has resumed yet.
+ * Also stamps `waitingAckAt` so a Notification hook that was already in
+ * flight when the user clicked Open doesn't re-flag the session and
+ * leave the launcher badge stuck.
  */
 sessionsRouter.post('/:sessionId/acknowledge-waiting', async (req, res) => {
   try {
@@ -262,6 +286,7 @@ sessionsRouter.post('/:sessionId/acknowledge-waiting', async (req, res) => {
       waitingSince: undefined,
       waitingMessage: undefined,
       waitingBranch: undefined,
+      waitingAckAt: new Date().toISOString(),
     })
     res.json({ ok: true })
   } catch (error: any) {
@@ -271,8 +296,13 @@ sessionsRouter.post('/:sessionId/acknowledge-waiting', async (req, res) => {
 })
 
 /** Heuristic: only treat Notification events that look like a real
- *  permission/decision prompt as "waiting for input". Filters out the
- *  60-second idle reminder which would otherwise produce false positives. */
+ *  permission/decision prompt as "waiting for input". The 60-second
+ *  idle reminder Claude Code sends has message text like "Claude is
+ *  waiting for your input" — which is why we do NOT include a plain
+ *  "waiting for" match. That match kept re-flagging the session as
+ *  blocked even after the user acknowledged, so the launcher badge
+ *  never cleared. Keep the list tight; false positives cost us the
+ *  badge signal. */
 function isUserBlockingMessage(message?: string): boolean {
   if (!message) return true // be conservative if Claude omits text
   const m = message.toLowerCase()
@@ -284,7 +314,6 @@ function isUserBlockingMessage(message?: string): boolean {
     m.includes('approval') ||
     m.includes('decision') ||
     m.includes('decide') ||
-    m.includes('waiting for') ||
     m.includes('confirm')
   )
 }

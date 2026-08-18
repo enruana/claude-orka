@@ -390,11 +390,14 @@ export function createPreviewHtmlItem(projectPath: string, relativePath: string)
     onClick: () => {
       // Path-based preview endpoint so relative asset URLs inside the
       // HTML resolve naturally against the document location, plus
-      // `?comments=1` to inject the review comment overlay so the user
-      // can select text and leave comments right on the rendered page.
+      // `?comments=1&voice=1` turns on BOTH overlays — the review-comment
+      // rail (select text → dialog) and the voice widget (mic FAB →
+      // chat with the doc). Both are independent DOM subtrees so they
+      // coexist. The voice widget auto-discovers the project + file
+      // path from the URL, so no separate wiring is needed.
       const encodedProject = btoa(projectPath).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
       const encodedFile = relativePath.split('/').map(encodeURIComponent).join('/')
-      const url = `/api/files/preview/${encodedProject}/${encodedFile}?comments=1`
+      const url = `/api/files/preview/${encodedProject}/${encodedFile}?comments=1&voice=1`
       window.open(url, '_blank')
     }
   }

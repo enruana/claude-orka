@@ -127,10 +127,15 @@ export function BoardKanban({ columns, tasks, driftByKey, onOpenTask, onMoveTask
                 const isTerminalLive = !!t.terminalTmuxSessionId && !!t.ttydPort
                 const hasHistory = !isTerminalLive && (!!t.claudeSessionId || !!t.terminalTmuxSessionId)
                 const isBeingDragged = draggingKey === t.key
+                // Local (non-Jira) tasks get a subtle mustard tint on
+                // the card so they're distinguishable at a glance from
+                // the mirrored Jira cards. Kept subtle: soft left
+                // border + slightly warmer background — no shouting.
+                const isLocal = t.origin === 'local'
                 return (
                   <div
                     key={t.key}
-                    className={`board-card ${isBeingDragged ? 'dragging' : ''}`}
+                    className={`board-card ${isBeingDragged ? 'dragging' : ''} ${isLocal ? 'local' : ''}`}
                     draggable
                     onDragStart={(e) => handleDragStart(e, t)}
                     onDragEnd={handleDragEnd}
@@ -138,6 +143,14 @@ export function BoardKanban({ columns, tasks, driftByKey, onOpenTask, onMoveTask
                   >
                     <div className="board-card-top">
                       <span className="board-card-key">{t.key}</span>
+                      {isLocal && (
+                        <span
+                          className="board-card-local-badge"
+                          title={t.taskType ? `Local task · ${t.taskType}` : 'Local task (no Jira)'}
+                        >
+                          {t.taskType || 'local'}
+                        </span>
+                      )}
                       {drift && (
                         <button
                           className="board-card-drift"

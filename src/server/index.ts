@@ -13,6 +13,7 @@ import { filesRouter } from './api/files'
 import { gitRouter } from './api/git'
 import { transcribeRouter } from './api/transcribe'
 import { attachLiveTranscribeWS } from './api/transcribe-live'
+import { attachVoiceLiveWS, voiceRouter } from './api/voice-live'
 import { agentsRouter } from './api/agents'
 import { aiRouter } from './api/ai'
 import { kbRouter } from './api/kb'
@@ -30,9 +31,40 @@ export interface ServerOptions {
   keyPath?: string
 }
 
+/**
+ * Process-level safety net for the long-lived Orka daemon.
+ *
+ * Registered exactly once, guarded by a module-level flag so repeated
+ * calls to `createServer()` (tests, hot-reload) don't stack listeners.
+ *
+ * Rationale: this daemon owns dozens of independent subsystems (voice
+ * WS, transcribe WS, ttyd proxy, agent daemons, hook receivers, git
+ * ops). A single un-caught rejection from any of them would otherwise
+ * take down the whole process — which is exactly what happened when
+ * voice-live rejected its turn-gate deferred on WS close: ~340 orka
+ * restarts in one afternoon. We log with a full stack so real bugs are
+ * still investigable, but keep the process alive so one broken handler
+ * doesn't blast every other user's session offline.
+ */
+let processSafetyNetInstalled = false
+function installProcessSafetyNet(): void {
+  if (processSafetyNetInstalled) return
+  processSafetyNetInstalled = true
+  process.on('unhandledRejection', (reason: unknown) => {
+    const err = reason instanceof Error ? reason : new Error(String(reason))
+    logger.error(`[safety-net] unhandledRejection: ${err.message}`)
+    if (err.stack) logger.error(err.stack)
+  })
+  process.on('uncaughtException', (err: Error) => {
+    logger.error(`[safety-net] uncaughtException: ${err.message}`)
+    if (err.stack) logger.error(err.stack)
+  })
+}
+
 export async function createServer(options: ServerOptions = {}) {
   // Initialize global logger
   logger.setGlobalLogFile()
+  installProcessSafetyNet()
 
   const globalState = await getGlobalStateManager()
   const port = options.port || globalState.getServerPort()
@@ -56,6 +88,7 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/kb', kbRouter)
   app.use('/api/system', systemRouter)
   app.use('/api/board', boardRouter)
+  app.use('/api/voice', voiceRouter)
 
   // Health check
   app.get('/api/health', (_req, res) => {
@@ -276,6 +309,11 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
     // only responds to /api/transcribe/live — the ttyd handler below early-
     // returns on other paths so both can coexist on the same server.
     attachLiveTranscribeWS(server)
+
+    // Voice-first document-chat WebSocket at /api/voice/live. Filters on
+    // its own path in the upgrade handler; coexists with the transcribe
+    // + ttyd listeners on the same server.
+    attachVoiceLiveWS(server)
 
     // WebSocket proxy for ttyd - each connection gets its own independent pipe
     server.on('upgrade', (req, socket, head) => {

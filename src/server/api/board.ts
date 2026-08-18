@@ -359,7 +359,10 @@ boardRouter.post('/:boardId/tasks/:key/start', async (req, res) => {
       boardId,
       taskKey,
       taskTitle: task.title,
-      jiraUrl: task.jiraUrl,
+      // Local tasks have no jiraUrl — pass an empty string so the
+      // start options type stays string. The init skill knows to
+      // render "no ticket" / "n/a" in that case (branches on origin).
+      jiraUrl: task.jiraUrl || '',
       branchName,
       template,
       existingClaudeSessionId: effectiveClaudeSessionId,
@@ -369,6 +372,13 @@ boardRouter.post('/:boardId/tasks/:key/start', async (req, res) => {
       // exhausted the ttyd port pool in the wild.
       existingTtydPid: task.ttydPid,
       existingTtydPort: task.ttydPort,
+      // New task metadata → template placeholders so the init prompt
+      // can (a) branch by origin, (b) resume a pre-linked KB entity
+      // (Port from KB flow) instead of creating a duplicate.
+      origin: task.origin,
+      taskType: task.taskType,
+      taskDescription: task.description,
+      kbEntityId: task.kbEntityId,
     })
     await persistTaskHandles(projectPath, boardId, taskKey, handles)
     res.json({ ...handles, template: template.id, reopen: isReopen, statusChanged: !!changeStatusTo })

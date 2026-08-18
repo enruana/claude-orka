@@ -303,6 +303,22 @@ export interface StartBoardTaskOptions {
    *  spawning yet another one. */
   existingTtydPid?: number
   existingTtydPort?: number
+  /** Task origin — 'jira' (default) or 'local'. Passed to the init
+   *  template as the `{{origin}}` placeholder so the template can
+   *  branch on it. */
+  origin?: 'jira' | 'local'
+  /** Task description (already stored on the BoardTask) — helpful for
+   *  local tasks that have no Jira ticket to read. Rendered as
+   *  `{{taskDescription}}`. */
+  taskDescription?: string
+  /** Semantic tag for local tasks (research / document / design / spike
+   *  / other). Rendered as `{{taskType}}`. */
+  taskType?: string
+  /** KB entity id already linked to this task (from the "Port from KB"
+   *  flow, or a prior init run). Rendered as `{{kbEntityId}}` so the
+   *  init skill's Step 1 can resume the entity instead of creating a
+   *  new one. */
+  kbEntityId?: string
 }
 
 export interface BoardTaskHandles {
@@ -392,6 +408,13 @@ export async function startBoardTask(
       projectPath: opts.projectPath,
       branchName: opts.branchName,
       worktreeParent: opts.worktreeParent ?? '',
+      // New: propagate task metadata so init templates can branch
+      // (Jira vs local) and pre-linked KB entities can be resumed
+      // instead of newly created.
+      origin: opts.origin ?? 'jira',
+      taskType: opts.taskType ?? '',
+      taskDescription: opts.taskDescription ?? '',
+      kbEntityId: opts.kbEntityId ?? '',
     })
     await TmuxCommands.sendKeys(paneId, `cd ${opts.projectPath}`)
     await TmuxCommands.sendEnter(paneId)
