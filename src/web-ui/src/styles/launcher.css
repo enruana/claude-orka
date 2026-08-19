@@ -529,6 +529,22 @@
     0 6px 14px rgba(2, 6, 23, 0.55);
 }
 
+/* Voice agent icon — sits in the same system-apps row as the terminal.
+   Purple-to-orange gradient so it reads as a distinct app (Voice ≠
+   Terminal) while still feeling like an OS-level icon rather than a
+   session-specific one. */
+.iphone-voice-icon {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 45%, #ea580c 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 6px 14px rgba(124, 58, 237, 0.45);
+}
+
 .iphone-app-letter {
   font-size: 26px;
   font-weight: 700;

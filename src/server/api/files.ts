@@ -83,20 +83,229 @@ function escapeForJsString(s: string): string {
  * Everything self-contained — same-origin fetch to Orka's own API only.
  */
 /**
- * Build the HTML fragment injected when the preview is requested with
- * `?voice=1`. Small — the actual widget bundle lives at
- * /api/voice/widget.js and is loaded via a <script> tag so the browser
- * can cache it across documents. The overlay itself is empty; the
- * widget takes over on load, mounts its own FAB and captions rail
- * anchored to document.body, and auto-discovers project + file path
- * from the preview URL it lives in.
+ * Voice overlay for `?voice=1`. Replaces the earlier vanilla-JS widget
+ * (kept at /api/voice/widget.js for legacy references) with an iframe
+ * embed of the React-based VoiceAgentPage — same UI/UX as the
+ * standalone /voice-agent route + the launcher-modal wrapper, so all
+ * three entry points share one implementation. The doc-in-preview
+ * gets passed through as the initial attachment so Claude sees it
+ * without the user needing to re-attach.
  *
- * Coexists with the comments overlay: both mount independent DOM
- * subtrees under document.body, no z-index or event conflicts.
+ * Chrome: a floating, translucent, draggable card in the top-right
+ * corner with minimize (collapses to a pill sticking out from the
+ * right edge) and close controls. The iframe stays MOUNTED even when
+ * minimized so the mic + WS + AudioContext lifecycles don't churn.
+ *
+ * Coexists with the comments overlay: distinct DOM subtrees, no z-
+ * index or event conflicts.
+ *
+ * `projectB64` here is url-safe base64 (RFC 4648 §5) so it drops
+ * cleanly into a query string alongside a raw filePath.
  */
-function buildVoiceOverlay(): string {
+function buildVoiceOverlay(opts: { projectB64: string; filePath: string }): string {
+  const projectSafe = opts.projectB64
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+  const projectJs = escapeForJsString(projectSafe)
+  const filePathJs = escapeForJsString(opts.filePath)
   return `
-<script src="/api/voice/widget.js" defer></script>
+<style id="orka-voice-style">
+  .orka-voice-shell {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    width: min(400px, 92vw);
+    height: min(560px, calc(100vh - 32px));
+    border-radius: 20px;
+    background: rgba(17, 17, 27, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    z-index: 2147483645;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    color: #ecf0fe;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    transition: width 0.18s ease, height 0.18s ease, border-radius 0.18s ease;
+  }
+  .orka-voice-shell.minimized {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    padding: 0;
+    cursor: pointer;
+  }
+  .orka-voice-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.75);
+    flex-shrink: 0;
+  }
+  .orka-voice-header:active { cursor: grabbing; }
+  .orka-voice-shell.minimized .orka-voice-header { display: none; }
+  .orka-voice-grip {
+    opacity: 0.4;
+    flex-shrink: 0;
+    width: 16px; height: 16px;
+  }
+  .orka-voice-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .orka-voice-actions { display: flex; gap: 2px; }
+  .orka-voice-btn {
+    width: 26px; height: 26px;
+    border-radius: 6px; border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s;
+    font: inherit;
+  }
+  .orka-voice-btn:hover { background: rgba(255, 255, 255, 0.1); color: #ecf0fe; }
+  .orka-voice-btn svg { width: 14px; height: 14px; stroke-width: 2; }
+  .orka-voice-iframe {
+    flex: 1;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    min-height: 0;
+  }
+  .orka-voice-shell.minimized .orka-voice-iframe {
+    /* Iframe stays mounted so the mic session survives minimize.
+       We tuck it off-screen while keeping it in the layout so its
+       AudioContext + WS don't hit an unmount path. */
+    position: absolute;
+    left: -99999px;
+    width: 400px; height: 560px;
+  }
+  .orka-voice-bubble {
+    /* The minimized pill shows a mic glyph as an affordance. It
+       overlays the tucked iframe. */
+    display: none;
+    width: 100%; height: 100%;
+    align-items: center; justify-content: center;
+    color: #cdd6f4;
+    pointer-events: none;
+  }
+  .orka-voice-shell.minimized .orka-voice-bubble {
+    display: flex;
+  }
+  .orka-voice-bubble svg { width: 24px; height: 24px; stroke-width: 2; }
+</style>
+<div id="orka-voice-shell" class="orka-voice-shell" role="dialog" aria-label="Voice Agent">
+  <div class="orka-voice-header" id="orka-voice-header">
+    <svg class="orka-voice-grip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+    <span class="orka-voice-title">Voice Agent</span>
+    <div class="orka-voice-actions">
+      <button class="orka-voice-btn" id="orka-voice-min" title="Minimize" aria-label="Minimize voice agent">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button class="orka-voice-btn" id="orka-voice-close" title="Close" aria-label="Close voice agent">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+  <iframe id="orka-voice-iframe" class="orka-voice-iframe" title="Voice Agent" allow="microphone; clipboard-read; clipboard-write"></iframe>
+  <div class="orka-voice-bubble">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+  </div>
+</div>
+<script id="orka-voice-controller">
+(function() {
+  var PROJECT_B64 = '${projectJs}';
+  var FILE_PATH = '${filePathJs}';
+
+  var shell = document.getElementById('orka-voice-shell');
+  var header = document.getElementById('orka-voice-header');
+  var iframe = document.getElementById('orka-voice-iframe');
+  var minBtn = document.getElementById('orka-voice-min');
+  var closeBtn = document.getElementById('orka-voice-close');
+  if (!shell || !header || !iframe || !minBtn || !closeBtn) return;
+
+  // Iframe URL — the SPA route with embedded=1 chrome + this file
+  // pre-attached. Same-origin so the mic permission granted for the
+  // parent frame carries over.
+  iframe.src = '/voice-agent?embedded=1&project=' + encodeURIComponent(PROJECT_B64)
+             + '&path=' + encodeURIComponent(FILE_PATH);
+
+  // ---- Minimize / restore ----
+  function setMinimized(v) {
+    if (v) shell.classList.add('minimized');
+    else shell.classList.remove('minimized');
+    minBtn.title = v ? 'Expand' : 'Minimize';
+    minBtn.setAttribute('aria-label', v ? 'Expand voice agent' : 'Minimize voice agent');
+  }
+  minBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    setMinimized(!shell.classList.contains('minimized'));
+  });
+  // Clicking the pill body (when minimized) also restores.
+  shell.addEventListener('click', function(e) {
+    if (!shell.classList.contains('minimized')) return;
+    if (e.target === minBtn || e.target === closeBtn) return;
+    setMinimized(false);
+  });
+
+  // ---- Close ----
+  closeBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    // Kill the iframe first so the WS + mic close cleanly, then
+    // remove the shell from the DOM. The parent page keeps its
+    // scroll position and doc state untouched.
+    try { iframe.src = 'about:blank'; } catch (_) {}
+    shell.remove();
+  });
+
+  // ---- Drag ----
+  var drag = null;
+  header.addEventListener('pointerdown', function(e) {
+    if (e.target.closest('button')) return; // let button clicks through
+    var rect = shell.getBoundingClientRect();
+    drag = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeft: rect.left,
+      startTop: rect.top,
+      shellW: rect.width,
+      shellH: rect.height,
+    };
+    header.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  header.addEventListener('pointermove', function(e) {
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    var dx = e.clientX - drag.startX;
+    var dy = e.clientY - drag.startY;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var m = 8;
+    var x = Math.min(Math.max(m, drag.startLeft + dx), vw - drag.shellW - m);
+    var y = Math.min(Math.max(m, drag.startTop + dy), vh - drag.shellH - m);
+    // Absolute positioning via left/top; clear the default right/bottom.
+    shell.style.left = x + 'px';
+    shell.style.top  = y + 'px';
+    shell.style.right = 'auto';
+    shell.style.bottom = 'auto';
+  });
+  header.addEventListener('pointerup', function(e) {
+    if (!drag) return;
+    try { header.releasePointerCapture(e.pointerId); } catch (_) {}
+    drag = null;
+  });
+})();
+</script>
 `
 }
 
@@ -1601,6 +1810,10 @@ filesRouter.get('/preview/:encodedProject/*path', async (req, res) => {
             "media-src 'self' data: blob:",
             // 'self' covers wss:// to the same origin (needed by voice WS).
             "connect-src 'self'",
+            // Voice mode now embeds /voice-agent in an iframe — allow
+            // same-origin frames explicitly (some browsers require
+            // frame-src even when default-src 'self' is set).
+            "frame-src 'self'",
             "frame-ancestors 'self'",
           ].join('; ')
         )
@@ -1639,7 +1852,7 @@ filesRouter.get('/preview/:encodedProject/*path', async (req, res) => {
         const projectB64 = Buffer.from(projectPath, 'utf-8').toString('base64')
         let overlay = ''
         if (commentsMode) overlay += buildCommentsOverlay({ projectB64, filePath })
-        if (voiceMode)    overlay += buildVoiceOverlay()
+        if (voiceMode)    overlay += buildVoiceOverlay({ projectB64, filePath })
         const bodyCloseIdx = body.search(/<\/body\s*>/i)
         if (bodyCloseIdx >= 0) {
           body = body.slice(0, bodyCloseIdx) + overlay + body.slice(bodyCloseIdx)

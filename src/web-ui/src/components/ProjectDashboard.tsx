@@ -17,6 +17,7 @@ import {
   Terminal,
   Smartphone,
   Save,
+  Mic,
 } from 'lucide-react'
 import { FolderBrowser } from './FolderBrowser'
 import { NewSessionModal } from './NewSessionModal'
@@ -539,6 +540,9 @@ export function ProjectDashboard() {
         <div className="header-right">
           <Link to="/launcher" className="icon-button" title="iPhone-style launcher">
             <Smartphone size={18} />
+          </Link>
+          <Link to="/voice-agent" className="icon-button" title="Voice Agent — talk to a document">
+            <Mic size={18} />
           </Link>
           <button className="icon-button" onClick={loadAllData} title="Refresh">
             <RefreshCw size={18} />

@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   Plus,
   Terminal,
+  Mic,
   X,
   Save,
   RefreshCw,
@@ -235,6 +236,10 @@ export function IPhoneLauncher() {
   // When set, a fullscreen modal iframes the system terminal — same shape
   // as `sessionModal` but with no project/session context.
   const [terminalModal, setTerminalModal] = useState<{ isMobile: boolean } | null>(null)
+  // Same modal-in-launcher pattern for the standalone Voice Agent.
+  // Always available (no server-side prerequisite like ttyd for the
+  // terminal) so we don't gate the tile on any port check.
+  const [voiceAgentModal, setVoiceAgentModal] = useState<{ isMobile: boolean } | null>(null)
 
   // Aliveness ref lets the manual Refresh handler and the polling loop
   // share the same `loadAll` without a stale-closure risk on unmount.
@@ -363,6 +368,27 @@ export function IPhoneLauncher() {
       body.style.overscrollBehavior = prev.bodyOverscroll
     }
   }, [terminalModal])
+
+  // Voice agent modal gets the same overscroll lock so a swipe inside
+  // the embedded page doesn't accidentally pull-to-refresh the launcher.
+  useEffect(() => {
+    if (!voiceAgentModal) return
+    const html = document.documentElement
+    const body = document.body
+    const prev = {
+      htmlOverscroll: html.style.overscrollBehavior,
+      bodyOverflow: body.style.overflow,
+      bodyOverscroll: body.style.overscrollBehavior,
+    }
+    html.style.overscrollBehavior = 'none'
+    body.style.overflow = 'hidden'
+    body.style.overscrollBehavior = 'none'
+    return () => {
+      html.style.overscrollBehavior = prev.htmlOverscroll
+      body.style.overflow = prev.bodyOverflow
+      body.style.overscrollBehavior = prev.bodyOverscroll
+    }
+  }, [voiceAgentModal])
 
   // Group projects by their `group` string (same model the regular dashboard
   // uses). Projects without a group land in a single "Other" section.
@@ -564,6 +590,12 @@ export function IPhoneLauncher() {
     setTerminalModal({ isMobile: isMobileViewport() })
   }
 
+  const handleOpenVoiceAgent = () => {
+    // The voice-agent session lives entirely inside the modal iframe —
+    // opening the modal is enough; the WS handshake happens on mount.
+    setVoiceAgentModal({ isMobile: isMobileViewport() })
+  }
+
   return (
     <div className="iphone-launcher">
       <div className="iphone-wallpaper" />
@@ -655,10 +687,13 @@ export function IPhoneLauncher() {
             at the top so it's a one-tap target regardless of how many
             project folders live below. Hidden entirely when the server
             has no ttyd port for the system terminal. */}
-        {!loading && !error && systemTerminalPort && (
+        {!loading && !error && (
           <section className="iphone-section">
             <div className="iphone-grid">
-              <SystemTerminalAppIcon onOpen={handleOpenSystemTerminal} />
+              {systemTerminalPort && (
+                <SystemTerminalAppIcon onOpen={handleOpenSystemTerminal} />
+              )}
+              <VoiceAgentAppIcon onOpen={handleOpenVoiceAgent} />
             </div>
           </section>
         )}
@@ -735,6 +770,13 @@ export function IPhoneLauncher() {
           port={systemTerminalPort}
           isMobile={terminalModal.isMobile}
           onClose={() => setTerminalModal(null)}
+        />
+      )}
+
+      {voiceAgentModal && (
+        <VoiceAgentModal
+          isMobile={voiceAgentModal.isMobile}
+          onClose={() => setVoiceAgentModal(null)}
         />
       )}
 
@@ -1263,6 +1305,108 @@ function SystemTerminalModal({
         title="System Terminal"
         className="iphone-session-modal-iframe"
         allow="clipboard-read; clipboard-write; microphone"
+        style={{ width: '100%', height: '100%', border: 0 }}
+      />
+    </div>
+  )
+}
+
+/* ----- Voice Agent app icon + modal ---------------------------------- */
+
+/**
+ * Home-screen tile for the standalone Voice Agent. Same footprint as
+ * SystemTerminalAppIcon so it stacks naturally in the top "system apps"
+ * row, but with a Mic glyph and a purple-to-orange gradient to
+ * differentiate it from the terminal.
+ */
+function VoiceAgentAppIcon({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      className="iphone-app"
+      onClick={onOpen}
+      aria-label="Open Voice Agent"
+    >
+      <div className="iphone-icon iphone-app-icon iphone-voice-icon">
+        <Mic size={28} strokeWidth={2.2} />
+      </div>
+      <span className="iphone-app-label">Voice</span>
+    </button>
+  )
+}
+
+/**
+ * Fullscreen modal that embeds the /voice-agent React page inside an
+ * iframe with `?embedded=1` so the page hides its own header (the
+ * launcher supplies title + close). `allow="microphone"` is critical
+ * — without it getUserMedia() rejects inside the iframe.
+ *
+ * We iframe rather than in-mount because the voice-agent page owns
+ * an AudioContext + WebSocket + Silero VAD lifecycle keyed to its
+ * component mount. Iframing gives it an isolated window scope so its
+ * own effects clean up cleanly on close without leaking into the
+ * launcher.
+ */
+function VoiceAgentModal({
+  isMobile,
+  onClose,
+}: {
+  isMobile: boolean
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const url = '/voice-agent?embedded=1'
+
+  if (isMobile) {
+    return (
+      <div className="iphone-session-modal" role="dialog" aria-modal="true">
+        <header className="iphone-session-modal-header">
+          <button
+            className="iphone-session-modal-close"
+            onClick={onClose}
+            aria-label="Close voice agent"
+          >
+            <X size={18} />
+          </button>
+          <div className="iphone-session-modal-titles">
+            <div className="iphone-session-modal-project">System</div>
+            <div className="iphone-session-modal-session">Voice Agent</div>
+          </div>
+          <span style={{ width: 34 }} aria-hidden="true" />
+        </header>
+        <div className="iphone-session-modal-body">
+          <iframe
+            src={url}
+            title="Voice Agent"
+            className="iphone-session-modal-iframe"
+            allow="microphone; clipboard-read; clipboard-write"
+          />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="iphone-desktop-session-modal" role="dialog" aria-modal="true">
+      <button
+        className="iphone-desktop-session-modal-close"
+        onClick={onClose}
+        aria-label="Close voice agent"
+        title="Close (Esc)"
+      >
+        <X size={16} />
+      </button>
+      <iframe
+        src={url}
+        title="Voice Agent"
+        className="iphone-session-modal-iframe"
+        allow="microphone; clipboard-read; clipboard-write"
         style={{ width: '100%', height: '100%', border: 0 }}
       />
     </div>

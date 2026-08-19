@@ -7,6 +7,9 @@ import path from 'path'
 import { logger } from '../../utils'
 import { transcribeUtterancePcm16 } from './transcribe-live'
 import { synthesizePcm16, getKokoro, listKokoroVoices } from '../../utils/kokoro'
+// pdf-parse is pulled in lazily inside parsePdfBuffer() so the whole
+// voice module doesn't pay for pdfjs at boot when no PDF is ever added.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 
 export const voiceRouter = Router()
 
@@ -198,13 +201,37 @@ interface HistoryEntry {
   content: string
 }
 
+/**
+ * A single document loaded into the voice-agent's context. May come
+ * from a project file (initial context, backward compat with the HTML
+ * preview flow), from a user upload (PDF / markdown / html / txt),
+ * or from a URL fetch during the conversation.
+ *
+ * `text` is the extracted plain text — capped per-attachment and
+ * totalled across the session (see MAX_ATTACHMENT_CHARS /
+ * MAX_TOTAL_ATTACHMENT_CHARS). `pendingAnnounce` flags an attachment
+ * that arrived mid-conversation and has NOT been surfaced to Claude
+ * yet — the next user turn prepends a note about it so the model
+ * knows there's new material.
+ */
+type AttachmentSource = 'project-file' | 'upload' | 'url'
+interface Attachment {
+  id: string
+  source: AttachmentSource
+  label: string
+  text: string
+  chars: number
+  addedAt: number
+  pendingAnnounce: boolean
+}
+
 interface VoiceSession {
   id: string
   ws: WebSocket
   language: string
   voice: string
-  docPath: string
-  docText: string
+  projectPath: string
+  attachments: Attachment[]
   // Utterance buffer: PCM16 mono @ 16 kHz. Reset after each utterance-end.
   utteranceBuffer: Buffer[]
   // Rolling conversation history. Grows with every completed turn.
@@ -314,6 +341,136 @@ function htmlToText(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+// ============================================================
+// Attachment loaders — PDF, URL, generic text file
+// ============================================================
+//
+// Two knobs the whole attachment subsystem obeys:
+//   MAX_ATTACHMENT_CHARS       cap for ONE attachment's extracted text
+//   MAX_TOTAL_ATTACHMENT_CHARS cap across ALL attachments in a session
+// The session refuses to add a new attachment that would push the total
+// over the cap. This keeps Claude's context predictable and stops a
+// runaway upload from silently eating the whole budget.
+const MAX_ATTACHMENT_CHARS = 80 * 1024
+const MAX_TOTAL_ATTACHMENT_CHARS = 240 * 1024
+// Raw upload byte cap. 20 MB is comfortable for scanned PDFs and well
+// below Node's default WS max-payload (~100 MB).
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+// URL fetch timeout. 15s covers heavy pages; longer than that and the
+// tab starts feeling stuck to the user.
+const URL_FETCH_TIMEOUT_MS = 15_000
+const URL_FETCH_MAX_BYTES = 5 * 1024 * 1024
+
+function clampText(text: string, cap: number = MAX_ATTACHMENT_CHARS): string {
+  if (text.length <= cap) return text
+  return text.slice(0, cap) + '\n[…truncated]'
+}
+
+function makeAttachmentId(): string {
+  return `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+async function parsePdfBuffer(buf: Buffer, label: string): Promise<string> {
+  // Lazy import so users who never touch the voice agent don't pay for
+  // pdfjs at server boot. pdf-parse v2 exposes a class-based API
+  // (PDFParse.getText()) — the module itself isn't callable.
+  const mod = await import('pdf-parse')
+  const PDFParse = (mod as { PDFParse: new (opts: { data: Buffer }) => { getText: () => Promise<{ text: string }>; destroy: () => Promise<void> } }).PDFParse
+  const parser = new PDFParse({ data: buf })
+  try {
+    const parsed = await parser.getText().catch((err: Error) => {
+      throw new Error(`PDF parse failed for ${label}: ${err.message}`)
+    })
+    const text = (parsed?.text || '').replace(/\s+\n/g, '\n').trim()
+    if (!text) throw new Error(`PDF ${label} has no extractable text (image-only scan?)`)
+    return text
+  } finally {
+    try { await parser.destroy() } catch { /* ignore */ }
+  }
+}
+
+/** Fetch a URL and return its text content. Enforces size, timeout,
+ *  and content-type sanity. Supports http(s) only. Uses the built-in
+ *  fetch (Node 18+). */
+async function loadUrlAsText(url: string): Promise<{ text: string; label: string }> {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(`Invalid URL: ${url}`)
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Unsupported URL scheme: ${parsed.protocol}`)
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        // Some sites gate content behind a non-empty UA.
+        'User-Agent': 'ClaudeOrkaVoiceAgent/1.0 (+https://github.com/enruana/claude-orka)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    })
+  } catch (err: any) {
+    clearTimeout(timer)
+    if (err?.name === 'AbortError') throw new Error(`URL fetch timed out after ${URL_FETCH_TIMEOUT_MS / 1000}s: ${url}`)
+    throw new Error(`URL fetch failed: ${err?.message || err}`)
+  }
+  clearTimeout(timer)
+  if (!res.ok) throw new Error(`URL fetch returned HTTP ${res.status}`)
+  const contentType = (res.headers.get('content-type') || '').toLowerCase()
+
+  // Size check — read body as buffer, capped.
+  const body = await res.arrayBuffer()
+  if (body.byteLength > URL_FETCH_MAX_BYTES) {
+    throw new Error(`URL body too large: ${(body.byteLength / 1024 / 1024).toFixed(1)} MB > ${URL_FETCH_MAX_BYTES / 1024 / 1024} MB`)
+  }
+  const buf = Buffer.from(body)
+
+  let text: string
+  if (contentType.includes('application/pdf') || url.toLowerCase().endsWith('.pdf')) {
+    text = await parsePdfBuffer(buf, url)
+  } else if (contentType.includes('text/html') || contentType.includes('xhtml')) {
+    text = htmlToText(buf.toString('utf-8'))
+  } else if (contentType.includes('text/') || contentType.includes('application/json') || contentType.includes('markdown')) {
+    text = buf.toString('utf-8').trim()
+  } else {
+    // Unknown content-type: try to decode as UTF-8 and pray. If it
+    // looks binary (many null bytes), reject.
+    const asText = buf.toString('utf-8')
+    if (asText.split('\0').length > 5) throw new Error(`Unsupported content-type: ${contentType || 'unknown'}`)
+    text = asText.trim()
+  }
+
+  // Extract a short human-readable label from the URL.
+  const label = parsed.hostname + parsed.pathname.replace(/\/$/, '')
+  return { text, label }
+}
+
+/** Total chars across an attachments array. */
+function totalAttachmentChars(atts: Attachment[]): number {
+  return atts.reduce((n, a) => n + a.chars, 0)
+}
+
+/** Compose the doc-context block that goes at the top of Claude's seed
+ *  message. Empty attachments list produces a short "no document yet"
+ *  note so the model doesn't hallucinate one. */
+function buildDocsContext(attachments: Attachment[]): string {
+  if (attachments.length === 0) {
+    return `[No documents attached yet. The user may attach documents or URLs during the conversation — I will announce each one when it arrives, and you should treat it as part of the shared context from that point forward.]`
+  }
+  const parts: string[] = []
+  parts.push(`The user has attached ${attachments.length} document${attachments.length === 1 ? '' : 's'} for us to discuss. When more attachments arrive during the conversation, I'll announce them and you'll see them in the context from then on.`)
+  for (const a of attachments) {
+    parts.push(`\n--- ${a.source === 'url' ? 'URL' : a.source === 'upload' ? 'FILE' : 'DOCUMENT'}: ${a.label} (${a.chars} chars) ---\n${a.text}`)
+  }
+  return parts.join('\n')
 }
 
 // ============================================================
@@ -528,41 +685,41 @@ async function* userTurnGenerator(sess: VoiceSession): AsyncGenerator<{
   parent_tool_use_id: null
   session_id: string
 }> {
-  // Build message 1: doc + history replay. When re-arming after a
-  // barge-in, folding prior turns into a single seed message keeps
-  // Claude's context intact without paying the cost of many turns of
-  // API scaffolding. First-turn cost = 1 message; re-arm cost = 1
-  // message with a slightly longer prompt.
-  let seed = SYSTEM_PROMPT_HEADER + sess.docText
+  // Build message 1: docs + history + the user's actual next question,
+  // ALL as one user message. Yielding the seed AS ONE message and the
+  // queued utterance SEPARATELY makes Claude see two consecutive user
+  // turns and respond twice — once to the seed's "continue the
+  // conversation" nudge, once to the real question. Folding them into
+  // a single message eliminates that double reply.
+  //
+  // Doc-context is always rebuilt from `sess.attachments` so
+  // mid-conversation adds are reflected on the next re-arm without
+  // extra bookkeeping.
+  let seed = SYSTEM_PROMPT_HEADER + buildDocsContext(sess.attachments)
+  // Mark any pending-announce attachments as delivered — the seed we
+  // just built includes them, so we shouldn't also prepend them to the
+  // next user turn.
+  for (const a of sess.attachments) a.pendingAnnounce = false
   if (sess.history.length > 0) {
     seed += '\n\n---\nSo far we have discussed:\n'
     for (const h of sess.history) {
       seed += (h.role === 'user' ? '\nYou asked: ' : '\nI replied: ') + h.content
     }
-    seed += '\n\nContinue the conversation.'
-  } else {
-    seed += '\n\nWait for my first question.'
+  }
+  // If a barge-in / idle re-arm queued an utterance, fold it into the
+  // seed as the actual user turn. This is the only user message Claude
+  // sees for this query, so it responds once — to the real question.
+  if (sess.queuedUserText) {
+    const q = sess.queuedUserText
+    sess.queuedUserText = null
+    sess.currentUserText = q
+    seed += `\n\n---\nMy next question: ${q}`
   }
   yield {
     type: 'user',
     message: { role: 'user', content: seed },
     parent_tool_use_id: null,
     session_id: sess.id,
-  }
-
-  // If a barge-in produced a queued utterance while we were re-arming,
-  // yield it immediately as the next turn — the user shouldn't have to
-  // repeat themselves.
-  if (sess.queuedUserText) {
-    const q = sess.queuedUserText
-    sess.queuedUserText = null
-    sess.currentUserText = q
-    yield {
-      type: 'user',
-      message: { role: 'user', content: q },
-      parent_tool_use_id: null,
-      session_id: sess.id,
-    }
   }
 
   while (!sess.closed && !sess.bargeInPending) {
@@ -835,12 +992,32 @@ async function transcribeAndTurn(sess: VoiceSession): Promise<void> {
     return
   }
   try {
-    const text = (await transcribeUtterancePcm16(pcm, sess.language)).trim()
-    if (!text || text.length < 2) {
+    const rawText = (await transcribeUtterancePcm16(pcm, sess.language)).trim()
+    if (!rawText || rawText.length < 2) {
       logger.debug(`[voice-live ${sess.id}] empty transcript, skipping`)
       return
     }
-    sendJson(sess.ws, { type: 'transcript-final', text })
+    // If new attachments arrived since the last turn AND we're feeding
+    // this into an active query() (not a re-arm — those rebuild the
+    // seed which includes attachments), prepend a note about them so
+    // Claude sees the new material. Re-arm paths handle their own
+    // announcement via buildDocsContext in userTurnGenerator, which
+    // also clears `pendingAnnounce`.
+    const pendingNow = sess.attachments.filter((a) => a.pendingAnnounce)
+    let text = rawText
+    if (pendingNow.length > 0 && !sess.bargeInPending) {
+      const notes = pendingNow.map((a) => {
+        // Include the actual text of the attachment inline so the
+        // model can reason about it in the current turn without
+        // waiting for the next re-arm's seed. Capped per-attachment
+        // to keep the injected note reasonable.
+        return `[New attachment: ${a.label} (${a.chars} chars)]\n${a.text}`
+      }).join('\n\n')
+      text = `${notes}\n\n---\n${rawText}`
+      for (const a of pendingNow) a.pendingAnnounce = false
+      logger.info(`[voice-live ${sess.id}] injected ${pendingNow.length} pending attachment(s) into user turn`)
+    }
+    sendJson(sess.ws, { type: 'transcript-final', text: rawText })
     // NOTE: we do NOT push to history here. The user turn only becomes
     // "committed" once the assistant actually replies to it — that
     // pairing (user + assistant) is what gets stored, in runClaudeSession
@@ -900,6 +1077,145 @@ function makeSessionId(): string {
   return `voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+// ============================================================
+// Attachment control-message handlers
+// ============================================================
+//
+// Each handler validates + parses the incoming attachment, checks the
+// per-session total budget, mutates `sess.attachments`, and replies
+// with `attachment-added` (success) or `attachment-error` (failure).
+// New attachments carry `pendingAnnounce: true` so the next user
+// utterance prepends a note about them for Claude (see
+// transcribeAndTurn). Barge-in re-arms rebuild the seed from scratch
+// including all attachments and clear the flag.
+
+function replyAttachmentError(sess: VoiceSession, message: string): void {
+  sendJson(sess.ws, { type: 'attachment-error', message })
+}
+
+function tryAddAttachment(sess: VoiceSession, next: Attachment): boolean {
+  const projected = totalAttachmentChars(sess.attachments) + next.chars
+  if (projected > MAX_TOTAL_ATTACHMENT_CHARS) {
+    replyAttachmentError(sess,
+      `Attachment budget exceeded (${projected} / ${MAX_TOTAL_ATTACHMENT_CHARS} chars). Remove an attachment first.`)
+    return false
+  }
+  sess.attachments.push(next)
+  sendJson(sess.ws, {
+    type: 'attachment-added',
+    id: next.id,
+    source: next.source,
+    label: next.label,
+    chars: next.chars,
+    addedAt: next.addedAt,
+    totalChars: totalAttachmentChars(sess.attachments),
+  })
+  logger.info(
+    `[voice-live ${sess.id}] attachment added · source=${next.source} · label="${next.label}" · ` +
+    `${next.chars} chars · total=${totalAttachmentChars(sess.attachments)}`
+  )
+  return true
+}
+
+/** Parse a `{type:'attach-file', name, mime, dataBase64}` message.
+ *  Decodes the base64 payload, dispatches to the PDF / text / html
+ *  parser based on file extension, and hands the extracted text off
+ *  to tryAddAttachment. */
+async function handleAttachFile(sess: VoiceSession, msg: Record<string, unknown>): Promise<void> {
+  const name = typeof msg.name === 'string' ? msg.name : 'unnamed'
+  const b64 = typeof msg.dataBase64 === 'string' ? msg.dataBase64 : ''
+  if (!b64) { replyAttachmentError(sess, 'attach-file: dataBase64 required'); return }
+
+  let buf: Buffer
+  try {
+    buf = Buffer.from(b64, 'base64')
+  } catch {
+    replyAttachmentError(sess, 'attach-file: invalid base64 payload')
+    return
+  }
+  if (buf.length === 0) { replyAttachmentError(sess, `attach-file: empty payload for ${name}`); return }
+  if (buf.length > MAX_UPLOAD_BYTES) {
+    replyAttachmentError(sess,
+      `File too large: ${(buf.length / 1024 / 1024).toFixed(1)} MB > ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`)
+    return
+  }
+
+  const ext = path.extname(name).toLowerCase()
+  let text: string
+  try {
+    if (ext === '.pdf') {
+      text = await parsePdfBuffer(buf, name)
+    } else if (ext === '.html' || ext === '.htm') {
+      text = htmlToText(buf.toString('utf-8'))
+    } else if (ext === '.md' || ext === '.markdown' || ext === '.txt' || ext === '') {
+      text = buf.toString('utf-8').trim()
+    } else if (ext === '.json') {
+      text = buf.toString('utf-8').trim()
+    } else {
+      // Try UTF-8 decode; reject if it looks binary.
+      const asText = buf.toString('utf-8')
+      if (asText.split('\0').length > 5) {
+        replyAttachmentError(sess, `Unsupported file type: ${ext || '(no extension)'}`)
+        return
+      }
+      text = asText.trim()
+    }
+  } catch (err: any) {
+    replyAttachmentError(sess, err?.message || 'file parse failed')
+    return
+  }
+
+  text = clampText(text)
+  if (!text) { replyAttachmentError(sess, `${name} had no extractable text`); return }
+
+  tryAddAttachment(sess, {
+    id: makeAttachmentId(),
+    source: 'upload',
+    label: name,
+    text,
+    chars: text.length,
+    addedAt: Date.now(),
+    pendingAnnounce: true,
+  })
+}
+
+/** Parse a `{type:'attach-url', url}` message. Fetches the URL,
+ *  extracts text (HTML/PDF/text supported), and hands off. */
+async function handleAttachUrl(sess: VoiceSession, msg: Record<string, unknown>): Promise<void> {
+  const url = typeof msg.url === 'string' ? msg.url.trim() : ''
+  if (!url) { replyAttachmentError(sess, 'attach-url: url required'); return }
+
+  try {
+    const { text, label } = await loadUrlAsText(url)
+    const clamped = clampText(text)
+    if (!clamped) { replyAttachmentError(sess, `${url} had no extractable text`); return }
+    tryAddAttachment(sess, {
+      id: makeAttachmentId(),
+      source: 'url',
+      label,
+      text: clamped,
+      chars: clamped.length,
+      addedAt: Date.now(),
+      pendingAnnounce: true,
+    })
+  } catch (err: any) {
+    replyAttachmentError(sess, err?.message || 'url fetch failed')
+  }
+}
+
+function handleAttachmentRemove(sess: VoiceSession, msg: Record<string, unknown>): void {
+  const id = typeof msg.id === 'string' ? msg.id : ''
+  const idx = sess.attachments.findIndex((a) => a.id === id)
+  if (idx < 0) return
+  const [removed] = sess.attachments.splice(idx, 1)
+  sendJson(sess.ws, {
+    type: 'attachment-removed',
+    id: removed.id,
+    totalChars: totalAttachmentChars(sess.attachments),
+  })
+  logger.info(`[voice-live ${sess.id}] attachment removed · label="${removed.label}"`)
+}
+
 /**
  * Attach the /api/voice/live WebSocket to an existing HTTP(S) server.
  * Called once from src/server/index.ts during setup — the upgrade
@@ -924,13 +1240,43 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
       const relPath = url.searchParams.get('path') || ''
       const language = url.searchParams.get('language') || 'en'
       const voice = url.searchParams.get('voice') || ''
-      if (!projectB64 || !relPath) {
-        sendJson(ws, { type: 'error', message: 'project and path query params required' })
+      if (!projectB64) {
+        sendJson(ws, { type: 'error', message: 'project query param required' })
         ws.close()
         return
       }
+      // `path` is optional: with it, we auto-load that file as the
+      // initial attachment (HTML preview `?voice=1` flow); without it,
+      // the session starts empty and attachments arrive via control
+      // messages (standalone /agent page flow).
       const projectPath = decodeProjectB64(projectB64)
-      const docText = await loadDocContext(projectPath, relPath)
+      // Two entry modes:
+      //   A. Preview flow (path present): auto-load that file as the
+      //      initial attachment. Backwards-compat with the HTML
+      //      preview `?voice=1` route.
+      //   B. Standalone agent (path omitted): start empty; the client
+      //      will send `attach-file` / `attach-url` control messages
+      //      to populate the context.
+      const initialAttachments: Attachment[] = []
+      if (relPath) {
+        try {
+          const docText = clampText(await loadDocContext(projectPath, relPath))
+          initialAttachments.push({
+            id: makeAttachmentId(),
+            source: 'project-file',
+            label: relPath,
+            text: docText,
+            chars: docText.length,
+            addedAt: Date.now(),
+            pendingAnnounce: false,
+          })
+        } catch (err: any) {
+          // Refuse the connection if the caller asked for a specific
+          // file that we can't load — the client set up its UI
+          // expecting that doc to be present.
+          throw err
+        }
+      }
       const voices = await listKokoroVoices()
       const chosenVoice = voice && voices.includes(voice) ? voice : voices[0]
 
@@ -939,8 +1285,8 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         ws,
         language,
         voice: chosenVoice,
-        docPath: relPath,
-        docText,
+        projectPath,
+        attachments: initialAttachments,
         utteranceBuffer: [],
         history: [],
         currentUserText: null,
@@ -958,7 +1304,10 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         startedAt: Date.now(),
       }
       activeSessions.add(sess)
-      logger.info(`[voice-live ${id}] open · doc=${relPath} · ${docText.length} chars · voice=${chosenVoice}`)
+      logger.info(
+        `[voice-live ${id}] open · project=${projectPath} · initial-attachments=${initialAttachments.length} ` +
+        `(${totalAttachmentChars(initialAttachments)} chars) · voice=${chosenVoice}`
+      )
 
       // Warm Kokoro in parallel with the ready signal so the first
       // synthesis doesn't eat the model load time.
@@ -968,13 +1317,23 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         type: 'ready',
         voices,
         voice: chosenVoice,
-        docChars: docText.length,
-        docPath: relPath,
+        // New shape: attachments array with per-item metadata. Kept
+        // `docChars` + `docPath` alongside so the existing HTML
+        // preview widget (which reads those fields) still works.
+        attachments: initialAttachments.map(({ id: aid, source, label, chars, addedAt }) => ({
+          id: aid, source, label, chars, addedAt,
+        })),
+        docChars: totalAttachmentChars(initialAttachments),
+        docPath: relPath || null,
       })
 
-      // Fire the Claude session in the background; it awaits gated
-      // deferreds resolved by transcribeAndTurn() on each user utterance.
-      void runClaudeSession(sess)
+      // NOTE: we intentionally do NOT spawn runClaudeSession here.
+      // The first user utterance (`transcribeAndTurn`) will spawn it
+      // via the "no live consumer" path, folding the utterance into
+      // the seed as a single user turn. Spawning here would send just
+      // the seed (with no queued user text) to Claude, and Claude
+      // would greet the user unprompted with something like "Hey,
+      // ready when you are" — annoying and burns tokens.
     } catch (err: any) {
       logger.error(`[voice-live ${id}] init failed:`, err)
       sendJson(ws, { type: 'error', message: err.message || 'init failed' })
@@ -1006,6 +1365,15 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
           break
         case 'ping':
           sendJson(ws, { type: 'pong' })
+          break
+        case 'attach-file':
+          await handleAttachFile(sess, msg)
+          break
+        case 'attach-url':
+          await handleAttachUrl(sess, msg)
+          break
+        case 'attachment-remove':
+          handleAttachmentRemove(sess, msg)
           break
       }
     })
