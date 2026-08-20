@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Mic, Paperclip, Link as LinkIcon, X, Loader2,
-  AlertTriangle, FileText, Globe, Square, Minus, Maximize2, GripHorizontal,
+  AlertTriangle, FileText, Globe, Square, Minus, Maximize2, GripHorizontal, Copy, Check,
 } from 'lucide-react'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { ParticleCloud } from './ParticleCloud'
@@ -172,6 +172,7 @@ export function VoiceAgentPage() {
   //    default position" (top-right corner) until the user drags.
   const [minimized, setMinimized] = useState(false)
   const [agentPos, setAgentPos] = useState<{ x: number; y: number } | null>(null)
+  const [justCopied, setJustCopied] = useState(false)
   const dragStateRef = useRef<{
     active: boolean
     pointerId: number
@@ -816,6 +817,19 @@ export function VoiceAgentPage() {
     return () => window.removeEventListener('resize', onResize)
   }, [viewerId, agentPos, clampPos])
 
+  const copyConversation = useCallback(async () => {
+    const text = transcript
+      .map((t) => `${t.role === 'user' ? 'You' : 'Agent'}: ${t.text}`)
+      .join('\n\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setJustCopied(true)
+      setTimeout(() => setJustCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
+  }, [transcript])
+
   const toggleRecording = useCallback(async () => {
     // Any click on the mic counts as a user gesture — unlock the
     // AudioContext first so the very first tap actually starts capture.
@@ -958,6 +972,16 @@ export function VoiceAgentPage() {
                   : 'Voice Agent'}
               </span>
               <div className="va-float-header-actions">
+                {transcript.length > 0 && (
+                  <button
+                    className={`va-float-btn${justCopied ? ' va-float-btn-copied' : ''}`}
+                    onClick={copyConversation}
+                    aria-label="Copy conversation to clipboard"
+                    title="Copy conversation"
+                  >
+                    {justCopied ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                )}
                 <button
                   className="va-float-btn"
                   onClick={() => setMinimized((v) => !v)}

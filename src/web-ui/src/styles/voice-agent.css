@@ -752,6 +752,9 @@
   background: rgba(255, 255, 255, 0.1);
   color: #ecf0fe;
 }
+.va-float-btn-copied {
+  color: #a6e3a1;
+}
 
 /* Minimized body — just a compact mic + state dot, side by side.
    Enough surface to keep push-to-talk one-tap away. */
