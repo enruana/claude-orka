@@ -11,11 +11,9 @@
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  position: relative;
   color: var(--text-primary);
-  background:
-    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(203, 166, 247, 0.18), transparent 60%),
-    radial-gradient(ellipse 80% 60% at 50% 100%, rgba(137, 180, 250, 0.12), transparent 60%),
-    var(--bg-primary, #11111b);
+  background: #0a0a12;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   overflow-y: auto;
 }
@@ -35,13 +33,13 @@
   align-items: center;
   gap: 12px;
   padding: 14px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(137, 180, 250, 0.1);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(17, 17, 27, 0.7);
+  background: rgba(17, 17, 27, 0.4);
 }
 
 .va-back {
@@ -116,8 +114,10 @@
   gap: 6px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(137, 180, 250, 0.08);
+  border: 1px solid rgba(137, 180, 250, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: #cdd6f4;
   font-size: 12px;
   max-width: 240px;
@@ -158,6 +158,8 @@
   justify-content: center;
   gap: 18px;
   padding: 40px 18px;
+  position: relative;
+  z-index: 1;
 }
 
 /* Live state chip above the mic — mirrors the mic's color states so
@@ -214,12 +216,12 @@
   transform: scale(calc(1 + 0.18 * var(--level)));
   background: radial-gradient(
     circle,
-    rgba(166, 227, 161, calc(0.28 * var(--level))) 0%,
-    rgba(166, 227, 161, 0) 70%
+    rgba(137, 180, 250, calc(0.25 * var(--level))) 0%,
+    rgba(137, 180, 250, 0) 70%
   );
   box-shadow:
-    0 0 0 calc(4px + 20px * var(--level)) rgba(166, 227, 161, calc(0.06 * var(--level))),
-    0 0 0 calc(8px + 40px * var(--level)) rgba(166, 227, 161, calc(0.03 * var(--level)));
+    0 0 0 calc(4px + 20px * var(--level)) rgba(137, 180, 250, calc(0.08 * var(--level))),
+    0 0 0 calc(8px + 40px * var(--level)) rgba(137, 180, 250, calc(0.04 * var(--level)));
   transition: transform 80ms ease-out;
 }
 /* Halo color shifts when muted / speaking so the wave doesn't compete
@@ -234,14 +236,16 @@
   width: 200px;
   height: 200px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  border: 2px solid rgba(137, 180, 250, 0.3);
+  background: linear-gradient(160deg, rgba(137, 180, 250, 0.12), rgba(100, 150, 220, 0.05));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: #ecf0fe;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 32px rgba(137, 180, 250, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   transition: transform 0.15s, box-shadow 0.2s, background 0.2s, border-color 0.2s;
   -webkit-tap-highlight-color: transparent;
 }
@@ -410,8 +414,10 @@
   gap: 8px;
   padding: 10px 16px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(137, 180, 250, 0.1);
+  border: 1px solid rgba(137, 180, 250, 0.25);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color: #cdd6f4;
   font-size: 13px;
   font-weight: 500;
@@ -419,8 +425,8 @@
   transition: background 0.15s, border-color 0.15s;
 }
 .va-attach-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(137, 180, 250, 0.18);
+  border-color: rgba(137, 180, 250, 0.35);
 }
 .va-attach-btn:disabled {
   opacity: 0.55;
@@ -537,12 +543,18 @@
 }
 
 .va-turn-user {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(137, 180, 250, 0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(137, 180, 250, 0.15);
   align-self: flex-end;
   max-width: 85%;
 }
 .va-turn-assistant {
-  background: rgba(137, 180, 250, 0.08);
+  background: rgba(100, 150, 220, 0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(137, 180, 250, 0.1);
   align-self: flex-start;
   max-width: 85%;
 }
@@ -658,19 +670,16 @@
 
 .va-agent-panel.va-float {
   position: absolute;
-  /* Default position — top-right, offset from the canvas edge. If
-     the user has dragged, `agentPos` on the element style takes over
-     via the `left/top` inline props. */
   top: 16px;
   right: 16px;
   width: min(400px, 92vw);
   max-height: calc(100% - 32px);
-  border-radius: 20px;
-  background: rgba(17, 17, 27, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-radius: 24px;
+  background: rgba(17, 17, 27, 0.5);
+  border: 1px solid rgba(137, 180, 250, 0.2);
+  box-shadow: 0 20px 60px rgba(137, 180, 250, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px) saturate(130%);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -691,7 +700,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(137, 180, 250, 0.1);
   cursor: grab;
   user-select: none;
   touch-action: none;

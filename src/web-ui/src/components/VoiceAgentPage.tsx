@@ -5,6 +5,7 @@ import {
   AlertTriangle, FileText, Globe, Square, Minus, Maximize2, GripHorizontal,
 } from 'lucide-react'
 import { usePageTitle } from '../hooks/usePageTitle'
+import { ParticleCloud } from './ParticleCloud'
 import '../styles/voice-agent.css'
 
 /**
@@ -846,6 +847,12 @@ export function VoiceAgentPage() {
       // wouldn't trigger a re-render).
       data-preview-version={previewVersion}
     >
+      {/* Animated particle cloud background — represents the thinking AI */}
+      <ParticleCloud
+        state={state}
+        intensity={state === 'thinking' || state === 'speaking' ? 1.2 : 0.8}
+      />
+
       {!embedded && (
         <header className="va-header">
           <Link to="/dashboard" className="va-back" aria-label="Back to dashboard">

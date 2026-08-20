@@ -1,23 +1,37 @@
 ---
 name: board-task-init
-description: Boot ritual for a board task-terminal — create the worktree (moxikit), read docs and the Jira ticket, register the task in Orka KB, link everything back, and move the Jira ticket to In Progress. Load when a task-terminal spawns and its init prompt fires.
+description: Boot ritual for a board task-terminal — for Jira-mirrored tasks it creates the worktree (moxikit), reads docs and the Jira ticket, registers the task in Orka KB, links everything back, and moves the Jira ticket to In Progress. For local (non-Jira) tasks it runs a lighter branch tailored to the task type (research / document / design / spike) — no Jira reads, no PR-oriented setup. Load when a task-terminal spawns and its init prompt fires.
 ---
 
 # Board Task — Init Ritual
 
-You are running inside a **task-terminal** for a Jira ticket. You just booted. Your job is to get the workspace ready to start coding and to make sure the ticket, the local BoardTask, and the KB entity are all linked.
+You are running inside a **task-terminal** for a board task. You just booted. Your job is to get the workspace ready to start working and to make sure the task, the local BoardTask, and the KB entity are all linked.
 
-Prerequisite reading: `board-guide` (board schema + CLI), `kb-guide` (KB shape), `kb-project` (**la convención de tier + carpeta + `path` property que debes seguir**), `board-jira-api` (Jira endpoints).
+Prerequisite reading: `board-guide` (board schema + CLI), `kb-guide` (KB shape), `kb-project` (**la convención de tier + carpeta + `path` property que debes seguir**), `board-jira-api` (Jira endpoints — only for Jira-origin tasks).
+
+**Two flavors of task exist**, and they follow different branches of this ritual:
+
+1. **Jira-origin task** (default; mirrored from a real Jira ticket) — full ritual: worktree, read Jira, KB entity, link, transition Jira to In Progress.
+2. **Local-origin task** (`origin: 'local'` on the BoardTask, or `taskKey` starts with `LOCAL-`) — user-created internal work (research, design doc, spike). No Jira, no PR. Skip Steps 2 (Jira read), 5 (Jira transition), and adapt Step 3 (worktree is optional and only for tasks that produce code artifacts). Do everything else normally.
+
+You can detect which flavor you are in by running `orka board show-task --board <boardId> --key <taskKey> --json` and checking `origin` and `taskType`. If either indicates local, run the local branch called out inline in each step.
+
+**Special sub-case: Port from KB.** A local task can be created pre-linked to an existing KB entity (created via the board's "New task → Port from KB entity" flow, or via CLI with `--kb-entity`). You can detect this because:
+
+- The init prompt contains a non-empty `kbEntityId` placeholder, and/or
+- `orka board show-task --json` returns a `kbEntityId` on the task.
+
+When that's the case, treat this as a **RESUME**, not a fresh start. Step 1 already covers most of it — the twist is that you never create a new KB entity; you always land on the pre-linked one, load its full context (overview.html, decisions, timeline, linked docs), and bump its changelog with a "Resumed as board task {{taskKey}} on <today>" entry. Skip Step 5 (create folder) and Step 6 (create entity) entirely. Just make sure Step 7 (link back to BoardTask) writes the entity id — it should already match.
 
 Placeholders provided to you in the init prompt:
-- `taskKey` — Jira issue key (e.g. `PROJ-123`)
-- `taskTitle` — issue title
-- `jiraUrl` — canonical URL
+- `taskKey` — task key (e.g. `PROJ-123` for Jira, `LOCAL-XYZAB123` for local)
+- `taskTitle` — task title
+- `jiraUrl` — canonical URL (empty string for local tasks)
 - `boardId` — the parent board
 - `projectPath` — absolute path to the Orka project
 - `template` — which init template ran (`full`, `spike`, or a custom name)
-- `branchName` — suggested branch (e.g. `PROJ-123-short-slug`)
-- `worktreeParent` — where worktrees go (from moxikit config)
+- `branchName` — suggested branch (empty / n/a for local tasks that don't touch code)
+- `worktreeParent` — where worktrees go (from moxikit config; ignored for pure-doc local tasks)
 
 ---
 
@@ -64,9 +78,15 @@ llegues al Step 5 harás el `orka kb add` normal.
 
 ---
 
-## Step 2 — Read the ticket
+## Step 2 — Read the ticket (Jira-origin tasks only)
 
-Fetch fresh from Jira (don't rely on the local mirror alone):
+**Local-origin tasks (`LOCAL-*`, `origin: 'local'`) — SKIP this step.**
+There is no Jira ticket. Everything you need is already in the local
+BoardTask (`title`, `description`, `taskType`) — read it with
+`orka board show-task --board <boardId> --key <taskKey> --json` and
+treat that as the source of truth. Skip to Step 3.
+
+For Jira-origin tasks, fetch fresh from Jira (don't rely on the local mirror alone):
 
 ```
 GET /rest/api/3/issue/<taskKey>?fields=summary,description,priority,labels,assignee,status,comment,subtasks
@@ -155,17 +175,23 @@ Pasos:
 Guarda `<resolvedPath>` — lo usarás como `path` de la entidad KB en el
 Step 5.
 
-### overview.html — estructura
+### overview.html — structure
 
-En **español**, deep-dive briefing del ticket que el developer abre antes
-de tocar código. Responde qué/por qué/cómo. Estructura:
+A deep-dive briefing of the ticket that the developer opens before
+touching code. Answers what / why / how.
+
+**Output language: English throughout.** Use natural, moderate
+vocabulary — the kind a technical friend would use over Slack. Prefer
+common verbs (`fix`, `add`, `update`, `check`) over academic ones
+(`ameliorate`, `augment`, `interrogate`). Keep sentences short. Avoid
+idioms and rare synonyms. Being direct is fine.
 
 ```html
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>{{taskKey}} — <taskTitle en español></title>
+  <title>{{taskKey}} — <task title in English></title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 780px; margin: 32px auto; padding: 0 20px; color: #24292f; line-height: 1.6; }
     h1 { margin: 0 0 4px; }
@@ -187,61 +213,61 @@ de tocar código. Responde qué/por qué/cómo. Estructura:
 </head>
 <body>
   <p class="key">{{taskKey}}</p>
-  <h1><Título del ticket, en español></h1>
-  <p><Una sola frase de resumen — la esencia del ticket></p>
+  <h1><Ticket title, in English></h1>
+  <p><One sentence summary — the core of the ticket></p>
 
   <section>
-    <h2>¿Qué es este ticket?</h2>
-    <p>Explicación clara de qué pide el ticket — funcional, no técnico.</p>
+    <h2>What is this ticket?</h2>
+    <p>A clear explanation of what the ticket asks for — functional, not technical.</p>
   </section>
 
   <section>
-    <h2>¿Por qué se necesita?</h2>
-    <p>Motivación de negocio o del usuario, contexto, dependencias que
-       lo hacen relevante ahora. Menciona tickets relacionados si aplica.</p>
+    <h2>Why is it needed?</h2>
+    <p>The business or user motivation, the context, and any dependency
+       that makes it relevant now. Mention related tickets if any.</p>
   </section>
 
   <section>
-    <h2>Intención</h2>
-    <p>El resultado que el ticket persigue en el producto — cómo cambia
-       la experiencia o la métrica.</p>
+    <h2>Intent</h2>
+    <p>The outcome the ticket aims for in the product — how it changes
+       the user experience or a metric.</p>
   </section>
 
   <section>
-    <h2>Cómo abordarlo — soluciones posibles</h2>
-    <p>Aquí es donde la investigación previa pesa. Enumera 1–3 enfoques
-       viables con sus trade-offs. Sé concreto en archivos y componentes
-       que tocarías si los conoces.</p>
+    <h2>How to approach it — possible solutions</h2>
+    <p>This is where prior research earns its keep. List 1–3 workable
+       approaches with their trade-offs. Be concrete about which files
+       and components you would touch if you know them.</p>
     <ul>
-      <li><strong>Opción A:</strong> …</li>
-      <li><strong>Opción B:</strong> …</li>
+      <li><strong>Option A:</strong> …</li>
+      <li><strong>Option B:</strong> …</li>
     </ul>
-    <p>Cierra con una recomendación si tienes convicción, o marca como
-       spike si necesitas explorar más.</p>
+    <p>Close with a recommendation if you have a clear call, or mark it
+       as a spike if you need to explore more first.</p>
   </section>
 
   <section>
-    <h2>Contexto útil</h2>
+    <h2>Useful context</h2>
     <ul>
-      <li>Ticket Jira: <a href="{{jiraUrl}}">{{taskKey}}</a></li>
-      <li>Rama: <code>{{branchName}}</code></li>
+      <li>Jira ticket: <a href="{{jiraUrl}}">{{taskKey}}</a></li>
+      <li>Branch: <code>{{branchName}}</code></li>
       <li>Worktree: <code>{{worktreePath}}</code></li>
     </ul>
   </section>
 
-  <p class="meta">Generado por Orka al iniciar la tarea. <strong>Versión actual: v1.0</strong></p>
+  <p class="meta">Generated by Orka when the task started. <strong>Current version: v1.0</strong></p>
 
-  <!-- Changelog embebido: cada revisión del documento agrega una entrada
-       arriba (más reciente primero). Sirve como paper trail sutil sin
-       necesidad de archivos externos. Mantén los `data-version` únicos y
-       secuenciales (v1.0 → v1.1 → v2.0 según envergadura del cambio). -->
-  <section class="changelog" aria-label="Historial de cambios">
-    <h3>Historial</h3>
+  <!-- Embedded changelog: each revision of the document adds an entry
+       at the top (newest first). Works as a light paper trail without
+       needing external files. Keep `data-version` values unique and in
+       order (v1.0 → v1.1 → v2.0 depending on how big the change is). -->
+  <section class="changelog" aria-label="Change history">
+    <h3>Changelog</h3>
     <ul>
       <li data-version="v1.0">
         <span class="ver">v1.0</span>
         <span class="when">{{ISO date}}</span>
-        Documento generado al iniciar la tarea.
+        Document created when the task started.
       </li>
     </ul>
   </section>
@@ -249,10 +275,10 @@ de tocar código. Responde qué/por qué/cómo. Estructura:
 </html>
 ```
 
-Reemplaza los placeholders `{{…}}` y los stubs `<…>` con contenido real
-basado en lo que leíste del ticket + del repo en los Pasos 1 y 2. No
-copies el cuerpo del ticket tal cual — sintetiza en español y prioriza
-claridad sobre exhaustividad. Guárdalo con `Write`.
+Replace the `{{…}}` placeholders and `<…>` stubs with real content based
+on what you read from the ticket + the repo in Steps 1 and 2. Do not
+copy the ticket body word-for-word — summarize in English and put
+clarity above completeness. Save with `Write`.
 
 ---
 
@@ -273,7 +299,7 @@ que `kb-project` documenta; añade los properties específicos del board
 ```
 orka kb add <tier> "<taskTitle>" \
   --skill board-task-init \
-  --property description="<resumen en español>" \
+  --property description="<English summary of the task>" \
   --property jira_key=<taskKey> \
   --property jira_url=<jiraUrl> \
   --property board_id=<boardId> \
@@ -314,9 +340,12 @@ orka board update-task \
 
 ---
 
-## Step 8 — Move the Jira ticket to In Progress
+## Step 8 — Move the Jira ticket to In Progress (Jira-origin only)
 
-Get the available transitions and pick the "In Progress" one:
+**Local-origin tasks — SKIP this step.** There's no Jira ticket to
+transition. The Kanban column already reflects the move locally.
+
+For Jira-origin tasks, get the available transitions and pick the "In Progress" one:
 
 ```
 GET  /rest/api/3/issue/<taskKey>/transitions
@@ -329,7 +358,9 @@ If the ticket is already In Progress (e.g. drift acceptance path), skip this ste
 
 ## Step 9 — Report ready
 
-Print a short summary in the terminal:
+Print a short summary in the terminal. Two shapes depending on origin:
+
+**Jira-origin:**
 ```
 Ready to work on <taskKey> — <taskTitle>
 - Worktree: <worktreePath> (branch <branchName>)
@@ -337,7 +368,44 @@ Ready to work on <taskKey> — <taskTitle>
 - Jira: moved to In Progress
 ```
 
+**Local-origin:**
+```
+Ready to work on <taskKey> — <taskTitle>  (local · <taskType>)
+- Worktree: <worktreePath if created, else "n/a — doc-only work">
+- KB: <kbEntityId>
+- No Jira ticket (local task)
+```
+
 You're now in normal working mode — the user drives from here.
+
+---
+
+## Local-task specifics — how `taskType` shapes the initial work
+
+For local-origin tasks, adapt the initial overview.html and your
+opening moves to what the user asked for:
+
+- **`research`** — deep dive into an area. Skip the worktree unless you
+  need to run code to answer the question. Focus overview.html on:
+  *the question*, *what you already know*, *what you plan to check*,
+  *how you'll know you're done*. Expect to spawn spike / decision KB
+  entities as findings land.
+- **`document`** — the outcome IS a doc (runbook, migration guide,
+  README overhaul). Skip the worktree unless the doc lives in the code
+  repo. overview.html plays the role of the doc's outline + drafts;
+  keep bumping the changelog as you write.
+- **`design`** — TDR / PRD / architecture proposal. Frame overview.html
+  as a design doc: problem statement, options considered, chosen
+  approach with tradeoffs. Reader is a peer reviewing the design later.
+- **`spike`** — timeboxed exploration to answer one specific question.
+  Worktree is usually needed (throwaway branch is fine). overview.html
+  should end with a clear "answer to the question" section and a
+  recommendation (build / defer / drop).
+- **`other`** — treat like `document` unless the description makes the
+  intent obvious.
+
+None of these need a Jira comment, none need a PR to merge. The KB
+entity + overview.html is the artifact.
 
 ---
 

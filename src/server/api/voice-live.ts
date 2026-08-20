@@ -7,6 +7,7 @@ import path from 'path'
 import { logger } from '../../utils'
 import { transcribeUtterancePcm16 } from './transcribe-live'
 import { synthesizePcm16, getKokoro, listKokoroVoices } from '../../utils/kokoro'
+import { getWhisperServer } from '../../utils/whisper'
 // pdf-parse is pulled in lazily inside parsePdfBuffer() so the whole
 // voice module doesn't pay for pdfjs at boot when no PDF is ever added.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -279,6 +280,9 @@ interface VoiceSession {
   ttsBuffer: string
   ttsInFlight: boolean
   ttsCancelToken: { cancelled: boolean }
+  // Event-driven gate: Priority 3A optimization. Deferred gate that resolves
+  // when the previous sentence finishes TTS, reducing CPU and jitter.
+  ttsFlushedGate: Deferred<void> | null
   closed: boolean
   startedAt: number
 }
@@ -292,6 +296,25 @@ function deferred<T>(): Deferred<T> {
 }
 
 const activeSessions = new Set<VoiceSession>()
+
+// ============================================================
+// SDK caching — Priority 2 optimization
+// ============================================================
+let sdkQueryCached: any = null
+let sdkQueryLoading: Promise<any> | null = null
+
+async function getSDKQuery() {
+  if (sdkQueryCached) return sdkQueryCached
+  if (sdkQueryLoading) return sdkQueryLoading
+
+  sdkQueryLoading = (async () => {
+    const { query } = await import('@anthropic-ai/claude-agent-sdk')
+    sdkQueryCached = query
+    return query
+  })()
+
+  return sdkQueryLoading
+}
 
 // ============================================================
 // Doc loading (from the project's file tree)
@@ -481,11 +504,11 @@ function buildDocsContext(attachments: Attachment[]): string {
 // (unnatural pauses, chopped prosody). Feeding it the entire assistant
 // response destroys TTFA. Sweet spot: yield one sentence at a time.
 // A "sentence" here is anything ending in .!?…: followed by whitespace
-// or end of string. Falls back to newline chunks for long non-punctuated
-// runs so we don't wait forever.
+// or end of string. Single newlines mid-text are treated as spaces (not boundaries)
+// to avoid splitting phrases that wrap across lines. Double newlines = paragraph break.
 
-const SENTENCE_END_RE = /([.!?…]["')\]]*|\n)(\s+|$)/g
-const MAX_SENTENCE_CHARS = 260  // hard flush if no punctuation
+const SENTENCE_END_RE = /([.!?…]["')\]]*|\n\n+)(\s+|$)/g
+const MAX_SENTENCE_CHARS = 400  // hard flush if no punctuation (increased from 260 for smoother playback)
 
 /**
  * Strip markdown & code-ish tokens the TTS would otherwise read out
@@ -561,17 +584,21 @@ function sanitizeForSpeech(text: string): string {
 /** Consume as many complete sentences as we can from the buffer, return
  *  them and the remaining unfinished tail. */
 function extractSentences(buffer: string): { sentences: string[]; rest: string } {
+  // Normalize single newlines to spaces so they don't break sentences mid-phrase.
+  // Only double+ newlines are treated as paragraph/sentence boundaries.
+  const normalized = buffer.replace(/\n(?!\n)/g, ' ').replace(/\s+/g, ' ')
+
   const sentences: string[] = []
   let lastCut = 0
   let match: RegExpExecArray | null
   const re = new RegExp(SENTENCE_END_RE.source, 'g')
-  while ((match = re.exec(buffer)) !== null) {
+  while ((match = re.exec(normalized)) !== null) {
     const end = match.index + match[1].length
-    const chunk = buffer.slice(lastCut, end).trim()
+    const chunk = normalized.slice(lastCut, end).trim()
     if (chunk) sentences.push(chunk)
     lastCut = end + match[2].length
   }
-  const rest = buffer.slice(lastCut)
+  const rest = normalized.slice(lastCut)
   // Hard flush: if the tail is too long without punctuation, cut on a
   // word boundary so we don't buffer forever.
   if (rest.length > MAX_SENTENCE_CHARS) {
@@ -766,7 +793,7 @@ async function runClaudeSession(sess: VoiceSession): Promise<void> {
     return
   }
   sess.driverRunning = true
-  const { query } = await import('@anthropic-ai/claude-agent-sdk')
+  const query = await getSDKQuery()
 
   try {
   while (!sess.closed) {
@@ -904,9 +931,13 @@ async function speakSentence(sess: VoiceSession, text: string): Promise<void> {
   const token = sess.ttsCancelToken
   try {
     // Serialize — wait for the previous sentence to finish streaming.
-    // (No throughput hit: Kokoro's synthesis itself dominates the loop.)
+    // Priority 3A: Event-driven gate replaces setTimeout polling.
+    // The previous sentence's finally block will resolve this gate.
     while (sess.ttsInFlight && !token.cancelled && !sess.closed) {
-      await new Promise((r) => setTimeout(r, 20))
+      // Create a gate for this sentence to wait on
+      const gate = deferred<void>()
+      sess.ttsFlushedGate = gate
+      await gate.promise
     }
     if (token.cancelled || sess.closed) return
     sess.ttsInFlight = true
@@ -920,19 +951,30 @@ async function speakSentence(sess: VoiceSession, text: string): Promise<void> {
     sendJson(sess.ws, { type: 'audio-start', sampleRate, format: 'pcm16le', chars: text.length })
     // Send as chunks so the client can start playing as bytes arrive
     // instead of waiting for the full sentence.
-    const CHUNK = 8000 // 250ms of audio at 16-bit 24kHz mono
-    for (let i = 0; i < pcm.length; i += CHUNK) {
+    // Priority 3B: Adaptive chunks — scale by synthesis RTF for smoother playback
+    const baseChunk = 8000 // 250ms of audio at 16-bit 24kHz mono
+    const rtf = synthMs / audioMs
+    const adaptiveRtf = Math.max(0.3, Math.min(1.5, rtf))
+    const scaledChunk = Math.round(baseChunk / adaptiveRtf)
+    const chunk = Math.max(4000, Math.min(16000, scaledChunk))
+
+    for (let i = 0; i < pcm.length; i += chunk) {
       if (token.cancelled || sess.closed) return
-      sess.ws.send(pcm.subarray(i, Math.min(i + CHUNK, pcm.length)))
+      sess.ws.send(pcm.subarray(i, Math.min(i + chunk, pcm.length)))
     }
     sendJson(sess.ws, { type: 'audio-end' })
-    logger.debug(`[voice-live ${sess.id}] spoke "${text.slice(0, 40)}…" synth=${synthMs}ms audio=${audioMs}ms`)
+    logger.debug(`[voice-live ${sess.id}] spoke "${text.slice(0, 40)}…" synth=${synthMs}ms audio=${audioMs}ms rtf=${rtf.toFixed(2)}x chunk=${chunk}`)
   } catch (err) {
     if (!sess.closed) {
       logger.error(`[voice-live ${sess.id}] TTS failed:`, err)
     }
   } finally {
     sess.ttsInFlight = false
+    // Priority 3A: Trigger the gate so the next waiting sentence can proceed
+    if (sess.ttsFlushedGate) {
+      sess.ttsFlushedGate.resolve()
+      sess.ttsFlushedGate = null
+    }
   }
 }
 
@@ -948,6 +990,11 @@ function handleInterrupt(sess: VoiceSession): void {
   sess.ttsCancelToken.cancelled = true
   sess.ttsCancelToken = { cancelled: false }
   sess.ttsBuffer = ''
+  // Priority 3A: Trigger flushed gate to wake pending speakSentence waiters
+  if (sess.ttsFlushedGate) {
+    sess.ttsFlushedGate.resolve()
+    sess.ttsFlushedGate = null
+  }
   // 2. Drop both sides of the in-flight turn from history. The user
   //    cut us off before we finished; committing a partial assistant
   //    reply would misrepresent the conversation ("I said X" when I
@@ -1300,6 +1347,7 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         ttsBuffer: '',
         ttsInFlight: false,
         ttsCancelToken: { cancelled: false },
+        ttsFlushedGate: null,
         closed: false,
         startedAt: Date.now(),
       }
@@ -1309,9 +1357,10 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         `(${totalAttachmentChars(initialAttachments)} chars) · voice=${chosenVoice}`
       )
 
-      // Warm Kokoro in parallel with the ready signal so the first
-      // synthesis doesn't eat the model load time.
+      // Warm Kokoro and Whisper in parallel with the ready signal so the first
+      // synthesis and transcription don't eat the model load time.
       void getKokoro().catch((err) => logger.warn(`[voice-live ${id}] kokoro warmup failed: ${err.message}`))
+      void getWhisperServer().catch((err) => logger.warn(`[voice-live ${id}] whisper warmup failed: ${err.message}`))
 
       sendJson(ws, {
         type: 'ready',
