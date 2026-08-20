@@ -527,6 +527,44 @@
   border-radius: 3px;
 }
 
+.va-transcript-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px 12px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(137, 180, 250, 0.1);
+}
+
+.va-transcript-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 600;
+}
+
+.va-transcript-copy-btn {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.va-transcript-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ecf0fe;
+}
+.va-transcript-copy-btn-copied {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.1);
+}
+
 .va-turn {
   padding: 10px 14px;
   border-radius: 12px;
@@ -810,11 +848,29 @@
   height: auto;
   flex: 1;
   min-height: 120px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 96%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 96%,
+    transparent 100%
+  );
+}
+
+.va-agent-panel.va-float .va-transcript-header {
+  padding: 12px 14px 8px;
+  margin-bottom: 0;
+  border-bottom: 1px solid rgba(137, 180, 250, 0.08);
 }
 
 .va-agent-panel.va-float .va-transcript {
   inset: 0;
-  padding: 16px 14px 12px;
+  padding: 0 14px 12px;
 }
 
 .va-agent-panel.va-float .va-turn {

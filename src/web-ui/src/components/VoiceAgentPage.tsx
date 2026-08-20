@@ -1113,6 +1113,17 @@ export function VoiceAgentPage() {
 
               {transcript.length > 0 && (
                 <div className="va-transcript-wrap">
+                  <div className="va-transcript-header">
+                    <span className="va-transcript-label">Conversation</span>
+                    <button
+                      className={`va-transcript-copy-btn${justCopied ? ' va-transcript-copy-btn-copied' : ''}`}
+                      onClick={copyConversation}
+                      aria-label="Copy conversation to clipboard"
+                      title="Copy conversation"
+                    >
+                      {justCopied ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </div>
                   <div className="va-transcript" ref={transcriptRef}>
                     {transcript.map((t) => (
                       <div key={t.id} className={`va-turn va-turn-${t.role}`}>
