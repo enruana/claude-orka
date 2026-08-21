@@ -49,18 +49,18 @@ const VERTEX_SHADER = `
     pos *= (1.0 + pulse);
 
     gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-    gl_PointSize = 2.0;
+    gl_PointSize = 5.0;
 
     float colorNoise = noise(vec3(position.xy * 0.2, 0.0));
     vColor = mix(
-      vec3(0.2, 0.6, 1.0),
-      vec3(0.5, 0.8, 1.0),
+      vec3(0.3, 0.7, 1.0),
+      vec3(0.6, 0.9, 1.0),
       colorNoise
     );
 
     float alphaNoise = noise(vec3(position.z * 0.3, 0.0, 0.0));
-    vAlpha = mix(0.3, 0.8, alphaNoise);
-    vAlpha *= (0.5 + sin(uTime * 3.0) * 0.5) * (0.5 + uIntensity);
+    vAlpha = mix(0.5, 1.0, alphaNoise);
+    vAlpha *= (0.6 + sin(uTime * 3.0) * 0.4) * (0.7 + uIntensity);
   }
 `
 
@@ -76,10 +76,10 @@ const FRAGMENT_SHADER = `
 
     if (dist > 1.0) discard;
 
-    // Gaussian falloff for soft glow
-    float falloff = exp(-dist * dist * 3.0);
+    // Gaussian falloff for soft glow - more intense
+    float falloff = exp(-dist * dist * 2.0);
 
-    gl_FragColor = vec4(vColor, vAlpha * falloff);
+    gl_FragColor = vec4(vColor * 1.2, vAlpha * falloff);
   }
 `
 
