@@ -1735,6 +1735,10 @@
 
       async start() {
         if (this.isRecording) return;
+        // Wake the persistent whisper-server while the user is still
+        // speaking so the first transcription of a session doesn't pay
+        // the model-load cost. Fire-and-forget.
+        fetch(`${window.location.origin}/api/transcribe/warmup`, { method: 'POST' }).catch(() => {});
         try {
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             const isSecure = window.location.protocol === 'https:' ||
@@ -1900,8 +1904,45 @@
       }
 
       async transcribe(blob) {
-        const url = `${window.location.origin}/api/transcribe?language=auto`;
+        // /direct runs the same pipeline the voice agent uses: the audio
+        // goes straight to the persistent whisper-server (model already
+        // resident) and the text comes back in the SAME response. The
+        // legacy /api/transcribe route spawns a fresh whisper-cli per
+        // request and needs 2s-interval polling on top, which is why the
+        // quick action used to feel so much slower than the voice agent.
+        // We already ship 16 kHz mono PCM16 WAV, so the server skips
+        // ffmpeg entirely on this path.
+        const url = `${window.location.origin}/api/transcribe/direct?language=auto`;
         console.log('Sending WAV to', url, 'size:', blob.size);
+        let response;
+        try {
+          response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'audio/wav' },
+            body: blob,
+          });
+        } catch (err) {
+          // Request never landed — retry once on the legacy route.
+          console.warn('Direct transcription unreachable, falling back to job flow:', err);
+          return this.transcribeViaJob(blob);
+        }
+        // Only a 404 (server predates this route) justifies the slower
+        // second attempt; any other error would fail there too.
+        if (response.status === 404) {
+          console.warn('Direct transcription route missing, falling back to job flow');
+          return this.transcribeViaJob(blob);
+        }
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.message || error.error || 'Transcription failed');
+        }
+        const text = ((await response.json()).text || '').trim();
+        if (!text) throw new Error('No speech detected');
+        return text;
+      }
+
+      async transcribeViaJob(blob) {
+        const url = `${window.location.origin}/api/transcribe?language=auto`;
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'audio/wav' },

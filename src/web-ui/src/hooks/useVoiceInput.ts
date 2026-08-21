@@ -28,60 +28,104 @@ export function useVoiceInput(): UseVoiceInputReturn {
   const audioChunksRef = useRef<Blob[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
 
+  /**
+   * Job-based upload + poll. Kept as the fallback path: it spawns a
+   * fresh whisper-cli per request (model reload every time) and polls
+   * on a 2s timer, so it is several seconds slower than /direct. Only
+   * reached when the direct route is unavailable (older server).
+   */
+  const transcribeViaJob = useCallback(async (audioBlob: Blob, mimeType: string, lang: VoiceLanguage) => {
+    const uploadResponse = await fetch(`/api/transcribe?language=${lang}`, {
+      method: 'POST',
+      headers: { 'Content-Type': mimeType },
+      body: audioBlob
+    })
+
+    if (!uploadResponse.ok) {
+      const err = await uploadResponse.json().catch(() => ({ error: 'Upload failed' }))
+      throw new Error(err.message || err.error || 'Upload failed')
+    }
+
+    const { jobId } = await uploadResponse.json()
+    if (!jobId) throw new Error('No job ID returned')
+
+    const maxAttempts = 300
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 2000))
+
+      const pollResponse = await fetch(`/api/transcribe/job/${jobId}`)
+      if (!pollResponse.ok) throw new Error('Failed to check status')
+
+      const result = await pollResponse.json()
+
+      if (result.status === 'completed') return (result.text || '').trim()
+      if (result.status === 'error') throw new Error(result.error || 'Transcription failed')
+    }
+
+    throw new Error('Transcription timed out')
+  }, [])
+
+  /**
+   * Same pipeline the voice agent uses: one request, one answer, served
+   * off the persistent whisper-server (model already in RAM). Typically
+   * ~1s for a short dictation vs ~6-10s on the job route.
+   */
   const transcribeAudio = useCallback(async (audioBlob: Blob, mimeType: string, lang: VoiceLanguage) => {
     try {
-      // Step 1: Upload audio - server returns jobId immediately
-      const uploadResponse = await fetch(`/api/transcribe?language=${lang}`, {
-        method: 'POST',
-        headers: { 'Content-Type': mimeType },
-        body: audioBlob
-      })
-
-      if (!uploadResponse.ok) {
-        const err = await uploadResponse.json().catch(() => ({ error: 'Upload failed' }))
-        throw new Error(err.message || err.error || 'Upload failed')
-      }
-
-      const { jobId } = await uploadResponse.json()
-      if (!jobId) throw new Error('No job ID returned')
-
-      // Step 2: Poll for result every 2 seconds (max 10 minutes)
-      const maxAttempts = 300
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise(r => setTimeout(r, 2000))
-
-        const pollResponse = await fetch(`/api/transcribe/job/${jobId}`)
-        if (!pollResponse.ok) throw new Error('Failed to check status')
-
-        const result = await pollResponse.json()
-
-        if (result.status === 'completed') {
-          if (!result.text || result.text.trim() === '') {
-            setError('No speech detected. Please try again.')
-          } else {
-            setTranscribedText(result.text.trim())
+      let text = ''
+      let routeMissing = false
+      try {
+        const res = await fetch(`/api/transcribe/direct?language=${lang}`, {
+          method: 'POST',
+          headers: { 'Content-Type': mimeType },
+          body: audioBlob
+        })
+        // A 404 means the server predates this route — that's the only
+        // case worth paying for a second, slower attempt. Any other
+        // failure (bad audio, whisper down) would fail on the job route
+        // too, so we surface it instead of stalling the user for ~10s.
+        if (res.status === 404) routeMissing = true
+        if (!routeMissing) {
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}))
+            throw new Error(err.message || err.error || `Transcription failed (${res.status})`)
           }
-          return
+          text = ((await res.json()).text || '').trim()
         }
-
-        if (result.status === 'error') {
-          throw new Error(result.error || 'Transcription failed')
-        }
+      } catch (directErr: any) {
+        // fetch() itself threw → the request never landed (offline,
+        // server restarting). Worth one retry on the legacy route.
+        if (directErr instanceof TypeError) routeMissing = true
+        else throw directErr
       }
 
-      throw new Error('Transcription timed out')
+      if (routeMissing) {
+        console.warn('Direct transcription unavailable, falling back to job flow')
+        text = await transcribeViaJob(audioBlob, mimeType, lang)
+      }
+
+      if (!text) {
+        setError('No speech detected. Please try again.')
+      } else {
+        setTranscribedText(text)
+      }
     } catch (err: any) {
       console.error('Transcription error:', err)
       setError(`Transcription failed: ${err.message}`)
     } finally {
       setIsTranscribing(false)
     }
-  }, [])
+  }, [transcribeViaJob])
 
   const startRecording = useCallback(async () => {
     try {
       setError(null)
       setTranscribedText('')
+
+      // Kick the persistent whisper-server awake while the user is still
+      // speaking, so the first transcription doesn't pay the model-load
+      // cost. Fire-and-forget — failure just means the normal path runs.
+      void fetch('/api/transcribe/warmup', { method: 'POST' }).catch(() => {})
 
       // Pre-flight check: getUserMedia requires HTTPS or localhost.
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
