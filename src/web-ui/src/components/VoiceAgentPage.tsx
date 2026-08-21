@@ -887,55 +887,51 @@ export function VoiceAgentPage() {
         </div>
       )}
 
-      <div className="va-attachments">
-        {attachments.map((a) => {
-          const hasPreview = previewMapRef.current.has(a.id)
-          const isActive = viewerId === a.id
-          return (
-            <button
-              type="button"
-              key={a.id}
-              className={`va-chip va-chip-${a.source}${isActive ? ' va-chip-active' : ''}${hasPreview ? ' va-chip-clickable' : ''}`}
-              title={hasPreview ? `Open ${a.label} in viewer · ${a.chars} chars` : `${a.chars} chars (no preview available)`}
-              onClick={() => { if (hasPreview) setViewerId(isActive ? null : a.id) }}
-              disabled={!hasPreview}
-            >
-              {a.source === 'url' ? <Globe size={12} /> : <FileText size={12} />}
-              <span className="va-chip-label">{a.label}</span>
-              {a.source !== 'project-file' && (
-                <span
-                  className="va-chip-remove"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Remove ${a.label}`}
-                  onClick={(e) => { e.stopPropagation(); handleRemove(a.id) }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.stopPropagation(); e.preventDefault(); handleRemove(a.id)
-                    }
-                  }}
-                >
-                  <X size={12} />
-                </span>
-              )}
-            </button>
-          )
-        })}
-        {attachments.length === 0 && (
-          <div className="va-attachments-empty">
-            No documents yet. Attach a PDF, drop a file, or paste a URL to get started.
-          </div>
-        )}
-        {totalChars > 0 && (
-          <div className="va-attachments-total">
-            {(totalChars / 1024).toFixed(1)}K chars total
-          </div>
-        )}
-      </div>
-
       {/* Canvas: either a centered agent (no viewer) or a full-screen
           document with the agent floating on top (viewer open). */}
-      <div className="va-canvas">
+      <div className="va-canvas-wrapper">
+        {/* Attachments stack on the right side */}
+        <div className="va-attachments-stack">
+          {attachments.map((a) => {
+            const hasPreview = previewMapRef.current.has(a.id)
+            const isActive = viewerId === a.id
+            return (
+              <button
+                type="button"
+                key={a.id}
+                className={`va-attachment-card va-attachment-${a.source}${isActive ? ' va-attachment-active' : ''}${hasPreview ? ' va-attachment-clickable' : ''}`}
+                title={hasPreview ? `Open ${a.label} in viewer · ${a.chars} chars` : `${a.chars} chars (no preview available)`}
+                onClick={() => { if (hasPreview) setViewerId(isActive ? null : a.id) }}
+                disabled={!hasPreview}
+              >
+                <div className="va-attachment-icon">
+                  {a.source === 'url' ? <Globe size={16} /> : <FileText size={16} />}
+                </div>
+                <div className="va-attachment-info">
+                  <div className="va-attachment-name">{a.label}</div>
+                  <div className="va-attachment-size">{(a.chars / 1024).toFixed(1)}K</div>
+                </div>
+                {a.source !== 'project-file' && (
+                  <button
+                    className="va-attachment-remove"
+                    aria-label={`Remove ${a.label}`}
+                    onClick={(e) => { e.stopPropagation(); handleRemove(a.id) }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </button>
+            )
+          })}
+          {attachments.length === 0 && (
+            <div className="va-attachments-empty">
+              No documents
+            </div>
+          )}
+        </div>
+
+        {/* Main canvas */}
+        <div className="va-canvas">
         {viewerId && (
           <div className="va-viewer-full">
             <PreviewFrame
@@ -1127,6 +1123,7 @@ export function VoiceAgentPage() {
             </>
           )}
         </div>
+      </div>
       </div>
     </div>
   )

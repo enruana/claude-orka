@@ -84,26 +84,136 @@
 }
 .va-error-dismiss:hover { background: rgba(243, 139, 168, 0.2); }
 
-.va-attachments {
+/* Attachments stack on the right side */
+.va-canvas-wrapper {
+  position: relative;
+  flex: 1;
   display: flex;
-  flex-wrap: wrap;
+  gap: 12px;
+  min-height: 0;
+}
+
+.va-attachments-stack {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  padding: 14px 18px 4px;
+  padding: 12px;
+  width: 220px;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.va-attachments-stack::-webkit-scrollbar { width: 4px; }
+.va-attachments-stack::-webkit-scrollbar-track { background: transparent; }
+.va-attachments-stack::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.va-attachment-card {
+  display: flex;
   align-items: center;
-  min-height: 46px;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(137, 180, 250, 0.08);
+  border: 1px solid rgba(137, 180, 250, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #cdd6f4;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.va-attachment-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 100%);
+  pointer-events: none;
+}
+
+.va-attachment-card:hover:not(:disabled) {
+  background: rgba(137, 180, 250, 0.15);
+  border-color: rgba(137, 180, 250, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(137, 180, 250, 0.2);
+}
+
+.va-attachment-card:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.va-attachment-active {
+  background: rgba(203, 166, 247, 0.18);
+  border-color: rgba(203, 166, 247, 0.6);
+  box-shadow: 0 0 12px rgba(203, 166, 247, 0.3);
+}
+
+.va-attachment-upload { background: rgba(250, 179, 135, 0.08); border-color: rgba(250, 179, 135, 0.2); }
+.va-attachment-url { background: rgba(137, 180, 250, 0.08); border-color: rgba(137, 180, 250, 0.2); }
+.va-attachment-project-file { background: rgba(166, 227, 161, 0.08); border-color: rgba(166, 227, 161, 0.2); }
+
+.va-attachment-icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+  z-index: 1;
+}
+
+.va-attachment-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 1;
+}
+
+.va-attachment-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.va-attachment-size {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.va-attachment-remove {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  z-index: 1;
+}
+
+.va-attachment-remove:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f38ba8;
 }
 
 .va-attachments-empty {
   color: rgba(255, 255, 255, 0.35);
   font-size: 12px;
-  padding: 4px 0;
-}
-
-.va-attachments-total {
-  margin-left: auto;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
+  padding: 20px 8px;
+  text-align: center;
 }
 
 .va-chip {
@@ -560,6 +670,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  width: 100%;
 }
 
 .va-viewer-full {
@@ -792,6 +903,17 @@
 }
 
 /* Mobile adjustments */
+@media (max-width: 768px) {
+  .va-canvas-wrapper {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .va-attachments-stack {
+    display: none;
+  }
+}
+
 @media (max-width: 520px) {
   .va-mic-compact { width: 56px; height: 56px; }
 
