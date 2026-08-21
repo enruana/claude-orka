@@ -1015,7 +1015,6 @@ export function VoiceAgentPage() {
               {/* Transcript area — now takes top priority (70-80% of space) */}
               {transcript.length > 0 ? (
                 <div className="va-transcript-wrap va-transcript-primary">
-                  <div className="va-transcript-fade-top" />
                   <div className="va-transcript-header">
                     <span className="va-transcript-label">Conversation</span>
                     <button
