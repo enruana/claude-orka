@@ -1015,17 +1015,6 @@ export function VoiceAgentPage() {
               {/* Transcript area — now takes top priority (70-80% of space) */}
               {transcript.length > 0 ? (
                 <div className="va-transcript-wrap va-transcript-primary">
-                  <div className="va-transcript-header">
-                    <span className="va-transcript-label">Conversation</span>
-                    <button
-                      className={`va-transcript-copy-btn${justCopied ? ' va-transcript-copy-btn-copied' : ''}`}
-                      onClick={copyConversation}
-                      aria-label="Copy conversation to clipboard"
-                      title="Copy conversation"
-                    >
-                      {justCopied ? <Check size={12} /> : <Copy size={12} />}
-                    </button>
-                  </div>
                   <div className="va-transcript" ref={transcriptRef}>
                     {transcript.map((t) => (
                       <div key={t.id} className={`va-turn va-turn-${t.role}`}>
@@ -1050,38 +1039,46 @@ export function VoiceAgentPage() {
                 </div>
               )}
 
-              {/* Actions row — attach buttons (contextual) */}
-              {!transcript.length && (
-                <div className="va-attach-actions va-attach-actions-main">
+              {/* Actions bar — always visible (attach, copy, etc.) */}
+              <div className="va-actions-bar">
+                <button
+                  className="va-attach-btn va-attach-btn-icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={attaching}
+                  title="Attach file"
+                >
+                  <Paperclip size={18} />
+                </button>
+                <button
+                  className="va-attach-btn va-attach-btn-icon"
+                  onClick={() => setUrlOpen((v) => !v)}
+                  disabled={attaching}
+                  title="Attach URL"
+                >
+                  <LinkIcon size={18} />
+                </button>
+                {transcript.length > 0 && (
                   <button
-                    className="va-attach-btn va-attach-btn-icon"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={attaching}
-                    title="Attach file"
+                    className={`va-attach-btn va-attach-btn-icon${justCopied ? ' va-attach-btn-copied' : ''}`}
+                    onClick={copyConversation}
+                    aria-label="Copy conversation to clipboard"
+                    title="Copy conversation"
                   >
-                    <Paperclip size={18} />
+                    {justCopied ? <Check size={18} /> : <Copy size={18} />}
                   </button>
-                  <button
-                    className="va-attach-btn va-attach-btn-icon"
-                    onClick={() => setUrlOpen((v) => !v)}
-                    disabled={attaching}
-                    title="Attach URL"
-                  >
-                    <LinkIcon size={18} />
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.md,.markdown,.txt,.html,.htm,.json"
-                    style={{ display: 'none' }}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      if (f) void handleFilePick(f)
-                      e.target.value = ''
-                    }}
-                  />
-                </div>
-              )}
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.md,.markdown,.txt,.html,.htm,.json"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) void handleFilePick(f)
+                    e.target.value = ''
+                  }}
+                />
+              </div>
 
               {urlOpen && (
                 <div className="va-url-form">

@@ -226,6 +226,7 @@
   margin: 0 auto;
   width: 100%;
   align-items: center;
+  overflow: hidden;
 }
 
 .va-transcript {
@@ -251,50 +252,6 @@
   border-radius: 3px;
 }
 
-.va-transcript-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 18px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid rgba(137, 180, 250, 0.1);
-  background: rgba(17, 17, 27, 0.3);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  width: 100%;
-  max-width: 720px;
-  box-sizing: border-box;
-  align-self: center;
-}
-
-.va-transcript-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 600;
-}
-
-.va-transcript-copy-btn {
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.45);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s;
-}
-.va-transcript-copy-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ecf0fe;
-}
-.va-transcript-copy-btn-copied {
-  color: #a6e3a1;
-  background: rgba(166, 227, 161, 0.1);
-}
 
 .va-turn {
   padding: 10px 14px;
@@ -326,6 +283,18 @@
   border: 1px solid rgba(137, 180, 250, 0.1);
   align-self: flex-start;
   max-width: 85%;
+}
+
+/* ============ Actions Bar (Always Visible) ============ */
+
+.va-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 18px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 /* ============ Mic Control Area (Dock) ============ */
@@ -517,6 +486,12 @@
   background: rgba(137, 180, 250, 0.2);
   border-color: rgba(137, 180, 250, 0.4);
   transform: translateY(-1px);
+}
+
+.va-attach-btn-copied {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.15);
+  border-color: rgba(166, 227, 161, 0.4);
 }
 
 .va-url-form {
@@ -771,19 +746,23 @@
   );
 }
 
-.va-agent-panel.va-float .va-transcript-header {
-  padding: 12px 14px 8px;
-  margin-bottom: 0;
-  border-bottom: 1px solid rgba(137, 180, 250, 0.08);
+.va-agent-panel.va-float .va-transcript {
+  padding: 12px 14px;
 }
 
-.va-agent-panel.va-float .va-transcript {
-  padding: 0 14px 12px;
+.va-agent-panel.va-float .va-actions-bar {
+  padding: 8px 14px;
+  gap: 8px;
 }
 
 .va-agent-panel.va-float .va-turn {
   font-size: 13px;
   padding: 8px 12px;
+}
+
+.va-agent-panel.va-float .va-attach-btn-icon {
+  width: 36px;
+  height: 36px;
 }
 
 .va-agent-panel.va-float .va-mic-dock {
