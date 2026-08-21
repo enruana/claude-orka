@@ -535,8 +535,8 @@
 }
 
 .va-mic-mini {
-  width: 56px;
-  height: 56px;
+  width: 44px;
+  height: 44px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
 
@@ -840,17 +840,42 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 6px;
+  padding: 6px;
+  width: auto;
+  height: auto;
+  border-radius: 999px;
+  background: rgba(17, 17, 27, 0.6);
+  border: 1px solid rgba(137, 180, 250, 0.3);
+  box-shadow: 0 8px 16px rgba(137, 180, 250, 0.1);
 }
 
-.va-mini-content {
+.va-mic-wrap-mini {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
 }
 
-.va-mic-wrap-mini { }
+.va-float-expand-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: rgba(137, 180, 250, 0.15);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.va-float-expand-btn:hover {
+  background: rgba(137, 180, 250, 0.25);
+  color: #ecf0fe;
+}
 
 .va-agent-panel.va-float .va-transcript-primary {
   flex: 0 0 auto;

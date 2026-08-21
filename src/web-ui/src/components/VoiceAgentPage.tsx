@@ -986,25 +986,30 @@ export function VoiceAgentPage() {
 
           {viewerId && minimized ? (
             <div className="va-float-mini">
-              <div className="va-mini-content">
-                <div
-                  className="va-mic-wrap va-mic-wrap-mini"
-                  style={{ '--level': String(Math.min(1, level * 4)) } as React.CSSProperties}
+              <div
+                className="va-mic-wrap va-mic-wrap-mini"
+                style={{ '--level': String(Math.min(1, level * 4)) } as React.CSSProperties}
+              >
+                <span className="va-mic-halo" />
+                <button
+                  className={`va-mic va-mic-mini va-mic-${recording ? 'recording' : state}`}
+                  aria-label={recording ? 'Stop recording and send' : 'Start recording'}
+                  onClick={toggleRecording}
+                  disabled={state === 'connecting' || state === 'error'}
                 >
-                  <span className="va-mic-halo" />
-                  <button
-                    className={`va-mic va-mic-mini va-mic-${recording ? 'recording' : state}`}
-                    aria-label={recording ? 'Stop recording and send' : 'Start recording'}
-                    onClick={toggleRecording}
-                    disabled={state === 'connecting' || state === 'error'}
-                  >
-                    {state === 'connecting' && <Loader2 size={20} className="va-spin" />}
-                    {recording && <Square size={16} fill="currentColor" />}
-                    {!recording && state !== 'connecting' && <Mic size={20} />}
-                  </button>
-                </div>
-                <span className={`va-state-dot va-state-dot-${recording ? 'recording' : state}`} />
+                  {state === 'connecting' && <Loader2 size={20} className="va-spin" />}
+                  {recording && <Square size={16} fill="currentColor" />}
+                  {!recording && state !== 'connecting' && <Mic size={20} />}
+                </button>
               </div>
+              <button
+                className="va-float-expand-btn"
+                onClick={() => setMinimized(false)}
+                aria-label="Expand agent panel"
+                title="Expand"
+              >
+                <Maximize2 size={12} />
+              </button>
             </div>
           ) : (
             <>
