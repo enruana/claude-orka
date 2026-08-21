@@ -84,25 +84,31 @@
 }
 .va-error-dismiss:hover { background: rgba(243, 139, 168, 0.2); }
 
-/* Attachments stack on the right side */
+/* Attachments stack on the right side - absolute positioning so it doesn't affect layout */
 .va-canvas-wrapper {
   position: relative;
   flex: 1;
   display: flex;
-  gap: 12px;
   min-height: 0;
+  justify-content: center;
 }
 
 .va-attachments-stack {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 220px;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  width: 220px;
   max-height: 100%;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  pointer-events: auto;
+  z-index: 5;
 }
 
 .va-attachments-stack::-webkit-scrollbar { width: 4px; }
@@ -671,6 +677,8 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
 }
 
 .va-viewer-full {
