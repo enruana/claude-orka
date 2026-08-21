@@ -20,6 +20,7 @@ import { gitAccountCommand } from './commands/git-account'
 import { awsAccountCommand } from './commands/aws-account'
 import { kbCommand } from './commands/kb'
 import { boardCommand } from './commands/board'
+import { sslCommand } from './commands/ssl'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -61,6 +62,7 @@ gitAccountCommand(program)
 awsAccountCommand(program)
 kbCommand(program)
 boardCommand(program)
+sslCommand(program)
 
 // Parse arguments
 program.parseAsync().then(() => {
