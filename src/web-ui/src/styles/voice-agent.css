@@ -794,14 +794,26 @@
 /* Mobile adjustments */
 @media (max-width: 520px) {
   .va-mic-compact { width: 56px; height: 56px; }
-  .va-transcript-primary {
-    flex: 1;
+
+  .va-transcript-wrap {
+    flex: 0 0 auto;
+    min-height: auto;
     max-height: 250px;
   }
 
-  /* Embedded mode (launcher wrapper) */
+  .va-transcript-primary {
+    flex: 0 0 auto;
+    max-height: 250px;
+  }
+
+  /* Embedded mode (launcher wrapper) - very compact */
+  .voice-agent-page-embedded .va-transcript-wrap {
+    max-height: 180px;
+  }
+
   .voice-agent-page-embedded .va-transcript-primary {
-    max-height: 200px;
+    flex: 0 0 auto;
+    max-height: 180px;
   }
 }
 
