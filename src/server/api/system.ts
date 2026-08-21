@@ -357,10 +357,10 @@ async function readPerCoreUsage(): Promise<Array<{ core: number; usagePercent: n
 }
 
 /**
- * Parse `/proc/meminfo` for the richer memory breakdown that `os` module
- * doesn't expose: Available (better than Free for real "spare" memory),
- * Buffers, Cached, Swap. Linux-only; falls back to null on other OSes so
- * the client shows just the totals.
+ * Parse memory info for different platforms:
+ * - Linux: `/proc/meminfo` for richer breakdown
+ * - macOS: `vm_stat` for accurate memory metrics (not fooled by caching)
+ * - Other: null (fallback to os.totalmem/os.freemem)
  */
 interface MemoryDetail {
   totalBytes: number
@@ -374,8 +374,72 @@ interface MemoryDetail {
   swapUsedBytes: number
 }
 
+async function readMemoryDetailMac(): Promise<MemoryDetail | null> {
+  try {
+    // vm_stat output example (page size is 4KB on modern Macs):
+    // "Pages free:                    1234567"
+    // "Pages active:                  2345678"
+    // "Pages inactive:                3456789"
+    // "Pages speculative:             456789"
+    // "Pages wired down:              567890"
+    const { stdout } = await execa('vm_stat', [], { timeout: 2000 })
+
+    const pageSize = 4096 // Modern Macs use 4KB pages
+    const map: Record<string, number> = {}
+
+    for (const line of stdout.split('\n')) {
+      const m = line.match(/^Pages\s+(\w+):\s+(\d+)/)
+      if (m) {
+        const key = m[1]
+        const pages = parseInt(m[2], 10)
+        map[key] = pages * pageSize
+      }
+    }
+
+    // On macOS:
+    // - free: Pages free
+    // - active: Pages active (in use)
+    // - inactive: Pages inactive (can be reclaimed, counts as available)
+    // - speculative: Pages speculative (can be reclaimed, counts as available)
+    // - wired: Pages wired down (cannot be paged out)
+    const freeMem = map.free || 0
+    const inactiveMem = map.inactive || 0
+    const speculativeMem = map.speculative || 0
+
+    const total = os.totalmem()
+
+    // Available memory on macOS = free + inactive + speculative
+    // (these pages can be quickly reclaimed)
+    const availableMem = freeMem + inactiveMem + speculativeMem
+
+    return {
+      totalBytes: total,
+      freeBytes: freeMem,
+      availableBytes: Math.min(availableMem, total),
+      usedBytes: Math.max(0, total - availableMem),
+      buffersBytes: 0, // Not applicable on macOS
+      cachedBytes: inactiveMem + speculativeMem, // Cached/reclaimable
+      swapTotalBytes: 0, // We could read this but it's rarely relevant on modern Macs
+      swapFreeBytes: 0,
+      swapUsedBytes: 0,
+    }
+  } catch (err: any) {
+    logger.debug(`system: readMemoryDetailMac (vm_stat) failed: ${err?.message || err}`)
+    return null
+  }
+}
+
 async function readMemoryDetail(): Promise<MemoryDetail | null> {
-  if (os.platform() !== 'linux') return null
+  const platform = os.platform()
+
+  if (platform === 'darwin') {
+    return await readMemoryDetailMac()
+  }
+
+  if (platform !== 'linux') {
+    return null
+  }
+
   try {
     const text = await fs.readFile('/proc/meminfo', 'utf-8')
     const map: Record<string, number> = {}
@@ -398,7 +462,7 @@ async function readMemoryDetail(): Promise<MemoryDetail | null> {
       swapUsedBytes: Math.max(0, (map.SwapTotal || 0) - (map.SwapFree || 0)),
     }
   } catch (err: any) {
-    logger.debug(`system: readMemoryDetail failed: ${err?.message || err}`)
+    logger.debug(`system: readMemoryDetail (Linux) failed: ${err?.message || err}`)
     return null
   }
 }
@@ -477,16 +541,32 @@ systemRouter.get('/details', async (req, res) => {
 
 systemRouter.get('/metrics', async (_req, res) => {
   try {
-    const [usagePercent, disks] = await Promise.all([
+    const [usagePercent, memDetail, disks] = await Promise.all([
       readCpuUsagePercent(),
+      readMemoryDetail(),
       readDisks(),
     ])
 
     const cpus = os.cpus()
-    const total = os.totalmem()
-    const free = os.freemem()
-    const used = total - free
     const load = os.loadavg() as [number, number, number]
+
+    // Use platform-specific memory detail if available; fallback to os module
+    let total: number
+    let free: number
+    let used: number
+    let usedPercent: number
+
+    if (memDetail) {
+      total = memDetail.totalBytes
+      free = memDetail.availableBytes
+      used = memDetail.usedBytes
+      usedPercent = Number(((used / total) * 100).toFixed(1))
+    } else {
+      total = os.totalmem()
+      free = os.freemem()
+      used = total - free
+      usedPercent = Number(((used / total) * 100).toFixed(1))
+    }
 
     const payload: SystemMetrics = {
       hostname: os.hostname(),
@@ -507,7 +587,7 @@ systemRouter.get('/metrics', async (_req, res) => {
         totalBytes: total,
         freeBytes: free,
         usedBytes: used,
-        usedPercent: Number(((used / total) * 100).toFixed(1)),
+        usedPercent,
       },
       disks,
       sampledAt: new Date().toISOString(),
