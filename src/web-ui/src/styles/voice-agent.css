@@ -787,7 +787,15 @@
 /* Mobile adjustments */
 @media (max-width: 520px) {
   .va-mic-compact { width: 56px; height: 56px; }
-  .va-transcript-primary { flex: 1; }
+  .va-transcript-primary {
+    flex: 1;
+    max-height: 250px;
+  }
+
+  /* Embedded mode (launcher wrapper) */
+  .voice-agent-page-embedded .va-transcript-primary {
+    max-height: 200px;
+  }
 }
 
 @media (max-width: 640px) {
