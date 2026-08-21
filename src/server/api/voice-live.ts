@@ -845,6 +845,16 @@ async function runClaudeSession(sess: VoiceSession): Promise<void> {
         }
 
         if (event.type === 'result') {
+          // Flush any remaining text in the TTS buffer (text without punctuation at the end)
+          if (sess.ttsBuffer.trim()) {
+            const remaining = sess.ttsBuffer.trim()
+            const sanitized = sanitizeForSpeech(remaining)
+            if (sanitized) {
+              sendJson(sess.ws, { type: 'assistant-text', text: sanitized })
+              void speakSentence(sess, sanitized)
+            }
+            sess.ttsBuffer = ''
+          }
           sendJson(sess.ws, { type: 'assistant-turn-end' })
         }
       }

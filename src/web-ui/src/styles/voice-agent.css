@@ -298,6 +298,13 @@
   flex-shrink: 0;
 }
 
+/* Mobile embedded: compact actions bar close to mic */
+.voice-agent-page-embedded .va-actions-bar {
+  padding: 8px 12px;
+  gap: 8px;
+  margin-top: -4px;
+}
+
 /* ============ Mic Control Area (Dock) ============ */
 
 .va-mic-dock {

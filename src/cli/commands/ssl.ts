@@ -5,7 +5,6 @@ import execa from 'execa'
 import { Command } from 'commander'
 import { findCertPair, getTailscaleHostname, CERTS_DIR, ensureCertsDir } from '../../utils/certs'
 import { Output } from '../utils/output'
-import { logger } from '../../utils/logger'
 
 async function getCertInfo(certPath: string): Promise<{ issuer: string; subject: string; validFrom: string; validUntil: string } | null> {
   try {
@@ -44,7 +43,7 @@ export function sslCommand(program: Command) {
           Output.info(`Certificates directory: ${CERTS_DIR}`)
           Output.info('')
           Output.info('To generate certificates:')
-          Output.code('orka ssl renew')
+          Output.info('  orka ssl renew')
           return
         }
 
@@ -90,8 +89,8 @@ export function sslCommand(program: Command) {
         if (!tailscaleHostname) {
           Output.error('Tailscale is not configured or MagicDNS is disabled')
           Output.info('Steps:')
-          Output.code('tailscale login')
-          Output.code('tailscale status')
+          Output.info('  tailscale login')
+          Output.info('  tailscale status')
           process.exit(1)
         }
 
@@ -153,8 +152,8 @@ export function sslCommand(program: Command) {
           if (err.code === 'ENOENT') {
             Output.error('sudo command not found')
             Output.info('Manual steps:')
-            Output.code('sudo tailscale cert ' + tailscaleHostname)
-            Output.code(`cp ~/.tailscale/certs/${tailscaleHostname}.* ~/.orka/certs/`)
+            Output.info('  sudo tailscale cert ' + tailscaleHostname)
+            Output.info(`  cp ~/.tailscale/certs/${tailscaleHostname}.* ~/.orka/certs/`)
           } else {
             throw err
           }
