@@ -1,9 +1,10 @@
 /**
- * Full-screen "phone assistant" layout for /voice-agent.
+ * Voice Agent UI — Bottom-Dock Architecture
  *
- * Mobile-first: mic centered, big touch target, chips above, transcript
- * below. Desktop scales the same layout up to a comfortable card width
- * so it doesn't feel absurdly stretched on 27" monitors.
+ * Conversation-first layout:
+ * - Transcript: 70-80% (top/center, main focus)
+ * - Mic control: 10-15% (bottom, small, centered)
+ * - Actions: contextual (minimal, icon-only)
  */
 
 .voice-agent-page {
@@ -18,9 +19,6 @@
   overflow-y: auto;
 }
 
-/* Embedded mode: the launcher modal supplies its own chrome + background
-   gradient, so we drop ours to avoid stacked backdrops and let the page
-   flow inside whatever container size the wrapper gives us. */
 .voice-agent-page-embedded {
   min-height: 100%;
   height: 100%;
@@ -149,22 +147,7 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
-.va-main {
-  flex: 1;
-  min-height: 60vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  padding: 40px 18px;
-  position: relative;
-  z-index: 1;
-}
-
-/* Live state chip above the mic — mirrors the mic's color states so
-   the user has two aligned signals: the ring around the mic AND this
-   pill up top, both changing at the same moment. */
+/* Live state chip — idle, recording, thinking, etc. */
 .va-state-chip {
   display: inline-flex;
   align-items: center;
@@ -179,6 +162,7 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.8);
 }
+
 .va-state-dot {
   width: 8px;
   height: 8px;
@@ -196,319 +180,63 @@
 
 @keyframes va-blink { 50% { opacity: 0.35; } }
 
-/* Mic wrapper hosts the button + a level-driven halo behind it. The
-   halo grows with --level (0..1) so the user sees their voice as a
-   visible ripple around the button. */
-.va-mic-wrap {
+/* Empty state — shown when no transcript yet */
+.va-empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 40px 18px;
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  --level: 0;
+  z-index: 1;
 }
 
-.va-mic-halo {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  pointer-events: none;
-  /* Scale slightly beyond the button and grow with the level. */
-  transform: scale(calc(1 + 0.18 * var(--level)));
-  background: radial-gradient(
-    circle,
-    rgba(137, 180, 250, calc(0.25 * var(--level))) 0%,
-    rgba(137, 180, 250, 0) 70%
-  );
-  box-shadow:
-    0 0 0 calc(4px + 20px * var(--level)) rgba(137, 180, 250, calc(0.08 * var(--level))),
-    0 0 0 calc(8px + 40px * var(--level)) rgba(137, 180, 250, calc(0.04 * var(--level)));
-  transition: transform 80ms ease-out;
-}
-/* Halo color shifts when muted / speaking so the wave doesn't compete
-   with those states' semantics. */
-.va-mic-muted + .va-mic-halo,
-.va-mic-wrap:has(.va-mic-muted) .va-mic-halo {
-  background: radial-gradient(circle, rgba(243, 139, 168, calc(0.15 * var(--level))) 0%, rgba(0,0,0,0) 70%);
-  box-shadow: none;
-}
-
-.va-mic {
-  width: 200px;
-  height: 200px;
-  border-radius: 50%;
-  border: 2px solid rgba(137, 180, 250, 0.3);
-  background: linear-gradient(160deg, rgba(137, 180, 250, 0.12), rgba(100, 150, 220, 0.05));
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  color: #ecf0fe;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 8px 32px rgba(137, 180, 250, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transition: transform 0.15s, box-shadow 0.2s, background 0.2s, border-color 0.2s;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.va-mic:active { transform: scale(0.97); }
-
-.va-mic-idle {
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-.va-mic-listening {
-  border-color: rgba(166, 227, 161, 0.7);
-  box-shadow: 0 20px 60px rgba(166, 227, 161, 0.25), 0 0 0 8px rgba(166, 227, 161, 0.12);
-  animation: va-pulse 1.3s ease-in-out infinite;
-}
-
-.va-mic-thinking {
-  border-color: rgba(249, 226, 175, 0.6);
-  box-shadow: 0 20px 60px rgba(249, 226, 175, 0.2);
-}
-
-.va-mic-speaking {
-  border-color: rgba(137, 180, 250, 0.7);
-  background: linear-gradient(160deg, rgba(137, 180, 250, 0.15), rgba(137, 180, 250, 0.02));
-  box-shadow: 0 20px 60px rgba(137, 180, 250, 0.28), 0 0 0 6px rgba(137, 180, 250, 0.1);
-}
-
-.va-mic-connecting {
-  border-color: rgba(255, 255, 255, 0.1);
-  opacity: 0.7;
-}
-
-.va-mic-error {
-  border-color: rgba(243, 139, 168, 0.6);
-  box-shadow: 0 20px 60px rgba(243, 139, 168, 0.2);
-}
-
-.va-mic-muted {
-  border-color: rgba(108, 112, 134, 0.6);
-  background: linear-gradient(160deg, rgba(108, 112, 134, 0.15), rgba(0, 0, 0, 0.02));
-  color: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
-}
-
-/* Push-to-talk recording state — solid red-ish, no pulse (the halo
-   already animates with mic level). The square-stop icon reads
-   universally as "click to end recording". */
-.va-mic-recording {
-  border-color: rgba(243, 139, 168, 0.9);
-  background: linear-gradient(160deg, rgba(243, 139, 168, 0.22), rgba(243, 139, 168, 0.04));
-  color: #f38ba8;
-  box-shadow: 0 20px 60px rgba(243, 139, 168, 0.35), 0 0 0 8px rgba(243, 139, 168, 0.14);
-}
-
-/* Row below the mic — mute toggle + numeric level readout. Keeps the
-   diagnostic (level number) visible even when the halo animation is
-   subtle. */
-.va-mic-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 4px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.va-mute-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: #cdd6f4;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-.va-mute-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.18);
-}
-.va-mute-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.va-mute-btn.muted {
-  background: rgba(243, 139, 168, 0.15);
-  border-color: rgba(243, 139, 168, 0.35);
-  color: #f38ba8;
-}
-
-.va-level-meter {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  font-variant-numeric: tabular-nums;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.va-level-bar {
-  width: 80px;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-}
-
-.va-level-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #a6e3a1 0%, #f9e2af 60%, #f38ba8 100%);
-  border-radius: 2px;
-  transition: width 60ms linear;
-}
-
-/* Above trigger threshold — flip to a solid warm color so the user
-   sees at a glance which frames are "speech" by Silero's judgment. */
-.va-level-bar-fill-hot {
-  background: #f9e2af;
-  box-shadow: 0 0 6px rgba(249, 226, 175, 0.6);
-}
-
-.va-meter-label {
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  font-size: 10px;
-  min-width: 24px;
-}
-
-.va-level-value {
-  min-width: 32px;
-  text-align: right;
-}
-
-@keyframes va-pulse {
-  0%, 100% { box-shadow: 0 20px 60px rgba(166, 227, 161, 0.25), 0 0 0 6px rgba(166, 227, 161, 0.14); }
-  50% { box-shadow: 0 20px 60px rgba(166, 227, 161, 0.3), 0 0 0 14px rgba(166, 227, 161, 0.05); }
-}
-
-.va-spin { animation: va-spin 0.9s linear infinite; }
-@keyframes va-spin { to { transform: rotate(360deg); } }
-
-.va-mic-label {
-  color: rgba(255, 255, 255, 0.55);
+.va-empty-prompt {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.45);
   font-size: 14px;
   letter-spacing: 0.3px;
 }
 
-.va-attach-actions {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  padding: 8px 18px 20px;
-  flex-wrap: wrap;
-}
+/* ============ Transcript Area (Primary Focus) ============ */
 
-.va-attach-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 999px;
-  background: rgba(137, 180, 250, 0.1);
-  border: 1px solid rgba(137, 180, 250, 0.25);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  color: #cdd6f4;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.va-attach-btn:hover:not(:disabled) {
-  background: rgba(137, 180, 250, 0.18);
-  border-color: rgba(137, 180, 250, 0.35);
-}
-.va-attach-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.va-url-form {
-  display: flex;
-  gap: 8px;
-  max-width: 560px;
-  margin: 0 auto 20px;
-  padding: 0 18px;
-  width: 100%;
-}
-
-.va-url-input {
-  flex: 1;
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(0, 0, 0, 0.25);
-  color: #cdd6f4;
-  font-size: 14px;
-  font-family: inherit;
-}
-.va-url-input:focus {
-  outline: 2px solid rgba(137, 180, 250, 0.55);
-  outline-offset: 0;
-  border-color: transparent;
-}
-
-.va-url-submit {
-  padding: 10px 18px;
-  border-radius: 10px;
-  border: none;
-  background: rgba(137, 180, 250, 0.8);
-  color: #11111b;
-  font-weight: 600;
-  cursor: pointer;
-  font-size: 13px;
-}
-.va-url-submit:disabled { opacity: 0.4; cursor: not-allowed; }
-
-/* Transcript takes a fixed slice of the viewport so older messages
-   scroll behind a top-edge fade instead of pushing the page taller
-   forever. The wrap element positions the scroller and hosts the
-   mask; the inner .va-transcript is the actual scrollable list. */
 .va-transcript-wrap {
   position: relative;
   max-width: 720px;
   width: 100%;
-  margin: 0 auto 32px;
+  margin: 0 auto;
   padding: 0 18px;
-  /* ~3 bubbles fully visible; more scroll behind the mask above. */
   height: min(46vh, 380px);
   min-height: 220px;
-  /* Fade the top ~20% and bottom ~4% into transparent so old bubbles
-     dissolve behind a soft blur as they rise off screen. `mask-image`
-     needs the WebKit prefix on Safari; both are cheap. */
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    rgba(0, 0, 0, 0.15) 6%,
-    rgba(0, 0, 0, 0.6) 14%,
-    #000 22%,
-    #000 96%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    rgba(0, 0, 0, 0.15) 6%,
-    rgba(0, 0, 0, 0.6) 14%,
-    #000 22%,
-    #000 96%,
-    transparent 100%
-  );
+  display: flex;
+  flex-direction: column;
+}
+
+.va-transcript-primary {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  height: auto;
+  padding: 0 18px;
+}
+
+.va-transcript-fade-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  background: linear-gradient(to bottom, rgba(10, 10, 18, 0.8), transparent);
+  pointer-events: none;
+  z-index: 2;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .va-transcript {
-  position: absolute;
-  inset: 0 18px;
+  position: relative;
   padding: 20px 0 12px;
   display: flex;
   flex-direction: column;
@@ -516,7 +244,6 @@
   overflow-y: auto;
   overflow-x: hidden;
   scroll-behavior: smooth;
-  /* Slim custom scrollbar so it doesn't fight the fade visually. */
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
@@ -531,9 +258,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 18px 12px;
+  padding: 12px 18px;
   margin-bottom: 8px;
   border-bottom: 1px solid rgba(137, 180, 250, 0.1);
+  background: rgba(17, 17, 27, 0.3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .va-transcript-label {
@@ -597,18 +327,236 @@
   max-width: 85%;
 }
 
-@media (max-width: 520px) {
-  .va-mic { width: 160px; height: 160px; }
-  .va-mic svg { width: 40px; height: 40px; }
-  .va-main { min-height: 45vh; padding: 24px 12px; }
+/* ============ Mic Control Area (Dock) ============ */
+
+.va-mic-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px 18px 24px;
+  margin-top: auto;
+  position: relative;
+  z-index: 1;
 }
 
-/* ==================== Doc viewer + floating agent ==================== */
+.va-mic-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  --level: 0;
+}
 
-/* Chips are clickable when they have a preview attached — subtle
-   hover + an active state showing which one owns the viewer right
-   now. Non-clickable chips (project-file with no client-side blob)
-   fall back to the disabled cursor via [disabled]. */
+.va-mic-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: scale(calc(1 + 0.18 * var(--level)));
+  background: radial-gradient(
+    circle,
+    rgba(137, 180, 250, calc(0.25 * var(--level))) 0%,
+    rgba(137, 180, 250, 0) 70%
+  );
+  box-shadow:
+    0 0 0 calc(4px + 20px * var(--level)) rgba(137, 180, 250, calc(0.08 * var(--level))),
+    0 0 0 calc(8px + 40px * var(--level)) rgba(137, 180, 250, calc(0.04 * var(--level)));
+  transition: transform 80ms ease-out;
+}
+
+.va-mic-wrap:has(.va-mic-muted) .va-mic-halo {
+  background: radial-gradient(circle, rgba(243, 139, 168, calc(0.15 * var(--level))) 0%, rgba(0,0,0,0) 70%);
+  box-shadow: none;
+}
+
+.va-mic {
+  border-radius: 50%;
+  border: 2px solid rgba(137, 180, 250, 0.3);
+  background: linear-gradient(160deg, rgba(137, 180, 250, 0.12), rgba(100, 150, 220, 0.05));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #ecf0fe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(137, 180, 250, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: transform 0.15s, box-shadow 0.2s, background 0.2s, border-color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.va-mic:active { transform: scale(0.97); }
+
+/* Compact mic for dock (1/3 size of original) */
+.va-mic-compact {
+  width: 64px;
+  height: 64px;
+}
+
+.va-mic-idle {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.va-mic-listening {
+  border-color: rgba(166, 227, 161, 0.7);
+  box-shadow: 0 20px 60px rgba(166, 227, 161, 0.25), 0 0 0 8px rgba(166, 227, 161, 0.12);
+  animation: va-pulse 1.3s ease-in-out infinite;
+}
+
+.va-mic-thinking {
+  border-color: rgba(249, 226, 175, 0.6);
+  box-shadow: 0 20px 60px rgba(249, 226, 175, 0.2);
+}
+
+.va-mic-speaking {
+  border-color: rgba(137, 180, 250, 0.7);
+  background: linear-gradient(160deg, rgba(137, 180, 250, 0.15), rgba(137, 180, 250, 0.02));
+  box-shadow: 0 20px 60px rgba(137, 180, 250, 0.28), 0 0 0 6px rgba(137, 180, 250, 0.1);
+}
+
+.va-mic-connecting {
+  border-color: rgba(255, 255, 255, 0.1);
+  opacity: 0.7;
+}
+
+.va-mic-error {
+  border-color: rgba(243, 139, 168, 0.6);
+  box-shadow: 0 20px 60px rgba(243, 139, 168, 0.2);
+}
+
+.va-mic-muted {
+  border-color: rgba(108, 112, 134, 0.6);
+  background: linear-gradient(160deg, rgba(108, 112, 134, 0.15), rgba(0, 0, 0, 0.02));
+  color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.va-mic-recording {
+  border-color: rgba(243, 139, 168, 0.9);
+  background: linear-gradient(160deg, rgba(243, 139, 168, 0.22), rgba(243, 139, 168, 0.04));
+  color: #f38ba8;
+  box-shadow: 0 20px 60px rgba(243, 139, 168, 0.35), 0 0 0 8px rgba(243, 139, 168, 0.14);
+}
+
+.va-mic-mini {
+  width: 56px;
+  height: 56px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.va-mic-label-compact {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  text-align: center;
+  line-height: 1.3;
+}
+
+@keyframes va-pulse {
+  0%, 100% { box-shadow: 0 20px 60px rgba(166, 227, 161, 0.25), 0 0 0 6px rgba(166, 227, 161, 0.14); }
+  50% { box-shadow: 0 20px 60px rgba(166, 227, 161, 0.3), 0 0 0 14px rgba(166, 227, 161, 0.05); }
+}
+
+.va-spin { animation: va-spin 0.9s linear infinite; }
+@keyframes va-spin { to { transform: rotate(360deg); } }
+
+/* ============ Action Buttons ============ */
+
+.va-attach-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 18px;
+  flex-wrap: wrap;
+}
+
+.va-attach-actions-main {
+  padding: 16px 18px 8px;
+  gap: 16px;
+}
+
+.va-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(137, 180, 250, 0.1);
+  border: 1px solid rgba(137, 180, 250, 0.25);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #cdd6f4;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.va-attach-btn:hover:not(:disabled) {
+  background: rgba(137, 180, 250, 0.18);
+  border-color: rgba(137, 180, 250, 0.35);
+}
+.va-attach-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.va-attach-btn-icon {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(137, 180, 250, 0.12);
+  border: 1.5px solid rgba(137, 180, 250, 0.3);
+  font-size: 0;
+}
+.va-attach-btn-icon:hover:not(:disabled) {
+  background: rgba(137, 180, 250, 0.2);
+  border-color: rgba(137, 180, 250, 0.4);
+  transform: translateY(-1px);
+}
+
+.va-url-form {
+  display: flex;
+  gap: 8px;
+  max-width: 560px;
+  margin: 8px auto 0;
+  padding: 0 18px;
+  width: 100%;
+}
+
+.va-url-input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.25);
+  color: #cdd6f4;
+  font-size: 14px;
+  font-family: inherit;
+}
+.va-url-input:focus {
+  outline: 2px solid rgba(137, 180, 250, 0.55);
+  outline-offset: 0;
+  border-color: transparent;
+}
+
+.va-url-submit {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: rgba(137, 180, 250, 0.8);
+  color: #11111b;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}
+.va-url-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ============ Document Viewer + Floating Panel ============ */
+
 .va-chip.va-chip-clickable {
   cursor: pointer;
 }
@@ -622,10 +570,6 @@
   background: rgba(203, 166, 247, 0.18);
 }
 
-/* Canvas is the content area BELOW the header/error/attachments row.
-   It becomes the positioning parent for the viewer and the floating
-   agent panel. When there's no viewer, .va-agent-panel renders inline
-   as a normal column-flex block. */
 .va-canvas {
   position: relative;
   flex: 1;
@@ -634,8 +578,6 @@
   flex-direction: column;
 }
 
-/* Full-screen document viewer background. Fills the canvas so the
-   iframe/img/embed inside becomes the visual focus. */
 .va-viewer-full {
   position: absolute;
   inset: 0;
@@ -696,9 +638,7 @@
 }
 .va-preview-url-hint a:hover { text-decoration: underline; }
 
-/* Agent panel — two personalities:
-   .va-inline: the default full-page centered layout (no viewer)
-   .va-float: translucent draggable card floating above the doc */
+/* Agent panel — inline (full page) or float (over document) */
 
 .va-agent-panel.va-inline {
   flex: 1;
@@ -732,7 +672,6 @@
   padding: 0;
 }
 
-/* Floating header — drag handle + title + minimize/close controls */
 .va-float-header {
   display: flex;
   align-items: center;
@@ -794,60 +733,29 @@
   color: #a6e3a1;
 }
 
-/* Minimized body — just a compact mic + state dot, side by side.
-   Enough surface to keep push-to-talk one-tap away. */
 .va-float-mini {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 12px;
-  padding: 8px 14px 10px;
+  padding: 12px 14px;
+}
+
+.va-mini-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .va-mic-wrap-mini { }
 
-.va-mic.va-mic-mini {
-  width: 56px;
-  height: 56px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-}
-
-/* Inside the float panel (non-minimized), the inner sections need to
-   shrink to fit the smaller card. Tone down padding + gaps. */
-.va-agent-panel.va-float .va-main {
-  padding: 20px 16px 8px;
+.va-agent-panel.va-float .va-transcript-primary {
+  flex: 1;
   min-height: 0;
-  gap: 10px;
-}
-
-.va-agent-panel.va-float .va-mic {
-  width: 120px;
-  height: 120px;
-}
-.va-agent-panel.va-float .va-mic svg { width: 32px; height: 32px; }
-
-.va-agent-panel.va-float .va-attach-actions {
-  padding: 4px 16px 8px;
-  gap: 6px;
-}
-
-.va-agent-panel.va-float .va-attach-btn {
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.va-agent-panel.va-float .va-url-form {
-  padding: 0 16px 8px;
   margin: 0;
-  max-width: none;
 }
 
 .va-agent-panel.va-float .va-transcript-wrap {
-  max-width: none;
-  margin: 0;
-  padding: 0;
-  height: auto;
-  flex: 1;
-  min-height: 120px;
   -webkit-mask-image: linear-gradient(
     to bottom,
     #000 0%,
@@ -869,7 +777,6 @@
 }
 
 .va-agent-panel.va-float .va-transcript {
-  inset: 0;
   padding: 0 14px 12px;
 }
 
@@ -878,9 +785,27 @@
   padding: 8px 12px;
 }
 
-/* On mobile, dragging + a compact float panel that covers most of
-   the viewport is annoying. Pin it to the bottom sheet-style
-   position, take the full width, and skip the drag handle behavior. */
+.va-agent-panel.va-float .va-mic-dock {
+  padding: 12px 16px 14px;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.va-agent-panel.va-float .va-mic-compact {
+  width: 52px;
+  height: 52px;
+}
+
+.va-agent-panel.va-float .va-mic-label-compact {
+  font-size: 11px;
+}
+
+/* Mobile adjustments */
+@media (max-width: 520px) {
+  .va-mic-compact { width: 56px; height: 56px; }
+  .va-transcript-primary { flex: 1; }
+}
+
 @media (max-width: 640px) {
   .va-agent-panel.va-float {
     top: auto;

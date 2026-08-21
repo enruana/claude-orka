@@ -966,22 +966,8 @@ export function VoiceAgentPage() {
               onPointerCancel={handleAgentDragEnd}
             >
               <GripHorizontal size={16} className="va-float-grip" />
-              <span className="va-float-title">
-                {minimized
-                  ? (recording ? 'Recording' : state === 'thinking' ? 'Thinking' : state === 'speaking' ? 'Speaking' : 'Agent')
-                  : 'Voice Agent'}
-              </span>
+              <span className="va-float-title">Voice Agent</span>
               <div className="va-float-header-actions">
-                {transcript.length > 0 && (
-                  <button
-                    className={`va-float-btn${justCopied ? ' va-float-btn-copied' : ''}`}
-                    onClick={copyConversation}
-                    aria-label="Copy conversation to clipboard"
-                    title="Copy conversation"
-                  >
-                    {justCopied ? <Check size={14} /> : <Copy size={14} />}
-                  </button>
-                )}
                 <button
                   className="va-float-btn"
                   onClick={() => setMinimized((v) => !v)}
@@ -994,7 +980,7 @@ export function VoiceAgentPage() {
                   className="va-float-btn"
                   onClick={() => { setViewerId(null); setMinimized(false) }}
                   aria-label="Close document viewer"
-                  title="Close viewer (agent goes back to centered layout)"
+                  title="Close viewer"
                 >
                   <X size={14} />
                 </button>
@@ -1002,90 +988,101 @@ export function VoiceAgentPage() {
             </div>
           )}
 
-          {/* Minimized floating panel: just the mic + a small state
-              indicator. The user can still record and hear replies. */}
           {viewerId && minimized ? (
             <div className="va-float-mini">
-              <div
-                className="va-mic-wrap va-mic-wrap-mini"
-                style={{ '--level': String(Math.min(1, level * 4)) } as React.CSSProperties}
-              >
-                <span className="va-mic-halo" />
-                <button
-                  className={`va-mic va-mic-mini va-mic-${recording ? 'recording' : state}`}
-                  aria-label={recording ? 'Stop recording and send' : 'Start recording'}
-                  onClick={toggleRecording}
-                  disabled={state === 'connecting' || state === 'error'}
-                >
-                  {state === 'connecting' && <Loader2 size={26} className="va-spin" />}
-                  {recording && <Square size={22} fill="currentColor" />}
-                  {!recording && state !== 'connecting' && <Mic size={26} />}
-                </button>
-              </div>
-              <span className={`va-state-dot va-state-dot-${recording ? 'recording' : state}`} />
-            </div>
-          ) : (
-            <>
-              <div className="va-main">
-                <div className={`va-state-chip va-state-${recording ? 'recording' : state}`}>
-                  <span className={`va-state-dot va-state-dot-${recording ? 'recording' : state}`} />
-                  {recording ? 'Recording'
-                    : state === 'connecting' ? 'Connecting'
-                    : state === 'thinking' ? 'Transcribing'
-                    : state === 'speaking' ? 'Speaking'
-                    : state === 'error' ? 'Error'
-                    : 'Idle'}
-                </div>
-
+              <div className="va-mini-content">
                 <div
-                  className="va-mic-wrap"
+                  className="va-mic-wrap va-mic-wrap-mini"
                   style={{ '--level': String(Math.min(1, level * 4)) } as React.CSSProperties}
                 >
                   <span className="va-mic-halo" />
                   <button
-                    className={`va-mic va-mic-${recording ? 'recording' : state}`}
+                    className={`va-mic va-mic-mini va-mic-${recording ? 'recording' : state}`}
                     aria-label={recording ? 'Stop recording and send' : 'Start recording'}
                     onClick={toggleRecording}
                     disabled={state === 'connecting' || state === 'error'}
                   >
-                    {state === 'connecting' && <Loader2 size={48} className="va-spin" />}
-                    {recording && <Square size={40} fill="currentColor" />}
-                    {!recording && state !== 'connecting' && <Mic size={48} />}
+                    {state === 'connecting' && <Loader2 size={20} className="va-spin" />}
+                    {recording && <Square size={16} fill="currentColor" />}
+                    {!recording && state !== 'connecting' && <Mic size={20} />}
                   </button>
                 </div>
-
-                <div className="va-mic-label">{micLabel}</div>
+                <span className={`va-state-dot va-state-dot-${recording ? 'recording' : state}`} />
               </div>
+            </div>
+          ) : (
+            <>
+              {/* Transcript area — now takes top priority (70-80% of space) */}
+              {transcript.length > 0 ? (
+                <div className="va-transcript-wrap va-transcript-primary">
+                  <div className="va-transcript-fade-top" />
+                  <div className="va-transcript-header">
+                    <span className="va-transcript-label">Conversation</span>
+                    <button
+                      className={`va-transcript-copy-btn${justCopied ? ' va-transcript-copy-btn-copied' : ''}`}
+                      onClick={copyConversation}
+                      aria-label="Copy conversation to clipboard"
+                      title="Copy conversation"
+                    >
+                      {justCopied ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </div>
+                  <div className="va-transcript" ref={transcriptRef}>
+                    {transcript.map((t) => (
+                      <div key={t.id} className={`va-turn va-turn-${t.role}`}>
+                        <div className="va-turn-role">{t.role === 'user' ? 'You' : 'Agent'}</div>
+                        <div className="va-turn-text">{t.text || (t.role === 'assistant' ? '…' : '')}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="va-empty-state">
+                  <div className={`va-state-chip va-state-${recording ? 'recording' : state}`}>
+                    <span className={`va-state-dot va-state-dot-${recording ? 'recording' : state}`} />
+                    {recording ? 'Recording'
+                      : state === 'connecting' ? 'Connecting'
+                      : state === 'thinking' ? 'Transcribing'
+                      : state === 'speaking' ? 'Speaking'
+                      : state === 'error' ? 'Error'
+                      : 'Ready'}
+                  </div>
+                  <p className="va-empty-prompt">Start talking to begin</p>
+                </div>
+              )}
 
-              <div className="va-attach-actions">
-                <button
-                  className="va-attach-btn"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={attaching}
-                >
-                  <Paperclip size={16} />
-                  <span>Attach file</span>
-                </button>
-                <button
-                  className="va-attach-btn"
-                  onClick={() => setUrlOpen((v) => !v)}
-                  disabled={attaching}
-                >
-                  <LinkIcon size={16} />
-                  <span>Attach URL</span>
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.md,.markdown,.txt,.html,.htm,.json"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    if (f) void handleFilePick(f)
-                    e.target.value = ''
-                  }}
-                />
-              </div>
+              {/* Actions row — attach buttons (contextual) */}
+              {!transcript.length && (
+                <div className="va-attach-actions va-attach-actions-main">
+                  <button
+                    className="va-attach-btn va-attach-btn-icon"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={attaching}
+                    title="Attach file"
+                  >
+                    <Paperclip size={18} />
+                  </button>
+                  <button
+                    className="va-attach-btn va-attach-btn-icon"
+                    onClick={() => setUrlOpen((v) => !v)}
+                    disabled={attaching}
+                    title="Attach URL"
+                  >
+                    <LinkIcon size={18} />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.md,.markdown,.txt,.html,.htm,.json"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) void handleFilePick(f)
+                      e.target.value = ''
+                    }}
+                  />
+                </div>
+              )}
 
               {urlOpen && (
                 <div className="va-url-form">
@@ -1111,29 +1108,26 @@ export function VoiceAgentPage() {
                 </div>
               )}
 
-              {transcript.length > 0 && (
-                <div className="va-transcript-wrap">
-                  <div className="va-transcript-header">
-                    <span className="va-transcript-label">Conversation</span>
-                    <button
-                      className={`va-transcript-copy-btn${justCopied ? ' va-transcript-copy-btn-copied' : ''}`}
-                      onClick={copyConversation}
-                      aria-label="Copy conversation to clipboard"
-                      title="Copy conversation"
-                    >
-                      {justCopied ? <Check size={12} /> : <Copy size={12} />}
-                    </button>
-                  </div>
-                  <div className="va-transcript" ref={transcriptRef}>
-                    {transcript.map((t) => (
-                      <div key={t.id} className={`va-turn va-turn-${t.role}`}>
-                        <div className="va-turn-role">{t.role === 'user' ? 'You' : 'Agent'}</div>
-                        <div className="va-turn-text">{t.text || (t.role === 'assistant' ? '…' : '')}</div>
-                      </div>
-                    ))}
-                  </div>
+              {/* Mic control — now small and centered at bottom */}
+              <div className="va-mic-dock">
+                <div
+                  className="va-mic-wrap"
+                  style={{ '--level': String(Math.min(1, level * 4)) } as React.CSSProperties}
+                >
+                  <span className="va-mic-halo" />
+                  <button
+                    className={`va-mic va-mic-compact va-mic-${recording ? 'recording' : state}`}
+                    aria-label={recording ? 'Stop recording and send' : 'Start recording'}
+                    onClick={toggleRecording}
+                    disabled={state === 'connecting' || state === 'error'}
+                  >
+                    {state === 'connecting' && <Loader2 size={24} className="va-spin" />}
+                    {recording && <Square size={18} fill="currentColor" />}
+                    {!recording && state !== 'connecting' && <Mic size={24} />}
+                  </button>
                 </div>
-              )}
+                <div className="va-mic-label-compact">{micLabel}</div>
+              </div>
             </>
           )}
         </div>
