@@ -508,7 +508,7 @@ function buildDocsContext(attachments: Attachment[]): string {
 // to avoid splitting phrases that wrap across lines. Double newlines = paragraph break.
 
 const SENTENCE_END_RE = /([.!?…]["')\]]*|\n\n+)(\s+|$)/g
-const MAX_SENTENCE_CHARS = 400  // hard flush if no punctuation (increased from 260 for smoother playback)
+const MAX_SENTENCE_CHARS = 300  // hard flush if no punctuation (lower to catch fragments sooner)
 
 /**
  * Strip markdown & code-ish tokens the TTS would otherwise read out
@@ -593,19 +593,22 @@ function extractSentences(buffer: string): { sentences: string[]; rest: string }
   let match: RegExpExecArray | null
   const re = new RegExp(SENTENCE_END_RE.source, 'g')
   while ((match = re.exec(normalized)) !== null) {
+    // Include punctuation + trailing whitespace in the sentence
     const end = match.index + match[1].length
+    const whitespaceTrim = match[2].length
     const chunk = normalized.slice(lastCut, end).trim()
     if (chunk) sentences.push(chunk)
-    lastCut = end + match[2].length
+    // Advance past this match: end of punctuation + any trailing whitespace
+    lastCut = end + whitespaceTrim
   }
-  const rest = normalized.slice(lastCut)
+  const rest = normalized.slice(lastCut).trim()
   // Hard flush: if the tail is too long without punctuation, cut on a
   // word boundary so we don't buffer forever.
   if (rest.length > MAX_SENTENCE_CHARS) {
     const cut = rest.lastIndexOf(' ', MAX_SENTENCE_CHARS)
     if (cut > 40) {
       sentences.push(rest.slice(0, cut).trim())
-      return { sentences, rest: rest.slice(cut + 1) }
+      return { sentences, rest: rest.slice(cut + 1).trim() }
     }
   }
   return { sentences, rest }
