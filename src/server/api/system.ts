@@ -376,7 +376,8 @@ interface MemoryDetail {
 
 async function readMemoryDetailMac(): Promise<MemoryDetail | null> {
   try {
-    // vm_stat output example (page size is 4KB on modern Macs):
+    // vm_stat output (page size varies: 4KB on Intel, 16KB on Apple Silicon):
+    // "Mach Virtual Memory Statistics: (page size of 16384 bytes)"
     // "Pages free:                    1234567"
     // "Pages active:                  2345678"
     // "Pages inactive:                3456789"
@@ -384,10 +385,18 @@ async function readMemoryDetailMac(): Promise<MemoryDetail | null> {
     // "Pages wired down:              567890"
     const { stdout } = await execa('vm_stat', [], { timeout: 2000 })
 
-    const pageSize = 4096 // Modern Macs use 4KB pages
+    let pageSize = 4096 // Default fallback
+    const lines = stdout.split('\n')
+
+    // Extract page size from first line if present
+    const pageMatch = lines[0]?.match(/page size of (\d+) bytes/)
+    if (pageMatch) {
+      pageSize = parseInt(pageMatch[1], 10)
+    }
+
     const map: Record<string, number> = {}
 
-    for (const line of stdout.split('\n')) {
+    for (const line of lines) {
       const m = line.match(/^Pages\s+(\w+):\s+(\d+)/)
       if (m) {
         const key = m[1]
