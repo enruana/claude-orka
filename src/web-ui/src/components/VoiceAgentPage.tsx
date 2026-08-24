@@ -192,6 +192,9 @@ export function VoiceAgentPage() {
   const micStreamRef = useRef<MediaStream | null>(null)
   const playbackQueueRef = useRef<AudioBuffer[]>([])
   const playbackNodeRef = useRef<AudioBufferSourceNode | null>(null)
+  // Every buffer source currently scheduled on the audio clock, so a
+  // barge-in can stop all of them (see stopPlayback).
+  const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([])
   const playbackTailRef = useRef<number>(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
   // Preview sources per attachment id. `blob` sources own a Blob URL
@@ -291,10 +294,26 @@ export function VoiceAgentPage() {
     src.start(startAt)
     playbackTailRef.current = startAt + buf.duration
     playbackNodeRef.current = src
+    // Every chunk is start()ed the moment it arrives, scheduled into the
+    // future — so at any instant there can be a long backlog of sources
+    // already committed to the audio clock. stopPlayback() has to be
+    // able to reach all of them, not just the newest.
+    scheduledSourcesRef.current.push(src)
+    src.onended = () => {
+      const i = scheduledSourcesRef.current.indexOf(src)
+      if (i >= 0) scheduledSourcesRef.current.splice(i, 1)
+    }
   }, [])
 
   const stopPlayback = useCallback(() => {
-    try { playbackNodeRef.current?.stop() } catch { /* ignore */ }
+    // Stop the whole scheduled backlog. Stopping only the most recent
+    // source (what this used to do) left every earlier chunk running,
+    // so interrupting a long answer didn't actually silence it — the
+    // agent kept talking over the user for as long as the queue was.
+    for (const src of scheduledSourcesRef.current) {
+      try { src.onended = null; src.stop() } catch { /* already ended */ }
+    }
+    scheduledSourcesRef.current = []
     playbackNodeRef.current = null
     playbackTailRef.current = 0
     playbackQueueRef.current = []
