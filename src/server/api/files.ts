@@ -1729,6 +1729,138 @@ filesRouter.get('/image', async (req, res) => {
 })
 
 /**
+ * Who may frame a preview page.
+ *
+ * `'self'` alone breaks the common two-machine setup: an Orka server on
+ * the laptop embedding a preview served by the Orka server on the desktop
+ * (both reachable over the tailnet) is cross-origin, so the browser
+ * refuses the frame outright. Tailnet + loopback origins are all the same
+ * user's own machines, so widening to them costs nothing in clickjacking
+ * terms while making cross-host embeds work natively (overlays, live
+ * scripts and all) instead of falling back to the proxy below.
+ */
+const PREVIEW_FRAME_ANCESTORS = [
+  "frame-ancestors 'self'",
+  'https://*.ts.net:*',
+  'http://*.ts.net:*',
+  'https://localhost:*',
+  'http://localhost:*',
+  'https://127.0.0.1:*',
+  'http://127.0.0.1:*',
+].join(' ')
+
+/**
+ * GET /api/files/proxy?url=<absolute http(s) url>
+ *
+ * Same-origin embed proxy for the voice agent's attachment viewer.
+ *
+ * Attached URLs are rendered in an iframe, and remote pages routinely
+ * refuse to be framed — `X-Frame-Options: DENY`, CSP `frame-ancestors`,
+ * or (the case that motivated this) *another Orka server* whose preview
+ * route pins `frame-ancestors` to its own origin list. Fetching the
+ * document here and re-serving it from our origin sidesteps all of that:
+ * the browser only ever sees the headers we emit.
+ *
+ * HTML gets a `<base href>` so relative *and* root-relative assets keep
+ * resolving against the remote origin. Everything else (PDF, images,
+ * text) streams through with its content type.
+ *
+ * The client sandboxes the resulting frame WITHOUT `allow-same-origin`,
+ * so remote scripts run in an opaque origin and can't reach our storage
+ * or APIs even though the bytes arrive from our host.
+ */
+const PROXY_TIMEOUT_MS = 20_000
+const PROXY_MAX_BYTES = 25 * 1024 * 1024
+
+filesRouter.get('/proxy', async (req, res) => {
+  const raw = typeof req.query.url === 'string' ? req.query.url.trim() : ''
+  if (!raw) {
+    res.status(400).json({ error: 'url query param required' })
+    return
+  }
+
+  let target: URL
+  try {
+    target = new URL(raw)
+  } catch {
+    res.status(400).json({ error: `invalid url: ${raw}` })
+    return
+  }
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    res.status(400).json({ error: `unsupported scheme: ${target.protocol}` })
+    return
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS)
+  try {
+    const upstream = await fetch(target.toString(), {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'ClaudeOrkaViewer/1.0 (+https://github.com/enruana/claude-orka)',
+        Accept: 'text/html,application/xhtml+xml,application/pdf,image/*,*/*;q=0.8',
+      },
+    })
+    clearTimeout(timer)
+
+    if (!upstream.ok) {
+      res.status(502).json({ error: `upstream returned HTTP ${upstream.status}`, url: target.toString() })
+      return
+    }
+
+    const contentType = (upstream.headers.get('content-type') || 'application/octet-stream').toLowerCase()
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    if (buf.byteLength > PROXY_MAX_BYTES) {
+      res.status(413).json({ error: `body too large (${(buf.byteLength / 1024 / 1024).toFixed(1)} MB)` })
+      return
+    }
+
+    // Redirects change what relative URLs should resolve against.
+    const finalUrl = upstream.url || target.toString()
+
+    // Never forward the upstream's framing/transport policy — re-serving
+    // it here would reintroduce the very block we're routing around.
+    res.setHeader('Cache-Control', 'no-store')
+    res.removeHeader('X-Frame-Options')
+
+    if (contentType.includes('text/html') || contentType.includes('xhtml')) {
+      let body = buf.toString('utf-8')
+      if (body.charCodeAt(0) === 0xFEFF) body = body.slice(1)
+
+      // Drop any <base> the document ships with — ours has to win, and a
+      // second <base> earlier in the head would shadow it.
+      body = body.replace(/<base\b[^>]*>/gi, '')
+
+      const baseTag = `<base href="${finalUrl.replace(/"/g, '&quot;')}">`
+      const headOpen = body.match(/<head\b[^>]*>/i)
+      if (headOpen) {
+        const at = headOpen.index! + headOpen[0].length
+        body = body.slice(0, at) + '\n' + baseTag + body.slice(at)
+      } else if (/<html\b[^>]*>/i.test(body)) {
+        body = body.replace(/(<html\b[^>]*>)/i, `$1<head>${baseTag}</head>`)
+      } else {
+        body = baseTag + '\n' + body
+      }
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8')
+      res.send(body)
+      return
+    }
+
+    res.setHeader('Content-Type', contentType)
+    res.send(buf)
+  } catch (error: any) {
+    clearTimeout(timer)
+    if (error?.name === 'AbortError') {
+      res.status(504).json({ error: `upstream timed out after ${PROXY_TIMEOUT_MS / 1000}s` })
+      return
+    }
+    res.status(502).json({ error: error?.message || 'proxy fetch failed' })
+  }
+})
+
+/**
  * GET /api/files/preview/:encodedProject/*
  *
  * Path-based file server used for the inline HTML preview in
@@ -1814,7 +1946,7 @@ filesRouter.get('/preview/:encodedProject/*path', async (req, res) => {
             // same-origin frames explicitly (some browsers require
             // frame-src even when default-src 'self' is set).
             "frame-src 'self'",
-            "frame-ancestors 'self'",
+            PREVIEW_FRAME_ANCESTORS,
           ].join('; ')
         )
       } else {
@@ -1826,7 +1958,7 @@ filesRouter.get('/preview/:encodedProject/*path', async (req, res) => {
             "script-src 'none'",
             "connect-src 'none'",
             "form-action 'none'",
-            "frame-ancestors 'self'",
+            PREVIEW_FRAME_ANCESTORS,
             "base-uri 'self'",
           ].join('; ')
         )

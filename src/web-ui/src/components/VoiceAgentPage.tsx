@@ -1158,12 +1158,49 @@ export function VoiceAgentPage() {
 
 /**
  * Renders the source of an attachment inside the viewer background.
- * PDFs and images render natively from a blob URL. URLs iframe the
- * remote origin — sites with `X-Frame-Options: DENY` won't render;
- * we show a small hint + "Open in new tab" fallback so the user has
- * an escape hatch.
+ * PDFs and images render natively from a blob URL. URLs are embedded
+ * through `resolveEmbed` below, which keeps them renderable even when
+ * the remote refuses to be framed. "Open in new tab" stays as the
+ * escape hatch for the pathological cases (login walls, framebusters).
  */
 type Preview = { kind: 'blob' | 'url'; src: string; mime?: string; label: string }
+
+/**
+ * Decide how to put a remote URL inside our iframe.
+ *
+ * Same-origin URLs load directly — full fidelity, scripts and all.
+ * Anything else goes through `/api/files/proxy`, which re-serves the
+ * document from our own host so the remote's `X-Frame-Options` / CSP
+ * `frame-ancestors` can't block the embed. That's not an exotic case:
+ * another Orka server on the tailnet pins `frame-ancestors` too, so
+ * laptop→desktop preview links hit it every time.
+ *
+ * Proxied documents lose `allow-same-origin` in the sandbox — they're
+ * served from our origin but are NOT our content, so they must not be
+ * able to read our storage or call our APIs with our credentials.
+ */
+function resolveEmbed(raw: string): { src: string; sandbox: string; proxied: boolean } {
+  // The attached URL is loaded VERBATIM — query params included. An
+  // earlier revision stripped `?voice=1` / `?comments=1` off Orka
+  // preview links to avoid nesting a second voice widget; it turned
+  // out to break more than it fixed, and the URL the user attached is
+  // the URL they expect to see.
+  let u: URL
+  try {
+    u = new URL(raw, window.location.href)
+  } catch {
+    return { src: raw, sandbox: 'allow-scripts allow-forms allow-popups', proxied: false }
+  }
+
+  if (u.origin === window.location.origin) {
+    return { src: raw, sandbox: 'allow-scripts allow-same-origin allow-forms allow-popups', proxied: false }
+  }
+  return {
+    src: `/api/files/proxy?url=${encodeURIComponent(raw)}`,
+    sandbox: 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox',
+    proxied: true,
+  }
+}
 function PreviewFrame({ preview }: { preview: Preview | null }) {
   if (!preview) {
     return (
@@ -1188,17 +1225,19 @@ function PreviewFrame({ preview }: { preview: Preview | null }) {
     )
   }
   // preview.kind === 'url'
+  const embed = resolveEmbed(preview.src)
   return (
     <div className="va-preview-url">
       <iframe
-        src={preview.src}
+        key={embed.src}
+        src={embed.src}
         title={preview.label}
         className="va-preview-iframe"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        sandbox={embed.sandbox}
         referrerPolicy="no-referrer"
       />
       <div className="va-preview-url-hint">
-        <span>Can&apos;t see the page? Some sites block embedding.</span>
+        <span>{embed.proxied ? 'Served through Orka to allow embedding.' : 'Embedded page'}</span>
         <a href={preview.src} target="_blank" rel="noopener noreferrer">
           Open in new tab ↗
         </a>
