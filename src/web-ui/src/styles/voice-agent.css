@@ -8,15 +8,22 @@
  */
 
 .voice-agent-page {
-  min-height: 100vh;
-  min-height: 100dvh;
+  /* A DEFINITE height, not min-height. The dock layout depends on the
+     flex chain resolving against the viewport: with min-height the
+     container is free to grow past it, `flex: 1` children size to the
+     grown height instead, the page itself becomes the scroller, and
+     the actions bar + mic dock slide below the fold as the transcript
+     fills up. Fixed height + hidden overflow keeps the scrolling where
+     it belongs — inside .va-transcript. */
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   position: relative;
   color: var(--text-primary);
   background: #0a0a12;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .voice-agent-page-embedded {
@@ -352,6 +359,11 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* This is THE scroller. It has to claim the leftover space and be
+     allowed to shrink below its content, otherwise it just grows and
+     gets clipped by .va-transcript-primary's overflow:hidden. */
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   scroll-behavior: smooth;
@@ -745,6 +757,9 @@
 
 .va-agent-panel.va-inline {
   flex: 1;
+  /* Without this the panel refuses to shrink below its content, which
+     breaks the scroll chain for everything nested inside it. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
