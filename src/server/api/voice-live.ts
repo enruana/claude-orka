@@ -276,13 +276,14 @@ interface VoiceSession {
   // the echo tail of the interrupted TTS being picked up by the mic,
   // not a real new user turn.
   lastBargeInAt: number
-  // TTS state: sentence buffer + whether we're currently emitting audio.
+  // TTS state: sentence buffer + the FIFO synthesis chain.
   ttsBuffer: string
-  ttsInFlight: boolean
   ttsCancelToken: { cancelled: boolean }
-  // Event-driven gate: Priority 3A optimization. Deferred gate that resolves
-  // when the previous sentence finishes TTS, reducing CPU and jitter.
-  ttsFlushedGate: Deferred<void> | null
+  // Tail of the synthesis queue. Each sentence appends itself here, so
+  // sentences are synthesized and streamed strictly in the order they
+  // were extracted. See speakSentence() for why this is a chain and
+  // not a lock.
+  ttsChain: Promise<void>
   closed: boolean
   startedAt: number
 }
@@ -601,14 +602,19 @@ function extractSentences(buffer: string): { sentences: string[]; rest: string }
     // Advance past this match: end of punctuation + any trailing whitespace
     lastCut = end + whitespaceTrim
   }
-  const rest = normalized.slice(lastCut).trim()
+  // Strip leading whitespace only. A trailing space in the tail is not
+  // padding — it's the separator between this delta and the next one,
+  // and trimming it welded words together across delta boundaries
+  // ("tracking" + "a feature" came out as "trackinga feature", which
+  // the TTS then dutifully pronounced).
+  const rest = normalized.slice(lastCut).replace(/^\s+/, '')
   // Hard flush: if the tail is too long without punctuation, cut on a
   // word boundary so we don't buffer forever.
   if (rest.length > MAX_SENTENCE_CHARS) {
     const cut = rest.lastIndexOf(' ', MAX_SENTENCE_CHARS)
     if (cut > 40) {
       sentences.push(rest.slice(0, cut).trim())
-      return { sentences, rest: rest.slice(cut + 1).trim() }
+      return { sentences, rest: rest.slice(cut + 1) }
     }
   }
   return { sentences, rest }
@@ -832,11 +838,7 @@ async function runClaudeSession(sess: VoiceSession): Promise<void> {
         // exchange (user turn + assistant reply) to history as a
         // paired entry so a future re-arm's seed replay is accurate.
         if (event.type === 'assistant') {
-          if (sess.ttsBuffer.trim()) {
-            const tail = sess.ttsBuffer.trim()
-            sess.ttsBuffer = ''
-            void speakSentence(sess, tail)
-          }
+          flushTtsTail(sess)
           if (sess.currentAssistantText.trim()) {
             if (sess.currentUserText) {
               sess.history.push({ role: 'user', content: sess.currentUserText })
@@ -848,16 +850,9 @@ async function runClaudeSession(sess: VoiceSession): Promise<void> {
         }
 
         if (event.type === 'result') {
-          // Flush any remaining text in the TTS buffer (text without punctuation at the end)
-          if (sess.ttsBuffer.trim()) {
-            const remaining = sess.ttsBuffer.trim()
-            const sanitized = sanitizeForSpeech(remaining)
-            if (sanitized) {
-              sendJson(sess.ws, { type: 'assistant-text', text: sanitized })
-              void speakSentence(sess, sanitized)
-            }
-            sess.ttsBuffer = ''
-          }
+          // Normally a no-op — the `assistant` event above already
+          // flushed. Kept for turns that end without one.
+          flushTtsTail(sess)
           sendJson(sess.ws, { type: 'assistant-turn-end' })
         }
       }
@@ -931,29 +926,74 @@ function handleAssistantText(sess: VoiceSession, chunk: string): void {
   }
 }
 
+/**
+ * Speak whatever is left in the sentence buffer at the end of a turn.
+ *
+ * The tail is the text that never hit a sentence boundary — an answer
+ * ending without punctuation, or a trailing fragment. It has to go
+ * through exactly the same treatment as a normal sentence: sanitized,
+ * announced as a caption, then queued. The turn-boundary flush used to
+ * skip both the sanitize and the caption, so the last fragment of a
+ * reply was spoken with its markdown intact and never appeared in the
+ * transcript.
+ */
+function flushTtsTail(sess: VoiceSession): void {
+  const tail = sess.ttsBuffer.trim()
+  sess.ttsBuffer = ''
+  if (!tail) return
+  const s = sanitizeForSpeech(tail)
+  if (!s) return
+  sendJson(sess.ws, { type: 'assistant-text', text: s })
+  void speakSentence(sess, s)
+}
+
 // ============================================================
 // TTS pipeline — Kokoro synthesis, one sentence at a time
 // ============================================================
 //
 // We keep a per-session cancel token so barge-in can invalidate any
-// synthesis that's mid-flight. Sentences synthesize sequentially (a
-// promise chain) so audio frames arrive at the client in order — the
-// browser side plays them from a FIFO.
+// synthesis that's mid-flight. Sentences synthesize sequentially so
+// audio frames arrive at the client in order — the browser side plays
+// them from a FIFO.
 
-async function speakSentence(sess: VoiceSession, text: string): Promise<void> {
+/**
+ * Queue one sentence for synthesis.
+ *
+ * Two invariants matter here: sentences must be spoken in the order
+ * they were extracted, and every sentence handed to this function must
+ * eventually be spoken or explicitly cancelled. A FIFO promise chain
+ * gives both for free.
+ *
+ * It used to be a lock instead: each caller parked on a single shared
+ * `ttsFlushedGate` slot while another sentence was in flight. With more
+ * than one sentence queued, each new waiter overwrote the previous
+ * waiter's gate, so only the most recent one was ever resolved — the
+ * earlier sentences awaited a promise nobody held a reference to any
+ * more and hung forever. Audible result on a long answer: the opening
+ * sentence and the closing sentence were spoken and everything between
+ * them went silent, while the full text still appeared in the
+ * transcript (`assistant-text` is sent before synthesis is queued).
+ */
+function speakSentence(sess: VoiceSession, text: string): Promise<void> {
   const token = sess.ttsCancelToken
+  // The catch keeps the chain resolvable: a rejection left in place
+  // would make every later `.then` skip its sentence, turning one
+  // synthesis failure into silence for the rest of the turn.
+  sess.ttsChain = sess.ttsChain
+    .then(() => synthesizeAndStream(sess, text, token))
+    .catch((err) => {
+      if (!sess.closed) logger.error(`[voice-live ${sess.id}] TTS chain error:`, err)
+    })
+  return sess.ttsChain
+}
+
+async function synthesizeAndStream(
+  sess: VoiceSession,
+  text: string,
+  token: { cancelled: boolean },
+): Promise<void> {
   try {
-    // Serialize — wait for the previous sentence to finish streaming.
-    // Priority 3A: Event-driven gate replaces setTimeout polling.
-    // The previous sentence's finally block will resolve this gate.
-    while (sess.ttsInFlight && !token.cancelled && !sess.closed) {
-      // Create a gate for this sentence to wait on
-      const gate = deferred<void>()
-      sess.ttsFlushedGate = gate
-      await gate.promise
-    }
     if (token.cancelled || sess.closed) return
-    sess.ttsInFlight = true
 
     const { pcm, sampleRate, audioMs, synthMs } = await synthesizePcm16(text, {
       voice: sess.voice,
@@ -981,13 +1021,6 @@ async function speakSentence(sess: VoiceSession, text: string): Promise<void> {
     if (!sess.closed) {
       logger.error(`[voice-live ${sess.id}] TTS failed:`, err)
     }
-  } finally {
-    sess.ttsInFlight = false
-    // Priority 3A: Trigger the gate so the next waiting sentence can proceed
-    if (sess.ttsFlushedGate) {
-      sess.ttsFlushedGate.resolve()
-      sess.ttsFlushedGate = null
-    }
   }
 }
 
@@ -1003,11 +1036,8 @@ function handleInterrupt(sess: VoiceSession): void {
   sess.ttsCancelToken.cancelled = true
   sess.ttsCancelToken = { cancelled: false }
   sess.ttsBuffer = ''
-  // Priority 3A: Trigger flushed gate to wake pending speakSentence waiters
-  if (sess.ttsFlushedGate) {
-    sess.ttsFlushedGate.resolve()
-    sess.ttsFlushedGate = null
-  }
+  // Queued sentences captured the old token, so they drain immediately
+  // without synthesizing — no gate to wake, nothing left dangling.
   // 2. Drop both sides of the in-flight turn from history. The user
   //    cut us off before we finished; committing a partial assistant
   //    reply would misrepresent the conversation ("I said X" when I
@@ -1358,9 +1388,8 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         driverRunning: false,
         lastBargeInAt: 0,
         ttsBuffer: '',
-        ttsInFlight: false,
         ttsCancelToken: { cancelled: false },
-        ttsFlushedGate: null,
+        ttsChain: Promise.resolve(),
         closed: false,
         startedAt: Date.now(),
       }
