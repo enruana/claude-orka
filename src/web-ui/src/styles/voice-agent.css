@@ -806,10 +806,6 @@
   flex-shrink: 0;
 }
 .va-float-header:active { cursor: grabbing; }
-.va-agent-panel.va-float.minimized .va-float-header {
-  border-bottom: none;
-  padding: 6px 10px 6px 12px;
-}
 
 .va-float-grip {
   opacity: 0.4;
@@ -863,7 +859,12 @@
   background: rgba(17, 17, 27, 0.6);
   border: 1px solid rgba(137, 180, 250, 0.3);
   box-shadow: 0 8px 16px rgba(137, 180, 250, 0.1);
+  /* The bubble is its own drag handle now. */
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
 }
+.va-float-mini:active { cursor: grabbing; }
 
 .va-mic-wrap-mini {
   display: flex;

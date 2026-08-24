@@ -972,7 +972,9 @@ export function VoiceAgentPage() {
               : undefined
           }
         >
-          {viewerId && (
+          {/* Header only in the expanded state — minimized is just the
+              bubble, and it carries the drag handlers itself. */}
+          {viewerId && !minimized && (
             <div
               className="va-float-header"
               onPointerDown={handleAgentDragStart}
@@ -1004,7 +1006,16 @@ export function VoiceAgentPage() {
           )}
 
           {viewerId && minimized ? (
-            <div className="va-float-mini">
+            <div
+              className="va-float-mini"
+              // Drag lives here now that the header is gone. The start
+              // handler ignores pointerdown on buttons, so the mic and
+              // expand taps still land.
+              onPointerDown={handleAgentDragStart}
+              onPointerMove={handleAgentDragMove}
+              onPointerUp={handleAgentDragEnd}
+              onPointerCancel={handleAgentDragEnd}
+            >
               <div
                 className="va-mic-wrap va-mic-wrap-mini"
                 style={{ '--level': String(Math.min(1, level * 4)) } as React.CSSProperties}
