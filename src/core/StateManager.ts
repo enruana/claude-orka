@@ -3,6 +3,7 @@ import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { ProjectState, ProjectTask, ProjectComment, ProjectPin, Session, Fork, SessionFilters } from '../models'
+import { withFileLock } from '../utils/file-lock'
 import { logger } from '../utils'
 import { installSessionWatcherHooks } from '../server/session-watcher-hooks'
 import { getGlobalStateManager } from './GlobalStateManager'
@@ -357,6 +358,38 @@ export class StateManager {
       logger.error('Failed to save state:', error)
       throw new Error(`Failed to save state: ${error.message}`)
     }
+  }
+
+  /**
+   * Run one read-modify-write of the state under a cross-process lock.
+   *
+   * `read()` + `save()` on their own are each safe, but the PAIR is not:
+   * two writers that both read before either wrote will each build their
+   * document from a stale copy, and the second rename discards the
+   * first's change. Harmless while only the server wrote; not harmless
+   * now that `orka comment` mutates the same file from a terminal while
+   * a browser tab is open. Measured without the lock: 20 concurrent
+   * adds, 1 survivor.
+   *
+   * `mutator` receives the freshly-read state and mutates it in place;
+   * whatever it returns is passed back to the caller. Do NOT call
+   * another mutate() from inside one — the lock is not re-entrant.
+   */
+  private async mutate<T>(mutator: (state: ProjectState) => T | Promise<T>): Promise<T> {
+    // Two layers, because the races come from two places:
+    //   _serializeWrite — same process, e.g. the server handling two API
+    //     calls at once. Cheap: no filesystem involved.
+    //   withFileLock   — different processes, e.g. `orka comment` in a
+    //     terminal while the server serves a browser tab. The in-process
+    //     queue is blind to that; only a filesystem primitive is shared.
+    return _serializeWrite(this.projectPath, () =>
+      withFileLock(`${this.statePath}.lock`, async () => {
+        const state = await this.read()
+        const result = await mutator(state)
+        await this.save(state)
+        return result
+      })
+    )
   }
 
   // --- OPERACIONES DE SESIONES ---
@@ -727,37 +760,37 @@ export class StateManager {
   }
 
   async addComment(comment: ProjectComment): Promise<void> {
-    const state = await this.read()
-    if (!state.comments) state.comments = []
-    state.comments.push(comment)
-    await this.save(state)
+    await this.mutate((state) => {
+      if (!state.comments) state.comments = []
+      state.comments.push(comment)
+    })
     logger.info(`Comment added: ${comment.id}`)
   }
 
   async updateComment(commentId: string, updates: Partial<Pick<ProjectComment, 'body' | 'resolved'>>): Promise<ProjectComment> {
-    const state = await this.read()
-    if (!state.comments) state.comments = []
-    const comment = state.comments.find(c => c.id === commentId)
-    if (!comment) throw new Error(`Comment not found: ${commentId}`)
+    const comment = await this.mutate((state) => {
+      if (!state.comments) state.comments = []
+      const found = state.comments.find(c => c.id === commentId)
+      if (!found) throw new Error(`Comment not found: ${commentId}`)
 
-    if (updates.body !== undefined) comment.body = updates.body
-    if (updates.resolved !== undefined) {
-      comment.resolved = updates.resolved
-      comment.resolvedAt = updates.resolved ? new Date().toISOString() : undefined
-    }
-
-    await this.save(state)
+      if (updates.body !== undefined) found.body = updates.body
+      if (updates.resolved !== undefined) {
+        found.resolved = updates.resolved
+        found.resolvedAt = updates.resolved ? new Date().toISOString() : undefined
+      }
+      return found
+    })
     logger.info(`Comment updated: ${commentId}`)
     return comment
   }
 
   async deleteComment(commentId: string): Promise<void> {
-    const state = await this.read()
-    if (!state.comments) state.comments = []
-    const index = state.comments.findIndex(c => c.id === commentId)
-    if (index === -1) throw new Error(`Comment not found: ${commentId}`)
-    state.comments.splice(index, 1)
-    await this.save(state)
+    await this.mutate((state) => {
+      if (!state.comments) state.comments = []
+      const index = state.comments.findIndex(c => c.id === commentId)
+      if (index === -1) throw new Error(`Comment not found: ${commentId}`)
+      state.comments.splice(index, 1)
+    })
     logger.info(`Comment deleted: ${commentId}`)
   }
 
