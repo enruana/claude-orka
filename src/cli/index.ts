@@ -21,6 +21,7 @@ import { awsAccountCommand } from './commands/aws-account'
 import { kbCommand } from './commands/kb'
 import { boardCommand } from './commands/board'
 import { sslCommand } from './commands/ssl'
+import { commentCommand } from './commands/comment'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -63,6 +64,7 @@ awsAccountCommand(program)
 kbCommand(program)
 boardCommand(program)
 sslCommand(program)
+commentCommand(program)
 
 // Parse arguments
 program.parseAsync().then(() => {
