@@ -50,6 +50,7 @@ export function doctorCommand(program: Command) {
 
         // Check Whisper dependencies (for speech-to-text)
         results.push(await checkFfmpeg())
+        results.push(await checkEspeakNg())
         results.push(await checkMake())
         results.push(await checkCmake())
         results.push(await checkWhisperBinary())
@@ -278,6 +279,28 @@ async function checkClaudeDir(): Promise<CheckResult> {
       status: 'fail',
       message: 'Error checking',
       details: (error as Error).message,
+    }
+  }
+}
+
+async function checkEspeakNg(): Promise<CheckResult> {
+  try {
+    const { stdout } = await execa('espeak-ng', ['--version'])
+    const version = stdout.split('\n')[0].replace('eSpeak NG text-to-speech: ', '').split(' ')[0]
+    return {
+      name: 'espeak-ng (Spanish voice)',
+      status: 'pass',
+      message: version,
+      details: 'Phonemizes Spanish text for the voice agent',
+    }
+  } catch {
+    return {
+      name: 'espeak-ng (Spanish voice)',
+      status: 'warn',
+      message: 'Not found',
+      // English is unaffected — kokoro-js phonemizes it in-process.
+      details: 'Only needed to speak Spanish; English voice works without it',
+      fix: 'Run: orka prepare\n  Or manually: brew install espeak-ng (macOS) / sudo apt install espeak-ng (Linux)',
     }
   }
 }

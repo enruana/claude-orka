@@ -1,4 +1,5 @@
 import { logger } from './logger'
+import { synthesizeMultilingual, SPANISH_VOICES } from './kokoro-multilingual'
 
 /**
  * Kokoro-82M TTS singleton for the voice pipeline.
@@ -73,6 +74,32 @@ export interface SynthOptions {
   voice?: string
   /** Output sample rate. Default 24000 (Kokoro native, no resampling). */
   outSampleRate?: 24000 | 16000
+  /** BCP-47-ish language tag. 'en' (default) goes through kokoro-js;
+   *  anything else routes to the multilingual path. */
+  language?: string
+}
+
+/**
+ * Voices offered per language, best-first.
+ *
+ * English comes from kokoro-js's built-in table (Kokoro-82M-ONNX).
+ * Spanish comes from the v1.0 checkpoint via kokoro-multilingual —
+ * kokoro-js has no Spanish voices at all, see that module's header.
+ */
+export const VOICES_BY_LANGUAGE: Record<string, readonly string[]> = {
+  en: ['af_heart', 'af_bella', 'am_michael', 'bf_emma'],
+  es: SPANISH_VOICES,
+}
+
+/** The voice used when a session switches to `language` without
+ *  naming one explicitly. */
+export function defaultVoiceForLanguage(language: string): string {
+  return VOICES_BY_LANGUAGE[language]?.[0] || VOICES_BY_LANGUAGE.en[0]
+}
+
+/** Languages the TTS side can actually speak. */
+export function isSupportedTtsLanguage(language: string): boolean {
+  return Object.prototype.hasOwnProperty.call(VOICES_BY_LANGUAGE, language)
 }
 
 export async function synthesizePcm16(
@@ -81,18 +108,30 @@ export async function synthesizePcm16(
 ): Promise<{ pcm: Buffer; sampleRate: number; audioMs: number; synthMs: number }> {
   const trimmed = text.trim()
   if (!trimmed) return { pcm: Buffer.alloc(0), sampleRate: opts.outSampleRate || 24000, audioMs: 0, synthMs: 0 }
-  const k = await getKokoro()
-  const voice = opts.voice || Object.keys(k.voices || {})[0]
 
+  const language = opts.language || 'en'
   const t0 = Date.now()
-  const out = await k.generate(trimmed, { voice })
+
+  let audio: Float32Array
+  let sourceRate: number
+  if (language === 'en') {
+    const k = await getKokoro()
+    const voice = opts.voice || Object.keys(k.voices || {})[0]
+    const out = await k.generate(trimmed, { voice })
+    audio = out.audio
+    sourceRate = out.sampling_rate // 24000 for Kokoro
+  } else {
+    const voice = opts.voice || defaultVoiceForLanguage(language)
+    const out = await synthesizeMultilingual(trimmed, language, voice)
+    audio = out.audio
+    sourceRate = out.sampleRate
+  }
   const synthMs = Date.now() - t0
 
-  const sourceRate = out.sampling_rate // 24000 for Kokoro
   const targetRate = opts.outSampleRate || sourceRate
   const samples = targetRate === sourceRate
-    ? out.audio
-    : resampleLinear(out.audio, sourceRate, targetRate)
+    ? audio
+    : resampleLinear(audio, sourceRate, targetRate)
 
   const pcm = float32ToInt16LE(samples)
   const audioMs = Math.floor((samples.length / targetRate) * 1000)

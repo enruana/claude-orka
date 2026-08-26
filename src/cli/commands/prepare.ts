@@ -39,6 +39,7 @@ export function prepareCommand(program: Command) {
         console.log('  • ttyd (web terminal for remote access)')
         console.log('  • Claude CLI (if needed)')
         console.log('  • ffmpeg (audio processing for voice input)')
+        console.log('  • espeak-ng (Spanish pronunciation for the voice agent)')
         console.log('  • cmake (build tool for Whisper)')
         console.log('  • Whisper model (speech-to-text)')
         console.log('  • Puppeteer + Chromium (terminal screenshots)')
@@ -86,6 +87,7 @@ export function prepareCommand(program: Command) {
 
         // Install ffmpeg (for voice input)
         await installFfmpeg(system)
+        await installEspeakNg(system)
 
         // Install cmake (for building Whisper)
         await installCmake(system)
@@ -295,6 +297,52 @@ async function checkClaudeCLI() {
     console.log(
       chalk.gray('\nNote: You may need to restart your terminal after installation.')
     )
+  }
+}
+
+/**
+ * espeak-ng — grapheme-to-phoneme for non-English TTS.
+ *
+ * Kokoro synthesizes from IPA, and the phonemizer bundled with
+ * kokoro-js only ships English data. Spanish speech therefore needs a
+ * system espeak-ng to turn text into the phonemes the model expects.
+ * English is unaffected, so a failure here is a warning, not an error.
+ */
+async function installEspeakNg(system: SystemInfo) {
+  console.log(chalk.bold('\n🗣  Checking espeak-ng (Spanish voice)...\n'))
+
+  try {
+    const { stdout } = await execa('espeak-ng', ['--version'])
+    Output.success(`espeak-ng is already installed: ${stdout.split('\n')[0]}`)
+    return
+  } catch {
+    // Not installed, continue
+  }
+
+  try {
+    if (system.platform === 'darwin') {
+      if (!system.hasHomebrew) {
+        Output.warn('Homebrew is not installed — skipping espeak-ng (Spanish voice will not work)')
+        return
+      }
+      await runVisible('brew', ['install', 'espeak-ng'])
+      Output.success('espeak-ng installed via Homebrew')
+    } else if (system.platform === 'linux') {
+      if (system.hasApt) {
+        await runVisible('sudo', ['apt-get', 'install', '-y', 'espeak-ng'])
+        Output.success('espeak-ng installed via apt')
+      } else if (system.hasYum) {
+        await runVisible('sudo', ['yum', 'install', '-y', 'espeak-ng'])
+        Output.success('espeak-ng installed via yum')
+      } else {
+        Output.warn('Unknown package manager — install espeak-ng manually for Spanish voice')
+      }
+    }
+  } catch (error: any) {
+    Output.warn('Could not install espeak-ng — Spanish voice will be unavailable')
+    console.log(chalk.yellow(`  ${error.message}`))
+    console.log(chalk.cyan('  macOS:  brew install espeak-ng'))
+    console.log(chalk.cyan('  Ubuntu: sudo apt-get install espeak-ng'))
   }
 }
 
