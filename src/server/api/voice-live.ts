@@ -6,7 +6,21 @@ import fs from 'fs-extra'
 import path from 'path'
 import { logger } from '../../utils'
 import { transcribeUtterancePcm16 } from './transcribe-live'
-import { synthesizePcm16, getKokoro, listKokoroVoices } from '../../utils/kokoro'
+import {
+  getConversation,
+  saveConversation,
+  makeConversationId,
+  type Conversation,
+  type StoredTurn,
+} from './voice-conversations'
+import {
+  synthesizePcm16,
+  getKokoro,
+  listKokoroVoices,
+  defaultVoiceForLanguage,
+  isSupportedTtsLanguage,
+  VOICES_BY_LANGUAGE,
+} from '../../utils/kokoro'
 import { getWhisperServer } from '../../utils/whisper'
 // pdf-parse is pulled in lazily inside parsePdfBuffer() so the whole
 // voice module doesn't pay for pdfjs at boot when no PDF is ever added.
@@ -215,7 +229,7 @@ interface HistoryEntry {
  * yet — the next user turn prepends a note about it so the model
  * knows there's new material.
  */
-type AttachmentSource = 'project-file' | 'upload' | 'url'
+type AttachmentSource = 'project-file' | 'upload' | 'url' | 'text'
 interface Attachment {
   id: string
   source: AttachmentSource
@@ -224,6 +238,13 @@ interface Attachment {
   chars: number
   addedAt: number
   pendingAnnounce: boolean
+  /** Whether the pending announcement introduces the document or tells
+   *  the model its contents changed under it. */
+  announceKind?: 'new' | 'updated'
+  /** Where the text came from — the URL for `url`, the project-relative
+   *  path for `project-file`. Persisted with saved conversations so the
+   *  viewer can still link out after a resume. */
+  origin?: string
 }
 
 interface VoiceSession {
@@ -276,6 +297,15 @@ interface VoiceSession {
   // the echo tail of the interrupted TTS being picked up by the mic,
   // not a real new user turn.
   lastBargeInAt: number
+  // Id of the saved conversation this session is bound to, if any.
+  // Set when resuming, and on the first save so subsequent saves
+  // update in place instead of spawning duplicates.
+  conversationId: string | null
+  conversationName: string | null
+  // Set when the user flips the language mid-session. The next user
+  // turn carries an explicit switch instruction so the model changes
+  // over without waiting for a re-arm to rebuild the seed.
+  pendingLanguageNote: boolean
   // TTS state: sentence buffer + the FIFO synthesis chain.
   ttsBuffer: string
   ttsCancelToken: { cancelled: boolean }
@@ -492,7 +522,11 @@ function buildDocsContext(attachments: Attachment[]): string {
   const parts: string[] = []
   parts.push(`The user has attached ${attachments.length} document${attachments.length === 1 ? '' : 's'} for us to discuss. When more attachments arrive during the conversation, I'll announce them and you'll see them in the context from then on.`)
   for (const a of attachments) {
-    parts.push(`\n--- ${a.source === 'url' ? 'URL' : a.source === 'upload' ? 'FILE' : 'DOCUMENT'}: ${a.label} (${a.chars} chars) ---\n${a.text}`)
+    const kind = a.source === 'url' ? 'URL'
+      : a.source === 'upload' ? 'FILE'
+      : a.source === 'text' ? 'PASTED TEXT'
+      : 'DOCUMENT'
+    parts.push(`\n--- ${kind}: ${a.label} (${a.chars} chars) ---\n${a.text}`)
   }
   return parts.join('\n')
 }
@@ -698,7 +732,46 @@ const SYSTEM_PROMPT_HEADER =
   `  clarify?** 1. **The three proposed solutions** 2. **The historical\n` +
   `  why** 3. **The implementation roadmap** ..."\n` +
   `\n` +
-  `Here is the document to discuss:\n\n`
+  `\n`
+
+/**
+ * Language directive appended to the system prompt.
+ *
+ * The rules above are written in English on purpose — the model follows
+ * them more reliably that way — but the OUTPUT language is a separate
+ * axis, so it gets stated explicitly and last, where it carries the
+ * most weight. Everything else (no markdown, short turns, café tone)
+ * applies identically whatever the language.
+ */
+function languageDirective(language: string): string {
+  if (language === 'es') {
+    return (
+      `\nIDIOMA — REGLA ABSOLUTA:\n` +
+      `Responde SIEMPRE en español, sin excepción, incluso si el documento\n` +
+      `está en inglés y aunque el usuario mezcle palabras en inglés. Habla\n` +
+      `español natural y conversacional, de tú, como un colega explicando\n` +
+      `algo en un café — no español traducido del inglés. Los términos\n` +
+      `técnicos que no tienen traducción natural (dashboard, deploy, commit)\n` +
+      `déjalos como están; no inventes traducciones forzadas.\n` +
+      `Todas las reglas anteriores sobre no usar markdown, respuestas de dos\n` +
+      `a cuatro frases y tono cercano siguen aplicando igual.\n\n`
+    )
+  }
+  return (
+    `\nLANGUAGE — ABSOLUTE RULE:\n` +
+    `Always reply in English, even if the document is written in another\n` +
+    `language and even if the user mixes in other languages.\n\n`
+  )
+}
+
+/** One-line nudge injected into the next user turn when the language is
+ *  switched mid-conversation, so the change lands immediately instead of
+ *  waiting for the next seed rebuild. */
+function languageSwitchNote(language: string): string {
+  return language === 'es'
+    ? '[El usuario cambió el idioma a ESPAÑOL. Responde en español a partir de ahora.]'
+    : '[The user switched the language to ENGLISH. Reply in English from now on.]'
+}
 
 /**
  * Build the async generator the SDK consumes for one query() call.
@@ -731,11 +804,14 @@ async function* userTurnGenerator(sess: VoiceSession): AsyncGenerator<{
   // Doc-context is always rebuilt from `sess.attachments` so
   // mid-conversation adds are reflected on the next re-arm without
   // extra bookkeeping.
-  let seed = SYSTEM_PROMPT_HEADER + buildDocsContext(sess.attachments)
+  let seed = SYSTEM_PROMPT_HEADER
+    + languageDirective(sess.language)
+    + 'Here is the document to discuss:\n\n'
+    + buildDocsContext(sess.attachments)
   // Mark any pending-announce attachments as delivered — the seed we
   // just built includes them, so we shouldn't also prepend them to the
   // next user turn.
-  for (const a of sess.attachments) a.pendingAnnounce = false
+  for (const a of sess.attachments) { a.pendingAnnounce = false; a.announceKind = undefined }
   if (sess.history.length > 0) {
     seed += '\n\n---\nSo far we have discussed:\n'
     for (const h of sess.history) {
@@ -997,6 +1073,7 @@ async function synthesizeAndStream(
 
     const { pcm, sampleRate, audioMs, synthMs } = await synthesizePcm16(text, {
       voice: sess.voice,
+      language: sess.language,
       outSampleRate: 24000,
     })
     if (token.cancelled || sess.closed) return
@@ -1101,11 +1178,22 @@ async function transcribeAndTurn(sess: VoiceSession): Promise<void> {
         // model can reason about it in the current turn without
         // waiting for the next re-arm's seed. Capped per-attachment
         // to keep the injected note reasonable.
-        return `[New attachment: ${a.label} (${a.chars} chars)]\n${a.text}`
+        const verb = a.announceKind === 'updated'
+          ? 'Updated attachment — this replaces the earlier version'
+          : 'New attachment'
+        return `[${verb}: ${a.label} (${a.chars} chars)]\n${a.text}`
       }).join('\n\n')
       text = `${notes}\n\n---\n${rawText}`
-      for (const a of pendingNow) a.pendingAnnounce = false
+      for (const a of pendingNow) { a.pendingAnnounce = false; a.announceKind = undefined }
       logger.info(`[voice-live ${sess.id}] injected ${pendingNow.length} pending attachment(s) into user turn`)
+    }
+    // Language was flipped since the last turn: the running query()
+    // still carries the old seed, so state the switch inline. Cleared
+    // immediately — one turn is enough for the model to change over,
+    // and the next re-arm bakes it into the seed anyway.
+    if (sess.pendingLanguageNote) {
+      text = `${languageSwitchNote(sess.language)}\n\n${text}`
+      sess.pendingLanguageNote = false
     }
     sendJson(sess.ws, { type: 'transcript-final', text: rawText })
     // NOTE: we do NOT push to history here. The user turn only becomes
@@ -1183,6 +1271,11 @@ function replyAttachmentError(sess: VoiceSession, message: string): void {
   sendJson(sess.ws, { type: 'attachment-error', message })
 }
 
+/** A card gets a sync button only if there's somewhere to sync FROM. */
+function isRefreshable(a: Attachment): boolean {
+  return !!a.origin && (a.source === 'url' || a.source === 'project-file')
+}
+
 function tryAddAttachment(sess: VoiceSession, next: Attachment): boolean {
   const projected = totalAttachmentChars(sess.attachments) + next.chars
   if (projected > MAX_TOTAL_ATTACHMENT_CHARS) {
@@ -1198,6 +1291,7 @@ function tryAddAttachment(sess: VoiceSession, next: Attachment): boolean {
     label: next.label,
     chars: next.chars,
     addedAt: next.addedAt,
+    refreshable: isRefreshable(next),
     totalChars: totalAttachmentChars(sess.attachments),
   })
   logger.info(
@@ -1283,6 +1377,7 @@ async function handleAttachUrl(sess: VoiceSession, msg: Record<string, unknown>)
       id: makeAttachmentId(),
       source: 'url',
       label,
+      origin: url,
       text: clamped,
       chars: clamped.length,
       addedAt: Date.now(),
@@ -1290,6 +1385,217 @@ async function handleAttachUrl(sess: VoiceSession, msg: Record<string, unknown>)
     })
   } catch (err: any) {
     replyAttachmentError(sess, err?.message || 'url fetch failed')
+  }
+}
+
+/**
+ * Switch the conversation language mid-session.
+ *
+ * Three things have to move together or the experience is incoherent:
+ * whisper's decode language, the TTS voice (the English voices cannot
+ * pronounce Spanish and vice versa), and the model's output language.
+ * The first two are just session fields; the third rides along on the
+ * next user turn via `pendingLanguageNote`, because the system seed is
+ * only rebuilt on a re-arm and we don't want to force one here — that
+ * would throw away the in-flight turn.
+ */
+function handleSetLanguage(sess: VoiceSession, msg: Record<string, unknown>): void {
+  const lang = typeof msg.language === 'string' ? msg.language.trim().toLowerCase() : ''
+  if (!isSupportedTtsLanguage(lang)) {
+    sendJson(sess.ws, { type: 'error', message: `unsupported language: ${lang || '(empty)'}` })
+    return
+  }
+  if (lang === sess.language) return
+
+  sess.language = lang
+  sess.voice = defaultVoiceForLanguage(lang)
+  sess.pendingLanguageNote = true
+
+  // Anything already queued was synthesized with the old voice in the
+  // old language; speaking it now would be jarring. Drop it the same
+  // way a barge-in does.
+  sess.ttsCancelToken.cancelled = true
+  sess.ttsCancelToken = { cancelled: false }
+  sess.ttsBuffer = ''
+
+  logger.info(`[voice-live ${sess.id}] language -> ${lang} · voice=${sess.voice}`)
+  sendJson(sess.ws, { type: 'language-changed', language: lang, voice: sess.voice })
+}
+
+/**
+ * Derive a card label from a blob of pasted text.
+ *
+ * The first non-empty line is almost always the useful handle — a
+ * title, a subject line, the opening sentence. Markdown heading marks
+ * and list bullets get stripped because the label is shown as plain
+ * UI text, not rendered.
+ */
+function labelFromText(text: string): string {
+  const firstLine = text
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0) || 'Pasted text'
+  const cleaned = firstLine.replace(/^#{1,6}\s*/, '').replace(/^[-*•]\s*/, '').trim()
+  return cleaned.length > 52 ? cleaned.slice(0, 51).trimEnd() + '…' : cleaned
+}
+
+/**
+ * Parse a `{type:'attach-text', text, label?}` message.
+ *
+ * The paste path exists because plenty of source material never makes
+ * it to a file or a URL — a Slack thread, an email, a chunk of a doc
+ * someone sent over. It's the simplest of the three attach handlers:
+ * the payload is already the extracted text, so there's nothing to
+ * decode or fetch, just budget and clamp it like the others.
+ */
+function handleAttachText(sess: VoiceSession, msg: Record<string, unknown>): void {
+  const raw = typeof msg.text === 'string' ? msg.text : ''
+  const text = clampText(raw.trim())
+  if (!text) { replyAttachmentError(sess, 'attach-text: text required'); return }
+
+  const explicit = typeof msg.label === 'string' ? msg.label.trim() : ''
+  tryAddAttachment(sess, {
+    id: makeAttachmentId(),
+    source: 'text',
+    label: explicit || labelFromText(text),
+    text,
+    chars: text.length,
+    addedAt: Date.now(),
+    pendingAnnounce: true,
+  })
+}
+
+/**
+ * Persist the live session as a named conversation.
+ *
+ * The client supplies the display transcript because it already holds
+ * the clean, caption-by-caption version; the server's `history` is the
+ * model-facing one and can carry injected attachment blobs and language
+ * notes that would look like garbage in a transcript bubble. Both get
+ * stored — history so the resumed session reasons from exactly what it
+ * reasoned from before, transcript so the UI can redraw the thread.
+ */
+async function handleSaveConversation(sess: VoiceSession, msg: Record<string, unknown>): Promise<void> {
+  const rawName = typeof msg.name === 'string' ? msg.name.trim() : ''
+  const name = (rawName || sess.conversationName || 'Untitled conversation').slice(0, 120)
+
+  const transcript: StoredTurn[] = Array.isArray(msg.transcript)
+    ? (msg.transcript as unknown[])
+        .map((t) => t as { role?: unknown; text?: unknown })
+        .filter((t) => (t.role === 'user' || t.role === 'assistant') && typeof t.text === 'string')
+        .map((t) => ({ role: t.role as 'user' | 'assistant', text: (t.text as string).trim() }))
+        .filter((t) => t.text.length > 0)
+    : []
+
+  const now = Date.now()
+  const id = sess.conversationId || makeConversationId()
+  const existing = sess.conversationId ? await getConversation(sess.conversationId) : null
+
+  const conversation: Conversation = {
+    id,
+    name,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    project: sess.projectPath,
+    language: sess.language,
+    voice: sess.voice,
+    history: sess.history.map((h) => ({ role: h.role, content: h.content })),
+    transcript,
+    attachments: sess.attachments.map((a) => ({
+      source: a.source,
+      label: a.label,
+      text: a.text,
+      chars: a.chars,
+      ...(a.origin ? { origin: a.origin } : {}),
+    })),
+  }
+
+  try {
+    await saveConversation(conversation)
+    sess.conversationId = id
+    sess.conversationName = name
+    sendJson(sess.ws, {
+      type: 'conversation-saved',
+      id,
+      name,
+      updatedAt: now,
+      turnCount: transcript.length,
+      attachmentCount: conversation.attachments.length,
+    })
+  } catch (err: any) {
+    logger.error(`[voice-live ${sess.id}] save failed:`, err)
+    sendJson(sess.ws, { type: 'error', message: err?.message || 'could not save conversation' })
+  }
+}
+
+/**
+ * Re-read an attachment from its origin.
+ *
+ * Dashboards, status pages and project files move; the text captured
+ * when the document was attached is a snapshot, and after a while the
+ * agent is confidently discussing a stale version. Refreshing swaps the
+ * text in place, keeping the same attachment id so the card, the viewer
+ * and any saved conversation keep pointing at the same thing.
+ *
+ * Only `url` and `project-file` can be refreshed — they're the ones
+ * with a live origin. An upload's bytes never existed on this side
+ * beyond the extracted text, and pasted text has no source to re-read.
+ */
+async function handleAttachmentRefresh(sess: VoiceSession, msg: Record<string, unknown>): Promise<void> {
+  const id = typeof msg.id === 'string' ? msg.id : ''
+  const att = sess.attachments.find((a) => a.id === id)
+  if (!att) { replyAttachmentError(sess, 'attachment-refresh: unknown attachment'); return }
+  if (!att.origin || (att.source !== 'url' && att.source !== 'project-file')) {
+    replyAttachmentError(sess, `"${att.label}" has no source to reload from`)
+    return
+  }
+
+  try {
+    let text: string
+    let label = att.label
+    if (att.source === 'url') {
+      const loaded = await loadUrlAsText(att.origin)
+      text = clampText(loaded.text)
+      label = loaded.label || label
+    } else {
+      text = clampText(await loadDocContext(sess.projectPath, att.origin))
+    }
+    if (!text) { replyAttachmentError(sess, `"${att.label}" came back empty — keeping the previous version`); return }
+
+    // Budget is checked against the swap, not the sum: the old text is
+    // on its way out, so a document that grew a little must not be
+    // rejected for briefly double-counting.
+    const projected = totalAttachmentChars(sess.attachments) - att.chars + text.length
+    if (projected > MAX_TOTAL_ATTACHMENT_CHARS) {
+      replyAttachmentError(sess,
+        `Refreshed "${att.label}" would exceed the attachment budget ` +
+        `(${projected} / ${MAX_TOTAL_ATTACHMENT_CHARS} chars). Remove another attachment first.`)
+      return
+    }
+
+    const before = att.chars
+    att.text = text
+    att.chars = text.length
+    att.label = label
+    // The running query still holds the old text, so the next user turn
+    // carries the new version with an explicit "this replaces" note.
+    att.pendingAnnounce = true
+    att.announceKind = 'updated'
+
+    sendJson(sess.ws, {
+      type: 'attachment-updated',
+      id: att.id,
+      label: att.label,
+      chars: att.chars,
+      previousChars: before,
+      totalChars: totalAttachmentChars(sess.attachments),
+    })
+    logger.info(
+      `[voice-live ${sess.id}] attachment refreshed · label="${att.label}" · ` +
+      `${before} -> ${att.chars} chars`
+    )
+  } catch (err: any) {
+    replyAttachmentError(sess, err?.message || `could not reload "${att.label}"`)
   }
 }
 
@@ -1328,8 +1634,20 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
       const url = new URL(req.url || '/', 'http://x')
       const projectB64 = url.searchParams.get('project') || ''
       const relPath = url.searchParams.get('path') || ''
-      const language = url.searchParams.get('language') || 'en'
+      const rawLanguage = (url.searchParams.get('language') || 'en').trim().toLowerCase()
+      let language = isSupportedTtsLanguage(rawLanguage) ? rawLanguage : 'en'
       const voice = url.searchParams.get('voice') || ''
+      // Resuming a saved conversation: everything it recorded — history,
+      // attachments, language, voice — becomes the starting state, and
+      // its own values win over the query params, because the point of
+      // resuming is to land back exactly where you left.
+      const conversationId = url.searchParams.get('conversation') || ''
+      const resumed = conversationId ? await getConversation(conversationId) : null
+      if (conversationId && !resumed) {
+        sendJson(ws, { type: 'error', message: `conversation not found: ${conversationId}` })
+        ws.close()
+        return
+      }
       if (!projectB64) {
         sendJson(ws, { type: 'error', message: 'project query param required' })
         ws.close()
@@ -1348,6 +1666,24 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
       //      will send `attach-file` / `attach-url` control messages
       //      to populate the context.
       const initialAttachments: Attachment[] = []
+      if (resumed) {
+        if (isSupportedTtsLanguage(resumed.language)) language = resumed.language
+        for (const a of resumed.attachments) {
+          initialAttachments.push({
+            id: makeAttachmentId(),
+            source: a.source,
+            label: a.label,
+            text: a.text,
+            chars: a.chars,
+            addedAt: Date.now(),
+            // Already in the replayed history — announcing them again
+            // would have the agent introduce documents it has been
+            // discussing for the whole conversation.
+            pendingAnnounce: false,
+            ...(a.origin ? { origin: a.origin } : {}),
+          })
+        }
+      }
       if (relPath) {
         try {
           const docText = clampText(await loadDocContext(projectPath, relPath))
@@ -1355,6 +1691,7 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
             id: makeAttachmentId(),
             source: 'project-file',
             label: relPath,
+            origin: relPath,
             text: docText,
             chars: docText.length,
             addedAt: Date.now(),
@@ -1367,8 +1704,18 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
           throw err
         }
       }
-      const voices = await listKokoroVoices()
-      const chosenVoice = voice && voices.includes(voice) ? voice : voices[0]
+      // Only the English voices live in kokoro-js's table; Spanish ones
+      // come from the multilingual checkpoint, so validate per language
+      // instead of against that one list.
+      let chosenVoice: string
+      if (resumed?.voice) {
+        chosenVoice = resumed.voice
+      } else if (language === 'en') {
+        const voices = await listKokoroVoices()
+        chosenVoice = voice && voices.includes(voice) ? voice : voices[0]
+      } else {
+        chosenVoice = voice || defaultVoiceForLanguage(language)
+      }
 
       sess = {
         id,
@@ -1378,7 +1725,7 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         projectPath,
         attachments: initialAttachments,
         utteranceBuffer: [],
-        history: [],
+        history: resumed ? resumed.history.map((h) => ({ ...h })) : [],
         currentUserText: null,
         currentAssistantText: '',
         nextUserMsgDeferred: null,
@@ -1387,6 +1734,9 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         queuedUserText: null,
         driverRunning: false,
         lastBargeInAt: 0,
+        conversationId: resumed?.id ?? null,
+        conversationName: resumed?.name ?? null,
+        pendingLanguageNote: false,
         ttsBuffer: '',
         ttsCancelToken: { cancelled: false },
         ttsChain: Promise.resolve(),
@@ -1406,13 +1756,20 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
 
       sendJson(ws, {
         type: 'ready',
-        voices,
+        voices: VOICES_BY_LANGUAGE[language] ?? [],
         voice: chosenVoice,
+        language,
+        // Present only on a resume; the client redraws the thread from
+        // `transcript` and remembers `conversation` so later saves
+        // update this record instead of creating a new one.
+        conversation: resumed ? { id: resumed.id, name: resumed.name } : null,
+        transcript: resumed ? resumed.transcript : [],
         // New shape: attachments array with per-item metadata. Kept
         // `docChars` + `docPath` alongside so the existing HTML
         // preview widget (which reads those fields) still works.
-        attachments: initialAttachments.map(({ id: aid, source, label, chars, addedAt }) => ({
-          id: aid, source, label, chars, addedAt,
+        attachments: initialAttachments.map((a) => ({
+          id: a.id, source: a.source, label: a.label, chars: a.chars, addedAt: a.addedAt,
+          refreshable: isRefreshable(a),
         })),
         docChars: totalAttachmentChars(initialAttachments),
         docPath: relPath || null,
@@ -1454,6 +1811,9 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         case 'set-voice':
           if (typeof msg.voice === 'string') sess.voice = msg.voice
           break
+        case 'set-language':
+          handleSetLanguage(sess, msg)
+          break
         case 'ping':
           sendJson(ws, { type: 'pong' })
           break
@@ -1463,8 +1823,17 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         case 'attach-url':
           await handleAttachUrl(sess, msg)
           break
+        case 'attach-text':
+          handleAttachText(sess, msg)
+          break
+        case 'save-conversation':
+          await handleSaveConversation(sess, msg)
+          break
         case 'attachment-remove':
           handleAttachmentRemove(sess, msg)
+          break
+        case 'attachment-refresh':
+          await handleAttachmentRefresh(sess, msg)
           break
       }
     })

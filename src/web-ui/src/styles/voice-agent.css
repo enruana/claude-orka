@@ -1004,3 +1004,349 @@
     width: auto;
   }
 }
+
+/* ============ Language toggle (ES / EN) ============ */
+
+/* Wider than the round icon buttons because it carries the current
+   language as text — an icon alone can't say WHICH language is live. */
+.va-lang-btn {
+  width: auto;
+  min-width: 62px;
+  gap: 5px;
+  padding: 0 12px;
+  border-radius: 999px;
+}
+
+.va-lang-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  line-height: 1;
+}
+
+/* ============ Paste-text modal ============ */
+
+/* Scoped to the agent panel's stacking context rather than the page so
+   it also covers the floating panel when a document viewer is open. */
+.va-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(4, 4, 10, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.va-modal {
+  width: min(620px, 100%);
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  background: rgba(17, 17, 27, 0.92);
+  border: 1px solid rgba(137, 180, 250, 0.25);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px) saturate(130%);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  overflow: hidden;
+}
+
+.va-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(137, 180, 250, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.va-modal-close {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.va-modal-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f38ba8;
+}
+
+.va-modal-textarea {
+  flex: 1;
+  min-height: 200px;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 14px;
+  background: transparent;
+  color: #cdd6f4;
+  font-size: 13px;
+  line-height: 1.55;
+  font-family: inherit;
+}
+.va-modal-textarea::placeholder { color: rgba(255, 255, 255, 0.3); }
+
+.va-modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(137, 180, 250, 0.12);
+  flex-shrink: 0;
+}
+
+.va-modal-count {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+.va-modal-footer .va-url-submit { margin-left: auto; }
+
+/* Pasted-text attachment cards, matching the per-source tinting the
+   upload / url / project-file cards already use. */
+.va-attachment-text {
+  background: rgba(203, 166, 247, 0.08);
+  border-color: rgba(203, 166, 247, 0.2);
+}
+
+@media (max-width: 520px) {
+  .va-modal { max-height: 80vh; }
+  .va-modal-textarea { min-height: 140px; }
+}
+
+/* ============ Conversation picker ============ */
+
+.va-picker {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 28px 18px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+  z-index: 1;
+}
+
+.va-picker-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1.5px dashed rgba(137, 180, 250, 0.4);
+  background: rgba(137, 180, 250, 0.1);
+  color: #cdd6f4;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.va-picker-new:hover {
+  background: rgba(137, 180, 250, 0.18);
+  border-color: rgba(137, 180, 250, 0.6);
+  transform: translateY(-1px);
+}
+
+.va-picker-heading {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+  padding: 4px 2px 0;
+}
+
+.va-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Row = one big open target plus a small destructive affordance. The
+   delete button is a sibling, not nested, because a button inside a
+   button is invalid and swallows the click. */
+.va-picker-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.va-picker-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(137, 180, 250, 0.18);
+  background: rgba(137, 180, 250, 0.07);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #cdd6f4;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.va-picker-open:hover {
+  background: rgba(137, 180, 250, 0.14);
+  border-color: rgba(137, 180, 250, 0.35);
+  transform: translateY(-1px);
+}
+
+.va-picker-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  opacity: 0.6;
+}
+
+.va-picker-info { min-width: 0; flex: 1; }
+
+.va-picker-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.va-picker-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.va-picker-preview {
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.va-picker-delete {
+  flex-shrink: 0;
+  width: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(243, 139, 168, 0.15);
+  background: rgba(243, 139, 168, 0.06);
+  color: rgba(243, 139, 168, 0.7);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.va-picker-delete:hover {
+  background: rgba(243, 139, 168, 0.18);
+  color: #f38ba8;
+}
+
+/* Two-step delete — a saved conversation is not recoverable, so it
+   should cost one more click than a mis-tap. */
+.va-picker-confirm {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.va-picker-confirm-yes {
+  height: 100%;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(243, 139, 168, 0.5);
+  background: rgba(243, 139, 168, 0.22);
+  color: #f38ba8;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.va-picker-confirm-yes:hover { background: rgba(243, 139, 168, 0.34); }
+.va-picker-confirm-no {
+  width: 30px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.va-picker-confirm-no:hover { background: rgba(255, 255, 255, 0.12); }
+
+.va-picker-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Save modal is a single field — it doesn't need the paste modal's height. */
+.va-modal-sm { max-height: none; }
+.va-modal-body { padding: 14px; }
+.va-modal-body .va-url-input { width: 100%; box-sizing: border-box; }
+
+.va-modal-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ============ Attachment sync button ============ */
+
+.va-attachment-sync {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  z-index: 1;
+}
+.va-attachment-sync:hover:not(:disabled) {
+  background: rgba(137, 180, 250, 0.18);
+  color: #89b4fa;
+}
+.va-attachment-sync:disabled { cursor: progress; }
+
+/* Spin while the server re-reads the source. */
+.va-attachment-sync-busy {
+  color: #89b4fa;
+}
+/* Reuses the va-spin keyframe defined with the connecting spinner. */
+.va-attachment-sync-busy svg {
+  animation: va-spin 0.9s linear infinite;
+}

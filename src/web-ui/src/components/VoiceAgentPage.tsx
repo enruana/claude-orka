@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Mic, Paperclip, Link as LinkIcon, X, Loader2,
   AlertTriangle, FileText, Globe, Square, Minus, Maximize2, GripHorizontal, Copy, Check,
+  Languages, ClipboardPaste, Save, Trash2, Plus, MessageSquare, ChevronLeft, RefreshCw,
 } from 'lucide-react'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { ParticleCloud } from './ParticleCloud'
@@ -35,6 +36,11 @@ import '../styles/voice-agent.css'
  *  URL DOES carry `project` + `path`, and those win.  */
 const VIRTUAL_PROJECT = '/'
 
+/** Where the ES/EN choice is remembered between visits. */
+const LANGUAGE_STORAGE_KEY = 'orka.voice.language'
+
+type VoiceLanguage = 'en' | 'es'
+
 // Server sends TTS audio at 24 kHz. Client capture is push-to-talk via
 // ScriptProcessor + AnalyserNode — no VAD library needed.
 
@@ -48,10 +54,13 @@ type AgentState =
 
 interface Attachment {
   id: string
-  source: 'upload' | 'url' | 'project-file'
+  source: 'upload' | 'url' | 'project-file' | 'text'
   label: string
   chars: number
   addedAt: number
+  /** Server-side flag: the attachment has a live origin (URL or project
+   *  file) that can be re-read. Uploads and pasted text don't. */
+  refreshable?: boolean
 }
 
 interface TranscriptTurn {
@@ -117,7 +126,24 @@ function downsampleFloat32ToPcm16(input: Float32Array, srcRate: number, dstRate:
   return out
 }
 
-export function VoiceAgentPage() {
+interface SessionProps {
+  /** Saved conversation to resume, or null for a fresh session. */
+  conversationId: string | null
+  /** Back to the conversation picker. */
+  onExit: () => void
+}
+
+/**
+ * One live voice session.
+ *
+ * Split out from the page so the picker can remount it with a `key`:
+ * opening a different conversation has to tear down the WebSocket, the
+ * mic graph and the playback queue and build them again, and letting
+ * React unmount the whole subtree gets that for free from the cleanup
+ * that already exists — far safer than making the init effect
+ * re-entrant.
+ */
+function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   usePageTitle('Voice Agent')
   // URL params:
   //   ?embedded=1     — hide our own header/back button. Used by the
@@ -141,6 +167,21 @@ export function VoiceAgentPage() {
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([])
   const [urlDraft, setUrlDraft] = useState('')
   const [urlOpen, setUrlOpen] = useState(false)
+  // Paste-text modal. Unlike the URL form (a one-line inline field),
+  // pasted text needs room to see what you're attaching, so it gets a
+  // real modal with a textarea.
+  const [textOpen, setTextOpen] = useState(false)
+  const [textDraft, setTextDraft] = useState('')
+  // Save-conversation modal + the name of the record we're bound to.
+  const [saveOpen, setSaveOpen] = useState(false)
+  const [saveDraft, setSaveDraft] = useState('')
+  const [convName, setConvName] = useState<string | null>(null)
+  const [justSaved, setJustSaved] = useState(false)
+  // Attachment ids currently reloading, and a per-id nonce bumped on
+  // every successful reload so the preview iframe remounts instead of
+  // showing the version it already painted.
+  const [refreshing, setRefreshing] = useState<Set<string>>(new Set())
+  const [refreshNonce, setRefreshNonce] = useState<Record<string, number>>({})
   const [attaching, setAttaching] = useState(false)
   const [totalChars, setTotalChars] = useState(0)
   // `level` is the smoothed RMS 0..1 read from an AnalyserNode on the
@@ -173,6 +214,18 @@ export function VoiceAgentPage() {
   const [minimized, setMinimized] = useState(false)
   const [agentPos, setAgentPos] = useState<{ x: number; y: number } | null>(null)
   const [justCopied, setJustCopied] = useState(false)
+  // Conversation language. Persisted per browser so the widget opens in
+  // whatever the user last spoke, and mirrored into a ref because the
+  // WS init effect runs once and can't see later state.
+  const [language, setLanguage] = useState<VoiceLanguage>(() => {
+    const fromUrl = searchParams.get('language')
+    if (fromUrl === 'es' || fromUrl === 'en') return fromUrl
+    try {
+      const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY)
+      if (saved === 'es' || saved === 'en') return saved
+    } catch { /* private mode / blocked storage */ }
+    return 'en'
+  })
   const dragStateRef = useRef<{
     active: boolean
     pointerId: number
@@ -187,6 +240,13 @@ export function VoiceAgentPage() {
   } | null>(null)
   const floatPanelRef = useRef<HTMLDivElement>(null)
 
+  // The WS init effect runs once; keep the language reachable from it
+  // (and from the send helper) without re-opening the socket.
+  const languageRef = useRef<VoiceLanguage>(language)
+  // Which saved conversation this session writes to. Starts as the one
+  // being resumed (if any) and gets set on the first save, so later
+  // saves update in place instead of piling up copies.
+  const conversationIdRef = useRef<string | null>(conversationId)
   const wsRef = useRef<WebSocket | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const micStreamRef = useRef<MediaStream | null>(null)
@@ -339,7 +399,11 @@ export function VoiceAgentPage() {
         const pathQs = pathParam
           ? `&path=${encodeURIComponent(pathParam)}`
           : ''
+        const convQs = conversationIdRef.current
+          ? `&conversation=${encodeURIComponent(conversationIdRef.current)}`
+          : ''
         const url = `${proto}//${window.location.host}/api/voice/live?project=${projectQs}${pathQs}`
+          + `&language=${encodeURIComponent(languageRef.current)}${convQs}`
         const ws = new WebSocket(url)
         ws.binaryType = 'arraybuffer'
         wsRef.current = ws
@@ -360,7 +424,32 @@ export function VoiceAgentPage() {
                 setAttachments(msg.attachments)
                 setTotalChars(msg.docChars || 0)
               }
+              if (msg.language === 'es' || msg.language === 'en') {
+                languageRef.current = msg.language
+                setLanguage(msg.language)
+              }
+              // Resuming: redraw the thread the user left behind so the
+              // conversation reads as continuous rather than starting
+              // from a blank panel that secretly remembers everything.
+              if (msg.conversation?.id) {
+                conversationIdRef.current = msg.conversation.id
+                setConvName(msg.conversation.name || null)
+              }
+              if (Array.isArray(msg.transcript) && msg.transcript.length > 0) {
+                setTranscript(msg.transcript.map((t: { role: string; text: string }) => ({
+                  id: nextTurnId(),
+                  role: t.role === 'user' ? 'user' : 'assistant',
+                  text: String(t.text || ''),
+                  ts: Date.now(),
+                })))
+              }
               setState('idle')
+              break
+            case 'conversation-saved':
+              conversationIdRef.current = msg.id
+              setConvName(msg.name || null)
+              setJustSaved(true)
+              setTimeout(() => setJustSaved(false), 2200)
               break
             case 'error':
               setError(msg.message || 'server error')
@@ -409,6 +498,14 @@ export function VoiceAgentPage() {
               assistantTurnIdRef.current = null
               setState('idle')
               break
+            case 'language-changed':
+              // Authoritative echo from the server — keeps us honest if
+              // it rejected the switch or picked a different voice.
+              if (msg.language === 'es' || msg.language === 'en') {
+                languageRef.current = msg.language
+                setLanguage(msg.language)
+              }
+              break
             case 'attachment-added': {
               setAttachments((prev) => [
                 ...prev,
@@ -418,6 +515,7 @@ export function VoiceAgentPage() {
                   label: msg.label,
                   chars: msg.chars,
                   addedAt: msg.addedAt,
+                  refreshable: !!msg.refreshable,
                 },
               ])
               setTotalChars(msg.totalChars || 0)
@@ -435,6 +533,7 @@ export function VoiceAgentPage() {
             case 'attachment-error': {
               setError(msg.message || 'attachment failed')
               setAttaching(false)
+              setRefreshing(new Set())
               // Drop the queued preview whose upload just failed —
               // otherwise it'd bind to the NEXT successful attachment.
               const failed = pendingPreviewsRef.current.shift()
@@ -442,6 +541,14 @@ export function VoiceAgentPage() {
               // Auto-clear the error banner after 4s so the UI doesn't
               // permanently look broken over a transient upload issue.
               setTimeout(() => setError(null), 4000)
+              break
+            }
+            case 'attachment-updated': {
+              setAttachments((prev) => prev.map((a) =>
+                a.id === msg.id ? { ...a, label: msg.label ?? a.label, chars: msg.chars ?? a.chars } : a))
+              setTotalChars(msg.totalChars || 0)
+              setRefreshing((prev) => { const n = new Set(prev); n.delete(msg.id); return n })
+              setRefreshNonce((prev) => ({ ...prev, [msg.id]: (prev[msg.id] || 0) + 1 }))
               break
             }
             case 'attachment-removed': {
@@ -676,6 +783,80 @@ export function VoiceAgentPage() {
     setUrlOpen(false)
   }, [urlDraft, sendCtrl])
 
+  /**
+   * Flip ES <-> EN.
+   *
+   * The server owns the actual switch (whisper decode language, TTS
+   * voice, and the model's output language all move together), so this
+   * only sets local state, remembers the choice, and tells it.
+   */
+  const toggleLanguage = useCallback(() => {
+    setLanguage((prev) => {
+      const next: VoiceLanguage = prev === 'en' ? 'es' : 'en'
+      languageRef.current = next
+      try { localStorage.setItem(LANGUAGE_STORAGE_KEY, next) } catch { /* blocked storage */ }
+      sendCtrl({ type: 'set-language', language: next })
+      // Whatever is queued was synthesized in the old language; the
+      // server drops its side, so drop ours too instead of letting the
+      // backlog keep talking in the language we just left.
+      stopPlayback()
+      return next
+    })
+  }, [sendCtrl, stopPlayback])
+
+  /**
+   * Attach a blob of pasted text as its own document.
+   *
+   * The preview is built here from a text/plain Blob, exactly like the
+   * file path does — that keeps the attachment card clickable and lets
+   * the user re-read what they pasted in the viewer. The server assigns
+   * the real id, so this goes on the pending FIFO like the others.
+   */
+  const handleTextSubmit = useCallback(() => {
+    const body = textDraft.trim()
+    if (!body) return
+    setAttaching(true)
+
+    const firstLine = body.split('\n').map((l) => l.trim()).find(Boolean) || 'Pasted text'
+    const label = firstLine.length > 52 ? firstLine.slice(0, 51).trimEnd() + '…' : firstLine
+    const blobUrl = URL.createObjectURL(new Blob([body], { type: 'text/plain' }))
+    pendingPreviewsRef.current.push({ kind: 'blob', src: blobUrl, mime: 'text/plain', label })
+
+    sendCtrl({ type: 'attach-text', text: body, label })
+    setTextDraft('')
+    setTextOpen(false)
+  }, [textDraft, sendCtrl])
+
+  /**
+   * Save (or re-save) the thread under a name.
+   *
+   * The display transcript travels with the request: the server keeps
+   * the model-facing history, which carries injected attachment blobs
+   * and language notes that have no business appearing in a bubble.
+   */
+  const handleSaveSubmit = useCallback(() => {
+    const name = saveDraft.trim()
+    if (!name) return
+    sendCtrl({
+      type: 'save-conversation',
+      name,
+      transcript: transcript.map((t) => ({ role: t.role, text: t.text })),
+    })
+    setSaveOpen(false)
+  }, [saveDraft, transcript, sendCtrl])
+
+  const openSaveModal = useCallback(() => {
+    // Re-saving keeps the existing name in the field so the common case
+    // is just hitting Save again.
+    setSaveDraft(convName || '')
+    setSaveOpen(true)
+  }, [convName])
+
+  const handleRefresh = useCallback((id: string) => {
+    setRefreshing((prev) => new Set(prev).add(id))
+    sendCtrl({ type: 'attachment-refresh', id })
+  }, [sendCtrl])
+
   const handleRemove = useCallback((id: string) => {
     sendCtrl({ type: 'attachment-remove', id })
   }, [sendCtrl])
@@ -891,8 +1072,11 @@ export function VoiceAgentPage() {
           <Link to="/dashboard" className="va-back" aria-label="Back to dashboard">
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="va-title">Voice Agent</h1>
+          <h1 className="va-title">{convName || 'Voice Agent'}</h1>
           <div className="va-header-spacer" />
+          <button className="va-back" onClick={onExit} title="Conversations" aria-label="Back to conversations">
+            <MessageSquare size={18} />
+          </button>
         </header>
       )}
 
@@ -924,12 +1108,25 @@ export function VoiceAgentPage() {
                 disabled={!hasPreview}
               >
                 <div className="va-attachment-icon">
-                  {a.source === 'url' ? <Globe size={16} /> : <FileText size={16} />}
+                  {a.source === 'url' ? <Globe size={16} />
+                    : a.source === 'text' ? <ClipboardPaste size={16} />
+                    : <FileText size={16} />}
                 </div>
                 <div className="va-attachment-info">
                   <div className="va-attachment-name">{a.label}</div>
                   <div className="va-attachment-size">{(a.chars / 1024).toFixed(1)}K</div>
                 </div>
+                {a.refreshable && (
+                  <button
+                    className={`va-attachment-sync${refreshing.has(a.id) ? ' va-attachment-sync-busy' : ''}`}
+                    aria-label={`Reload ${a.label}`}
+                    title="Reload the latest version"
+                    disabled={refreshing.has(a.id)}
+                    onClick={(e) => { e.stopPropagation(); handleRefresh(a.id) }}
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                )}
                 {a.source !== 'project-file' && (
                   <button
                     className="va-attachment-remove"
@@ -955,6 +1152,7 @@ export function VoiceAgentPage() {
           <div className="va-viewer-full">
             <PreviewFrame
               preview={previewMapRef.current.get(viewerId) || null}
+              nonce={refreshNonce[viewerId] || 0}
             />
           </div>
         )}
@@ -1090,6 +1288,34 @@ export function VoiceAgentPage() {
                 </button>
                 {transcript.length > 0 && (
                   <button
+                    className={`va-attach-btn va-attach-btn-icon${justSaved ? ' va-attach-btn-copied' : ''}`}
+                    onClick={openSaveModal}
+                    title={convName ? `Save changes to "${convName}"` : 'Save conversation'}
+                    aria-label="Save conversation"
+                  >
+                    {justSaved ? <Check size={18} /> : <Save size={18} />}
+                  </button>
+                )}
+                <button
+                  className="va-attach-btn va-attach-btn-icon"
+                  onClick={() => setTextOpen(true)}
+                  disabled={attaching}
+                  title="Paste text"
+                  aria-label="Paste text as a document"
+                >
+                  <ClipboardPaste size={18} />
+                </button>
+                <button
+                  className="va-attach-btn va-attach-btn-icon va-lang-btn"
+                  onClick={toggleLanguage}
+                  aria-label={language === 'es' ? 'Cambiar a inglés' : 'Switch to Spanish'}
+                  title={language === 'es' ? 'Hablando español — cambiar a inglés' : 'Speaking English — switch to Spanish'}
+                >
+                  <Languages size={18} />
+                  <span className="va-lang-tag">{language.toUpperCase()}</span>
+                </button>
+                {transcript.length > 0 && (
+                  <button
                     className={`va-attach-btn va-attach-btn-icon${justCopied ? ' va-attach-btn-copied' : ''}`}
                     onClick={copyConversation}
                     aria-label="Copy conversation to clipboard"
@@ -1110,6 +1336,106 @@ export function VoiceAgentPage() {
                   }}
                 />
               </div>
+
+              {saveOpen && (
+                <div className="va-modal-backdrop" onClick={() => setSaveOpen(false)}>
+                  <div
+                    className="va-modal va-modal-sm"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Save conversation"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="va-modal-header">
+                      <Save size={16} />
+                      <span>{convName ? 'Save changes' : 'Save conversation'}</span>
+                      <button className="va-modal-close" onClick={() => setSaveOpen(false)} aria-label="Close">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="va-modal-body">
+                      <input
+                        type="text"
+                        className="va-url-input"
+                        placeholder="Name this conversation…"
+                        value={saveDraft}
+                        onChange={(e) => setSaveDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveSubmit()
+                          if (e.key === 'Escape') setSaveOpen(false)
+                        }}
+                        autoFocus
+                      />
+                      <p className="va-modal-hint">
+                        {transcript.length} turn{transcript.length === 1 ? '' : 's'} and {attachments.length} document
+                        {attachments.length === 1 ? '' : 's'} will be stored, so you can pick
+                        this back up later.
+                      </p>
+                    </div>
+                    <div className="va-modal-footer">
+                      <button
+                        className="va-url-submit"
+                        onClick={handleSaveSubmit}
+                        disabled={!saveDraft.trim()}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {textOpen && (
+                <div
+                  className="va-modal-backdrop"
+                  onClick={() => { setTextOpen(false); setTextDraft('') }}
+                >
+                  <div
+                    className="va-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Paste text as a document"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="va-modal-header">
+                      <ClipboardPaste size={16} />
+                      <span>Paste text</span>
+                      <button
+                        className="va-modal-close"
+                        onClick={() => { setTextOpen(false); setTextDraft('') }}
+                        aria-label="Close"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <textarea
+                      className="va-modal-textarea"
+                      placeholder="Paste anything here — a Slack thread, an email, notes…"
+                      value={textDraft}
+                      onChange={(e) => setTextDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Enter inserts a newline (this is a textarea);
+                        // Cmd/Ctrl+Enter is the submit gesture.
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleTextSubmit()
+                        if (e.key === 'Escape') { setTextOpen(false); setTextDraft('') }
+                      }}
+                      autoFocus
+                    />
+                    <div className="va-modal-footer">
+                      <span className="va-modal-count">
+                        {textDraft.trim().length.toLocaleString()} chars
+                      </span>
+                      <button
+                        className="va-url-submit"
+                        onClick={handleTextSubmit}
+                        disabled={!textDraft.trim() || attaching}
+                      >
+                        Attach
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {urlOpen && (
                 <div className="va-url-form">
@@ -1212,7 +1538,7 @@ function resolveEmbed(raw: string): { src: string; sandbox: string; proxied: boo
     proxied: true,
   }
 }
-function PreviewFrame({ preview }: { preview: Preview | null }) {
+function PreviewFrame({ preview, nonce = 0 }: { preview: Preview | null; nonce?: number }) {
   if (!preview) {
     return (
       <div className="va-preview-empty">
@@ -1240,7 +1566,9 @@ function PreviewFrame({ preview }: { preview: Preview | null }) {
   return (
     <div className="va-preview-url">
       <iframe
-        key={embed.src}
+        // Remount on reload: the src is unchanged, so without a new key
+        // the browser keeps showing the copy it already painted.
+        key={`${embed.src}#${nonce}`}
         src={embed.src}
         title={preview.label}
         className="va-preview-iframe"
@@ -1252,6 +1580,187 @@ function PreviewFrame({ preview }: { preview: Preview | null }) {
         <a href={preview.src} target="_blank" rel="noopener noreferrer">
           Open in new tab ↗
         </a>
+      </div>
+    </div>
+  )
+}
+
+// ---- Conversation picker + page shell -------------------------------
+
+interface ConversationSummary {
+  id: string
+  name: string
+  createdAt: number
+  updatedAt: number
+  project: string
+  language: string
+  turnCount: number
+  attachmentCount: number
+  preview: string
+}
+
+function relativeTime(ts: number): string {
+  const mins = Math.round((Date.now() - ts) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(ts).toLocaleDateString()
+}
+
+/**
+ * Landing screen: pick up where you left off, or start fresh.
+ *
+ * Deliberately NOT shown for the document flow (`?path=`), where the
+ * caller already decided what the conversation is about — a preview
+ * page's mic button should open a mic, not a menu.
+ */
+export function VoiceAgentPage() {
+  const [searchParams] = useSearchParams()
+  const embedded = searchParams.get('embedded') === '1'
+  const pathParam = searchParams.get('path')
+  const conversationParam = searchParams.get('conversation')
+
+  // `null` = show the picker. A started session is identified by
+  // `{ key }`, which doubles as the remount key for VoiceAgentSession.
+  const [session, setSession] = useState<{ key: string; conversationId: string | null } | null>(
+    // A document-scoped or deep-linked entry skips the picker entirely.
+    pathParam || conversationParam
+      ? { key: conversationParam || 'doc', conversationId: conversationParam }
+      : null
+  )
+  const [conversations, setConversations] = useState<ConversationSummary[] | null>(null)
+  const [pickerError, setPickerError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await fetch('/api/voice/conversations')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setConversations(Array.isArray(data.conversations) ? data.conversations : [])
+    } catch (err: any) {
+      setPickerError(err?.message || 'could not load conversations')
+      setConversations([])
+    }
+  }, [])
+
+  useEffect(() => {
+    if (session) return
+    void loadConversations()
+  }, [session, loadConversations])
+
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/voice/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setConversations((prev) => (prev || []).filter((c) => c.id !== id))
+    } catch (err: any) {
+      setPickerError(err?.message || 'could not delete conversation')
+    } finally {
+      setConfirmDelete(null)
+    }
+  }, [])
+
+  if (session) {
+    return (
+      <VoiceAgentSession
+        key={session.key}
+        conversationId={session.conversationId}
+        onExit={() => setSession(null)}
+      />
+    )
+  }
+
+  return (
+    <div className={`voice-agent-page${embedded ? ' voice-agent-page-embedded' : ''}`}>
+      <ParticleCloud state="idle" intensity={0.8} />
+
+      {!embedded && (
+        <header className="va-header">
+          <Link to="/dashboard" className="va-back" aria-label="Back to dashboard">
+            <ArrowLeft size={18} />
+          </Link>
+          <h1 className="va-title">Voice Agent</h1>
+          <div className="va-header-spacer" />
+        </header>
+      )}
+
+      {pickerError && (
+        <div className="va-error-banner">
+          <AlertTriangle size={16} />
+          <span>{pickerError}</span>
+          <button className="va-error-dismiss" onClick={() => setPickerError(null)}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      <div className="va-picker">
+        <button
+          className="va-picker-new"
+          onClick={() => setSession({ key: `new-${Date.now()}`, conversationId: null })}
+        >
+          <Plus size={18} />
+          <span>New conversation</span>
+        </button>
+
+        {conversations === null && <div className="va-picker-empty">Loading…</div>}
+
+        {conversations !== null && conversations.length === 0 && (
+          <div className="va-picker-empty">
+            No saved conversations yet. Start one and hit save when it&apos;s worth keeping.
+          </div>
+        )}
+
+        {conversations !== null && conversations.length > 0 && (
+          <>
+            <div className="va-picker-heading">Saved</div>
+            <div className="va-picker-list">
+              {conversations.map((c) => (
+                <div key={c.id} className="va-picker-row">
+                  <button
+                    className="va-picker-open"
+                    onClick={() => setSession({ key: c.id, conversationId: c.id })}
+                    title={`Resume "${c.name}"`}
+                  >
+                    <MessageSquare size={16} className="va-picker-icon" />
+                    <div className="va-picker-info">
+                      <div className="va-picker-name">{c.name}</div>
+                      <div className="va-picker-meta">
+                        {relativeTime(c.updatedAt)} · {c.turnCount} turn{c.turnCount === 1 ? '' : 's'}
+                        {c.attachmentCount > 0 && ` · ${c.attachmentCount} doc${c.attachmentCount === 1 ? '' : 's'}`}
+                        {' · '}{c.language.toUpperCase()}
+                      </div>
+                      {c.preview && <div className="va-picker-preview">{c.preview}</div>}
+                    </div>
+                  </button>
+                  {confirmDelete === c.id ? (
+                    <div className="va-picker-confirm">
+                      <button className="va-picker-confirm-yes" onClick={() => handleDelete(c.id)}>
+                        Delete
+                      </button>
+                      <button className="va-picker-confirm-no" onClick={() => setConfirmDelete(null)}>
+                        <ChevronLeft size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="va-picker-delete"
+                      onClick={() => setConfirmDelete(c.id)}
+                      aria-label={`Delete ${c.name}`}
+                      title="Delete"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
