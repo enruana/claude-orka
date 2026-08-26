@@ -4,7 +4,7 @@ import os from 'os'
 import execa from 'execa'
 import { logger, TmuxCommands } from '../../utils'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
-import { StateManager } from '../../core/StateManager'
+import { StateManager, getOrkaVersion } from '../../core/StateManager'
 import { BoardManager } from '../../core/BoardManager'
 import { getAgentManager } from '../../agent/AgentManager'
 import {
@@ -146,7 +146,18 @@ export interface SystemMetrics {
   hostname: string
   platform: NodeJS.Platform
   arch: string
+  /** Host uptime — how long the MACHINE has been up. */
   uptimeSeconds: number
+  /** Orka version from package.json, e.g. "0.16.0". */
+  version: string
+  /**
+   * When this server PROCESS started (ISO). Distinct from
+   * `uptimeSeconds`, and the more useful of the two while developing:
+   * after a rebuild, this is what tells you whether the code answering
+   * you is the code you just built, or a server still running from
+   * before. The version alone can't say — it only moves on `npm version`.
+   */
+  serverStartedAt: string
   cpu: CpuInfo
   memory: MemoryInfo
   disks: DiskEntry[]
@@ -550,10 +561,13 @@ systemRouter.get('/details', async (req, res) => {
 
 systemRouter.get('/metrics', async (_req, res) => {
   try {
-    const [usagePercent, memDetail, disks] = await Promise.all([
+    const [usagePercent, memDetail, disks, version] = await Promise.all([
       readCpuUsagePercent(),
       readMemoryDetail(),
       readDisks(),
+      // Cached after the first read inside getOrkaVersion(), so this
+      // costs nothing on the 3s poll.
+      getOrkaVersion(),
     ])
 
     const cpus = os.cpus()
@@ -582,6 +596,10 @@ systemRouter.get('/metrics', async (_req, res) => {
       platform: os.platform(),
       arch: os.arch(),
       uptimeSeconds: os.uptime(),
+      version,
+      // Derived rather than stamped at import: correct no matter when
+      // this module was first loaded.
+      serverStartedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
       cpu: {
         usagePercent,
         cores: cpus.length,

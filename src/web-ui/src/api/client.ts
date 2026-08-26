@@ -269,6 +269,8 @@ export interface SystemMetrics {
   platform: string
   arch: string
   uptimeSeconds: number
+  version: string
+  serverStartedAt: string
   cpu: {
     usagePercent: number
     cores: number

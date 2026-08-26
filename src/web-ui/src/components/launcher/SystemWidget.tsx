@@ -3,6 +3,7 @@ import { Cpu, MemoryStick, HardDrive, Settings2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api, SystemMetrics } from '../../api/client'
 import { SystemDetailsModal } from './SystemDetailsModal'
+import { OsLogo, osKindFromPlatform, osLabel } from './OsLogo'
 
 /**
  * iOS-style system widget for the launcher home screen.
@@ -44,6 +45,24 @@ function formatUptime(seconds: number): string {
   if (days > 0) return `${days}d ${hours}h`
   if (hours > 0) return `${hours}h ${minutes}m`
   return `${minutes}m`
+}
+
+/**
+ * How long ago the server process started, phrased for a tooltip.
+ *
+ * This is the number that answers "is the server running my rebuild?" —
+ * the version string can't, since it only moves on `npm version`.
+ */
+function formatStartedAgo(iso: string): string {
+  const started = new Date(iso).getTime()
+  if (!Number.isFinite(started)) return 'unknown'
+  const secs = Math.max(0, Math.floor((Date.now() - started) / 1000))
+  if (secs < 60) return `${secs}s ago`
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ${mins % 60}m ago`
+  return `${Math.floor(hours / 24)}d ${hours % 24}h ago`
 }
 
 /** Warm accent when a metric is above 80% — mirrors the folder waiting
@@ -156,6 +175,9 @@ export function SystemWidget() {
   // Users with unusual mount layouts see whatever the server sorted first.
   const primaryDisk = metrics.disks.find((d) => d.mount === '/') || metrics.disks[0]
 
+  const osKind = osKindFromPlatform(metrics.platform)
+  const osName = osLabel(osKind, metrics.platform)
+
   const cpuColor = usageColor(metrics.cpu.usagePercent)
   const memColor = usageColor(metrics.memory.usedPercent)
   const diskColor = primaryDisk ? usageColor(primaryDisk.usedPercent) : '#a6e3a1'
@@ -164,6 +186,27 @@ export function SystemWidget() {
     <div className="system-widget" role="group" aria-label="System status">
       <div className="system-widget-header">
         <span className="system-widget-title">System</span>
+
+        <span
+          className="system-widget-os"
+          title={`${osName} · ${metrics.platform}/${metrics.arch}`}
+        >
+          <OsLogo kind={osKind} size={13} idSuffix="widget" />
+          {osName}
+        </span>
+
+        <span
+          className="system-widget-version"
+          title={
+            `Orka v${metrics.version}\n` +
+            `Server started ${formatStartedAgo(metrics.serverStartedAt)} ` +
+            `(${new Date(metrics.serverStartedAt).toLocaleString()})\n` +
+            `Rebuilt but unchanged here? The server is still running the old code — restart it.`
+          }
+        >
+          v{metrics.version}
+        </span>
+
         <span className="system-widget-host" title={`${metrics.hostname} · ${metrics.platform}/${metrics.arch} · up ${formatUptime(metrics.uptimeSeconds)}`}>
           {metrics.hostname} · up {formatUptime(metrics.uptimeSeconds)}
         </span>

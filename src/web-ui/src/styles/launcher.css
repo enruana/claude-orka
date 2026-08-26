@@ -249,6 +249,41 @@
   color: rgba(255, 255, 255, 0.65);
 }
 
+/* OS + version pills.
+   Both sit between the title and the host line, which is why the host
+   line loses its `flex: 1` below — with three flexible children the
+   hostname would swallow the row and push the pills off the edge. */
+.system-widget-os,
+.system-widget-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.system-widget-os {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Tinted rather than neutral: this is the one field you go looking for
+   when checking whether a rebuild landed, so it should catch the eye. */
+.system-widget-version {
+  background: rgba(137, 180, 250, 0.14);
+  border: 1px solid rgba(137, 180, 250, 0.28);
+  color: rgba(199, 222, 255, 0.92);
+  font-variant-numeric: tabular-nums;
+}
+
 .system-widget-host {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.45);
@@ -256,7 +291,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 50%;
-  flex: 1;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
 }
 
 .system-widget-open-status {
