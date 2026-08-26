@@ -260,6 +260,9 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([])
   const playbackTailRef = useRef<number>(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
+  // False until the thread has been scrolled into place once. Guards the
+  // one case where jumping to the bottom is unconditionally right.
+  const didInitialScrollRef = useRef(false)
   // Preview sources per attachment id. `blob` sources own a Blob URL
   // that must be revoked on removal or unmount. `pending` is a FIFO
   // of previews we've built client-side while waiting for the
@@ -327,9 +330,32 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   // useLayoutEffect avoids a visible jump — we scroll before paint.
   // The user can still scroll up manually; new messages only steal
   // focus if we're already near the bottom.
+  //
+  // The near-bottom guard has to be skipped for the FIRST paint of a
+  // thread. A resumed conversation renders its whole history at once
+  // with scrollTop at 0, which is nowhere near the bottom, so the guard
+  // would refuse the initial scroll — and then keep refusing every
+  // later one, since we never got to the bottom to begin with. The
+  // thread would sit pinned to its oldest message forever.
   useLayoutEffect(() => {
     const el = transcriptRef.current
-    if (!el) return
+    if (!el || transcript.length === 0) return
+
+    if (!didInitialScrollRef.current) {
+      didInitialScrollRef.current = true
+      // Instant, not smooth: the CSS sets scroll-behavior: smooth, and
+      // animating a jump the user never asked for just looks like the
+      // page is loading twice.
+      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
+      // Bubbles can still reflow after this pass (wrapping, fonts), so
+      // settle once more on the next frame.
+      requestAnimationFrame(() => {
+        const e = transcriptRef.current
+        if (e) e.scrollTo({ top: e.scrollHeight, behavior: 'auto' })
+      })
+      return
+    }
+
     // "Near bottom" tolerance — 120 px covers a full new bubble.
     const nearBottom = el.scrollHeight - (el.scrollTop + el.clientHeight) < 120
     if (nearBottom) {
