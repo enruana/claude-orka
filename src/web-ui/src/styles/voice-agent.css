@@ -128,8 +128,8 @@
 .va-attachment-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px;
+  gap: 6px;
+  padding: 8px 10px;
   border-radius: 12px;
   background: rgba(137, 180, 250, 0.08);
   border: 1px solid rgba(137, 180, 250, 0.2);
@@ -151,16 +151,28 @@
   pointer-events: none;
 }
 
-.va-attachment-card:hover:not(:disabled) {
+/* The open action fills the card; sync / remove sit beside it. */
+.va-attachment-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.va-attachment-card:hover {
   background: rgba(137, 180, 250, 0.15);
   border-color: rgba(137, 180, 250, 0.35);
   transform: translateY(-2px);
   box-shadow: 0 8px 16px rgba(137, 180, 250, 0.2);
-}
-
-.va-attachment-card:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .va-attachment-active {

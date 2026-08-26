@@ -1292,6 +1292,7 @@ function tryAddAttachment(sess: VoiceSession, next: Attachment): boolean {
     chars: next.chars,
     addedAt: next.addedAt,
     refreshable: isRefreshable(next),
+    ...(next.origin ? { origin: next.origin } : {}),
     totalChars: totalAttachmentChars(sess.attachments),
   })
   logger.info(
@@ -1599,6 +1600,28 @@ async function handleAttachmentRefresh(sess: VoiceSession, msg: Record<string, u
   }
 }
 
+/**
+ * Hand back an attachment's extracted text.
+ *
+ * Previews are normally built in the browser at attach time, from the
+ * File or URL the user just supplied. A RESUMED conversation has no
+ * such thing — the browser never saw those documents — so without this
+ * the restored cards had nothing to show. The server is the only side
+ * that still holds the text, so it serves it on demand and the client
+ * turns it into a blob preview.
+ */
+function handleAttachmentContent(sess: VoiceSession, msg: Record<string, unknown>): void {
+  const id = typeof msg.id === 'string' ? msg.id : ''
+  const att = sess.attachments.find((a) => a.id === id)
+  if (!att) { replyAttachmentError(sess, 'attachment-content: unknown attachment'); return }
+  sendJson(sess.ws, {
+    type: 'attachment-content',
+    id: att.id,
+    label: att.label,
+    text: att.text,
+  })
+}
+
 function handleAttachmentRemove(sess: VoiceSession, msg: Record<string, unknown>): void {
   const id = typeof msg.id === 'string' ? msg.id : ''
   const idx = sess.attachments.findIndex((a) => a.id === id)
@@ -1770,6 +1793,7 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         attachments: initialAttachments.map((a) => ({
           id: a.id, source: a.source, label: a.label, chars: a.chars, addedAt: a.addedAt,
           refreshable: isRefreshable(a),
+          ...(a.origin ? { origin: a.origin } : {}),
         })),
         docChars: totalAttachmentChars(initialAttachments),
         docPath: relPath || null,
@@ -1834,6 +1858,20 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
           break
         case 'attachment-refresh':
           await handleAttachmentRefresh(sess, msg)
+          break
+        case 'attachment-content':
+          handleAttachmentContent(sess, msg)
+          break
+        default:
+          // Silence here is how a version skew becomes an unexplained
+          // dead control: the browser reloads its bundle from disk on
+          // every request, but the server only picks up new handlers
+          // when the process restarts. Say so instead of dropping it.
+          logger.warn(`[voice-live ${sess.id}] unknown control message: ${String(msg.type)}`)
+          sendJson(sess.ws, {
+            type: 'error',
+            message: `This server doesn't understand "${String(msg.type)}" — it's running an older build than the page. Restart orka.`,
+          })
           break
       }
     })

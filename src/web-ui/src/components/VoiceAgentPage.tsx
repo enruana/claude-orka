@@ -61,6 +61,9 @@ interface Attachment {
   /** Server-side flag: the attachment has a live origin (URL or project
    *  file) that can be re-read. Uploads and pasted text don't. */
   refreshable?: boolean
+  /** The URL or project-relative path the text came from, when there
+   *  was one. Lets a resumed session rebuild the preview. */
+  origin?: string
 }
 
 interface TranscriptTurn {
@@ -267,6 +270,9 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   type Preview = { kind: 'blob' | 'url'; src: string; mime?: string; label: string }
   const previewMapRef = useRef<Map<string, Preview>>(new Map())
   const pendingPreviewsRef = useRef<Preview[]>([])
+  // Attachment ids whose stored text we've asked the server for, so the
+  // reply knows it was requested rather than arriving unsolicited.
+  const pendingContentRef = useRef<Set<string>>(new Set())
   const currentAssistantRef = useRef<string>('')
   // Id of the assistant bubble currently being appended to. Set when a
   // new agent turn starts (first `assistant-text` after a user turn),
@@ -423,6 +429,14 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
               if (Array.isArray(msg.attachments)) {
                 setAttachments(msg.attachments)
                 setTotalChars(msg.docChars || 0)
+                // Restored URL documents can be previewed without a
+                // round-trip — the origin is all the iframe needs.
+                for (const a of msg.attachments as Attachment[]) {
+                  if (a.source === 'url' && a.origin && !previewMapRef.current.has(a.id)) {
+                    previewMapRef.current.set(a.id, { kind: 'url', src: a.origin, label: a.label })
+                  }
+                }
+                setPreviewVersion((v) => v + 1)
               }
               if (msg.language === 'es' || msg.language === 'en') {
                 languageRef.current = msg.language
@@ -543,12 +557,36 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
               setTimeout(() => setError(null), 4000)
               break
             }
+            case 'attachment-content': {
+              if (!pendingContentRef.current.has(msg.id)) break
+              pendingContentRef.current.delete(msg.id)
+              const blobUrl = URL.createObjectURL(
+                new Blob([String(msg.text || '')], { type: 'text/plain' })
+              )
+              previewMapRef.current.set(msg.id, {
+                kind: 'blob', src: blobUrl, mime: 'text/plain', label: msg.label || 'Document',
+              })
+              setPreviewVersion((v) => v + 1)
+              break
+            }
             case 'attachment-updated': {
               setAttachments((prev) => prev.map((a) =>
                 a.id === msg.id ? { ...a, label: msg.label ?? a.label, chars: msg.chars ?? a.chars } : a))
               setTotalChars(msg.totalChars || 0)
               setRefreshing((prev) => { const n = new Set(prev); n.delete(msg.id); return n })
               setRefreshNonce((prev) => ({ ...prev, [msg.id]: (prev[msg.id] || 0) + 1 }))
+              // A stored-text preview is now out of date. Drop it so the
+              // next open pulls the refreshed text; URL previews point at
+              // the live page and are handled by the nonce remount.
+              const stale = previewMapRef.current.get(msg.id)
+              if (stale?.kind === 'blob') {
+                URL.revokeObjectURL(stale.src)
+                previewMapRef.current.delete(msg.id)
+                if (viewerIdRef.current === msg.id) {
+                  pendingContentRef.current.add(msg.id)
+                  wsRef.current?.send(JSON.stringify({ type: 'attachment-content', id: msg.id }))
+                }
+              }
               break
             }
             case 'attachment-removed': {
@@ -852,6 +890,43 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
     setSaveOpen(true)
   }, [convName])
 
+  /**
+   * Open an attachment in the viewer, building its preview if needed.
+   *
+   * Freshly attached documents already have one — the browser held the
+   * File or the URL. A RESUMED conversation doesn't: those documents
+   * were attached in a previous session this browser never saw. URLs
+   * rebuild from their origin; everything else asks the server for the
+   * stored text and renders that, which is also the honest thing to
+   * show, since the stored text is exactly what the agent is reading.
+   */
+  const openAttachment = useCallback((a: Attachment, isActive: boolean) => {
+    if (isActive) { setViewerId(null); return }
+
+    if (!previewMapRef.current.has(a.id)) {
+      if (a.source === 'url' && a.origin) {
+        previewMapRef.current.set(a.id, { kind: 'url', src: a.origin, label: a.label })
+        setPreviewVersion((v) => v + 1)
+      } else {
+        // Round-trips through the server; the viewer opens as soon as
+        // `attachment-content` lands.
+        pendingContentRef.current.add(a.id)
+        sendCtrl({ type: 'attachment-content', id: a.id })
+        setViewerId(a.id)
+        // Don't leave the viewer sitting on "no preview" forever if the
+        // reply never comes — say what's actually wrong.
+        window.setTimeout(() => {
+          if (!pendingContentRef.current.has(a.id)) return
+          pendingContentRef.current.delete(a.id)
+          setError(`Could not load "${a.label}" for preview — the server may be running an older build. Restart orka.`)
+          setTimeout(() => setError(null), 6000)
+        }, 8000)
+        return
+      }
+    }
+    setViewerId(a.id)
+  }, [sendCtrl])
+
   const handleRefresh = useCallback((id: string) => {
     setRefreshing((prev) => new Set(prev).add(id))
     sendCtrl({ type: 'attachment-refresh', id })
@@ -1096,26 +1171,35 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
         {/* Attachments stack on the right side */}
         <div className="va-attachments-stack">
           {attachments.map((a) => {
-            const hasPreview = previewMapRef.current.has(a.id)
             const isActive = viewerId === a.id
             return (
-              <button
-                type="button"
+              // The card used to be one <button> wrapping the sync and
+              // remove buttons. Besides being invalid nesting, whenever
+              // the card was disabled (no preview yet) the browser
+              // suppressed pointer events for the WHOLE subtree, so the
+              // actions inside went dead with it — exactly what happened
+              // to every restored attachment after resuming. The open
+              // action is now its own button and the others are siblings.
+              <div
                 key={a.id}
-                className={`va-attachment-card va-attachment-${a.source}${isActive ? ' va-attachment-active' : ''}${hasPreview ? ' va-attachment-clickable' : ''}`}
-                title={hasPreview ? `Open ${a.label} in viewer · ${a.chars} chars` : `${a.chars} chars (no preview available)`}
-                onClick={() => { if (hasPreview) setViewerId(isActive ? null : a.id) }}
-                disabled={!hasPreview}
+                className={`va-attachment-card va-attachment-${a.source}${isActive ? ' va-attachment-active' : ''}`}
               >
-                <div className="va-attachment-icon">
-                  {a.source === 'url' ? <Globe size={16} />
-                    : a.source === 'text' ? <ClipboardPaste size={16} />
-                    : <FileText size={16} />}
-                </div>
-                <div className="va-attachment-info">
-                  <div className="va-attachment-name">{a.label}</div>
-                  <div className="va-attachment-size">{(a.chars / 1024).toFixed(1)}K</div>
-                </div>
+                <button
+                  type="button"
+                  className="va-attachment-open"
+                  title={`Open ${a.label} in viewer · ${a.chars} chars`}
+                  onClick={() => openAttachment(a, isActive)}
+                >
+                  <div className="va-attachment-icon">
+                    {a.source === 'url' ? <Globe size={16} />
+                      : a.source === 'text' ? <ClipboardPaste size={16} />
+                      : <FileText size={16} />}
+                  </div>
+                  <div className="va-attachment-info">
+                    <div className="va-attachment-name">{a.label}</div>
+                    <div className="va-attachment-size">{(a.chars / 1024).toFixed(1)}K</div>
+                  </div>
+                </button>
                 {a.refreshable && (
                   <button
                     className={`va-attachment-sync${refreshing.has(a.id) ? ' va-attachment-sync-busy' : ''}`}
@@ -1136,7 +1220,7 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                     <X size={14} />
                   </button>
                 )}
-              </button>
+              </div>
             )
           })}
           {attachments.length === 0 && (
