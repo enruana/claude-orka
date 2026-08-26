@@ -148,7 +148,7 @@ export interface SystemMetrics {
   arch: string
   /** Host uptime — how long the MACHINE has been up. */
   uptimeSeconds: number
-  /** Orka version from package.json, e.g. "0.16.0". */
+  /** Orka version, read from package.json at runtime. */
   version: string
   /**
    * When this server PROCESS started (ISO). Distinct from
