@@ -22,6 +22,7 @@ import { kbCommand } from './commands/kb'
 import { boardCommand } from './commands/board'
 import { sslCommand } from './commands/ssl'
 import { commentCommand } from './commands/comment'
+import { updateCommand } from './commands/update'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -65,6 +66,7 @@ kbCommand(program)
 boardCommand(program)
 sslCommand(program)
 commentCommand(program)
+updateCommand(program)
 
 // Parse arguments
 program.parseAsync().then(() => {
@@ -78,6 +80,12 @@ program.parseAsync().then(() => {
   const command = process.argv[2]
   const isForegroundStart = command === 'start' && process.argv.includes('--foreground')
   if (!isForegroundStart && command !== 'logs') {
-    process.exit(0)
+    // Honor whatever the command set. This used to be a hardcoded
+    // `process.exit(0)`, which silently discarded every failure reported
+    // via `process.exitCode` — a failed `orka build`, a `restart --build`
+    // whose build broke, a failed `orka update` — all of them told the
+    // shell they had succeeded. Commands that exit through handleError()
+    // were unaffected; it calls process.exit(1) directly.
+    process.exit(process.exitCode ?? 0)
   }
 })
