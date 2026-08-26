@@ -14,6 +14,7 @@ import { gitRouter } from './api/git'
 import { transcribeRouter } from './api/transcribe'
 import { attachLiveTranscribeWS } from './api/transcribe-live'
 import { attachVoiceLiveWS, voiceRouter } from './api/voice-live'
+import { voiceConversationsRouter } from './api/voice-conversations'
 import { agentsRouter } from './api/agents'
 import { aiRouter } from './api/ai'
 import { kbRouter } from './api/kb'
@@ -88,6 +89,7 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/kb', kbRouter)
   app.use('/api/system', systemRouter)
   app.use('/api/board', boardRouter)
+  app.use('/api/voice/conversations', voiceConversationsRouter)
   app.use('/api/voice', voiceRouter)
 
   // Health check
