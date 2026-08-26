@@ -59,8 +59,15 @@ orka doctor
 | `orka git-account` | `git-account.ts` | Interactive SSH key selector in ssh-agent |
 | `orka aws-account` | `aws-account.ts` | AWS profile switcher + optional shell integration |
 | `orka kb …` | `kb.ts` | Knowledge Base (init, add, update, link, show, list, lint, upgrade, classify, …) |
+| `orka board …` | `board.ts` | Jira-mirrored boards (create, tasks, sync, standup, …) |
+| `orka ssl …` | `ssl.ts` | status, renew, remove (Tailscale-issued certs) |
+| `orka comment …` | `comment.ts` | Review comments: list, show, add, edit, resolve, delete, clear, prompt |
+| `orka update` | `update.ts` | Pull + install + build + prepare + restart (linked-source installs) |
+| `orka restart` / `build` | `restart.ts` | Restart the server; rebuild from source |
+| `orka stop` / `logs` | `stop.ts` / `logs.ts` | Stop the daemon; tail its log |
 
-Full CLI reference with flags and examples: [docs/cli-reference.md](docs/cli-reference.md).
+Full CLI reference with flags and examples: [docs/cli-reference.md](docs/cli-reference.md)
+(that file predates `board`, `ssl`, `comment`, and `update` — the table above is current).
 
 ### SDK / Core — `src/core/`
 

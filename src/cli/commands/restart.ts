@@ -14,11 +14,12 @@ import {
 
 /**
  * Locate the Orka repo root when Orka is running as a linked source
- * install (`npm link`). Only returns a path if the parent of `dist/`
+ * install (`npm link`). Shared with `orka update`, which needs the same
+ * answer before it can pull or build. Only returns a path if the parent of `dist/`
  * has a package.json declaring `@enruana/claude-orka` — otherwise this is
  * a real global install and rebuilding from source doesn't make sense.
  */
-function findRepoRoot(): string | null {
+export function findRepoRoot(): string | null {
   try {
     const __filename = fileURLToPath(import.meta.url)
     // Walk up from the current file toward a package.json we own.
