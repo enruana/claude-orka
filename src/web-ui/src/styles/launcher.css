@@ -199,6 +199,11 @@
 
 /* Frosted-glass card matching folder icons */
 .system-widget {
+  /* A grid item defaults to `min-width: auto`, i.e. it refuses to shrink
+     below its content's min-content width. The header is a row of
+     nowrap pills, so without this the widget sizes itself to that row
+     and punches straight through the phone's screen edge. */
+  min-width: 0;
   background: rgba(255, 255, 255, 0.09);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 22px;
@@ -239,6 +244,12 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+  /* Wrap instead of forcing the card wider than the screen. The host
+     line is the piece that drops to a second row (see the mobile block
+     below) — it's the least load-bearing, and it's in the tooltip too. */
+  flex-wrap: wrap;
+  row-gap: 4px;
+  min-width: 0;
 }
 
 .system-widget-title {
@@ -321,6 +332,18 @@
 
 @media (max-width: 520px) {
   .system-widget-tiles { grid-template-columns: 1fr; gap: 8px; }
+
+  /* Two rows: [SYSTEM] [os] [version] … [gear] / [hostname].
+     `order` does the splitting rather than extra markup — the gear is
+     pulled ahead of the host so it stays on the first row's right edge,
+     and the host claims a full row of its own. */
+  .system-widget-open-status { order: 2; margin-left: auto; }
+  .system-widget-host {
+    order: 3;
+    flex-basis: 100%;
+    max-width: 100%;
+    margin-left: 0;
+  }
 }
 
 .system-widget-tile {
@@ -390,6 +413,15 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+/* Full-width row of its own: the chart scales to the tile instead of
+   competing with the label for a fixed 60px. */
+.system-widget-spark {
+  display: block;
+  width: 100%;
+  height: 18px;
+  overflow: visible;
 }
 
 .system-widget-tile-detail {

@@ -75,9 +75,16 @@ function usageColor(pct: number): string {
 
 function Sparkline({ values, color }: { values: number[]; color: string }) {
   if (values.length < 2) {
-    return <svg width={SPARKLINE_WIDTH} height={SPARKLINE_HEIGHT} aria-hidden="true" />
+    return <svg className="system-widget-spark" viewBox={`0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}`} preserveAspectRatio="none" aria-hidden="true" />
   }
-  const step = SPARKLINE_WIDTH / (HISTORY_LEN - 1)
+  // Spread the samples we actually HAVE across the full width, rather
+  // than reserving a slot per possible sample. Dividing by HISTORY_LEN
+  // meant that until 32 samples had accumulated — 96 seconds at a 3s
+  // poll — the line drew in the leftmost sliver of a 60px box and read
+  // as a stray speck next to the label. The trade is that the time axis
+  // compresses as history fills, which is invisible next to a chart that
+  // looks broken for the first minute and a half.
+  const step = SPARKLINE_WIDTH / Math.max(1, values.length - 1)
   const points = values.map((v, i) => {
     const x = i * step
     // Invert Y so higher usage = higher on-chart. Reserve 1px of top
@@ -87,7 +94,14 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   }).join(' ')
 
   return (
-    <svg width={SPARKLINE_WIDTH} height={SPARKLINE_HEIGHT} className="system-widget-spark" aria-hidden="true">
+    // Stretched to whatever width the row gives it. The x axis is time,
+    // so scaling it horizontally costs nothing in readability.
+    <svg
+      className="system-widget-spark"
+      viewBox={`0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
       <polyline
         fill="none"
         stroke={color}
@@ -236,12 +250,18 @@ export function SystemWidget() {
             </span>
           </div>
           <Bar percent={metrics.cpu.usagePercent} color={cpuColor} />
+          {/* Sparkline on its own row rather than beside the text. In the
+              3-column desktop layout a tile is only ~142px wide, so a
+              fixed 60px chart next to the label left ~54px for it and the
+              text ellipsized to "18c · lo…". Stacked, both get the full
+              tile width, and every tile's sub-line keeps a shared left
+              edge. */}
           <div className="system-widget-tile-sub">
-            <Sparkline values={cpuHistoryRef.current} color={cpuColor} />
             <span className="system-widget-tile-detail" title={metrics.cpu.model}>
               {metrics.cpu.cores}c · load {metrics.cpu.loadAvg[0].toFixed(2)}
             </span>
           </div>
+          <Sparkline values={cpuHistoryRef.current} color={cpuColor} />
         </button>
 
         <button
