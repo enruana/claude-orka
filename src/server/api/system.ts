@@ -74,7 +74,7 @@ interface DiskEntry {
 }
 
 /**
- * Parse `df -PBK` output into per-mount records. Uses POSIX mode (`-P`)
+ * Parse `df -Pk` output into per-mount records. Uses POSIX mode (`-P`)
  * so each entry is guaranteed to fit one line even for long filesystem
  * names, and 1KB blocks so numbers stay small and multiplied cheaply.
  *
@@ -86,7 +86,12 @@ interface DiskEntry {
  */
 async function readDisks(): Promise<DiskEntry[]> {
   try {
-    const { stdout } = await execa('df', ['-PBK'], { timeout: 3000 })
+    // `-Pk` and not `-PBK`: `-B` is a GNU extension that macOS's df
+    // rejects outright ("df: invalid option -- B"), so the whole call
+    // failed there and the disk list came back empty — the launcher's
+    // Disk tile simply never rendered on a Mac. `-Pk` is POSIX (1024-byte
+    // blocks) and behaves identically on both.
+    const { stdout } = await execa('df', ['-Pk'], { timeout: 3000 })
     const lines = stdout.trim().split('\n').slice(1) // drop header
     const disks: DiskEntry[] = []
     for (const line of lines) {
@@ -94,24 +99,38 @@ async function readDisks(): Promise<DiskEntry[]> {
       if (parts.length < 6) continue
       const filesystem = parts[0]
       const total = parseInt(parts[1].replace(/K$/, ''), 10) * 1024
-      const used = parseInt(parts[2].replace(/K$/, ''), 10) * 1024
       const free = parseInt(parts[3].replace(/K$/, ''), 10) * 1024
       const mount = parts[parts.length - 1]
 
       if (!Number.isFinite(total) || total <= 0) continue
 
       // Skip pseudo-filesystems and clutter mounts.
-      if (/^(tmpfs|devtmpfs|overlay|squashfs|efivarfs|proc|sysfs|cgroup)/.test(filesystem)) continue
+      if (/^(tmpfs|devtmpfs|overlay|squashfs|efivarfs|proc|sysfs|cgroup|devfs|map\b)/.test(filesystem)) continue
       if (/^\/snap\//.test(mount)) continue
       if (mount === '/boot/efi' || mount === '/boot') continue
+      // macOS APFS splits one physical container across a dozen synthetic
+      // volumes (Preboot, VM, Update, xarts, Data…). They all report the
+      // same container size, so listing them would show the same disk a
+      // dozen times over. `/` alone represents the container.
+      if (/^\/System\/Volumes\//.test(mount)) continue
+      if (mount === '/dev' || mount === '/private/var/vm') continue
 
+      // Used is derived as total - available, NOT taken from df's "Used"
+      // column. On macOS `/` is the sealed system snapshot and reports
+      // ~1% used while the container is really ~11% full — the user's
+      // actual data lives on a sibling volume we just filtered out.
+      // total - available is the space you cannot write to, which is what
+      // a capacity gauge should show, and it stays honest on both
+      // platforms (on Linux it also counts root-reserved blocks, which
+      // are likewise unavailable to you).
+      const unavailable = Math.max(0, total - free)
       disks.push({
         mount,
         filesystem,
         totalBytes: total,
-        usedBytes: used,
+        usedBytes: unavailable,
         freeBytes: free,
-        usedPercent: Number(((used / total) * 100).toFixed(1)),
+        usedPercent: Number(((unavailable / total) * 100).toFixed(1)),
       })
     }
     // Root first, then others by mount path — deterministic client-side
