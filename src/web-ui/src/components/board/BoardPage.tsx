@@ -87,6 +87,8 @@ export function BoardPage() {
   const [archiveBusyKey, setArchiveBusyKey] = useState<string | null>(null)
   /** Task queued for deletion from the task modal, awaiting confirmation. */
   const [pendingDelete, setPendingDelete] = useState<BoardTask | null>(null)
+  /** Column currently being bulk-archived, for the in-place progress state. */
+  const [archivingColumn, setArchivingColumn] = useState<string | null>(null)
   // Kanban search query. Filters visible cards across key / title /
   // labels / assignee / description / branch. Kept in-memory only —
   // reset on board reload / navigation is intentional so the user
@@ -201,6 +203,30 @@ export function BoardPage() {
       setError(err?.message || `Failed to archive ${task.key}`)
     } finally {
       setArchiveBusyKey(null)
+    }
+  }, [projectPath, boardId, load])
+
+  /** Bulk-archive one column. The confirmation lives in BoardKanban next
+   *  to the button that raised it; by the time this runs the user has
+   *  already said yes. */
+  const handleArchiveColumn = useCallback(async (status: string) => {
+    setArchivingColumn(status)
+    try {
+      const r = await api.archiveBoardColumn(projectPath, boardId, status)
+      // Partial failures are reported rather than swallowed — the column
+      // will still show whatever couldn't be archived, and without this
+      // that looks like the button half-worked for no reason.
+      if (r.failed.length > 0) {
+        setError(
+          `Archived ${r.archived} of ${r.archived + r.failed.length} in "${status}". ` +
+          `Failed: ${r.failed.map((f) => f.key).join(', ')}`
+        )
+      }
+      await load()
+    } catch (err: any) {
+      setError(err?.message || `Failed to archive "${status}"`)
+    } finally {
+      setArchivingColumn(null)
     }
   }, [projectPath, boardId, load])
 
@@ -595,6 +621,8 @@ export function BoardPage() {
             liveCount={liveCount}
           />
           <BoardKanban
+            onArchiveColumn={(status) => handleArchiveColumn(status)}
+            archivingColumn={archivingColumn}
             columns={board.columns}
             tasks={visibleTasks}
             driftByKey={driftByKey}

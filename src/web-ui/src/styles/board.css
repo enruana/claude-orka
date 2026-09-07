@@ -289,6 +289,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* The header gained a third child (archive-all). With space-between
+     and three items the count would drift to the centre, so the count
+     takes the free space instead and it and the button stay grouped at
+     the right edge. */
+  gap: 6px;
   padding: 10px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   font-size: 12px;
@@ -297,6 +302,7 @@
   color: #a6adc8;
 }
 .board-column-count {
+  margin-left: auto;
   padding: 1px 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
@@ -2245,3 +2251,79 @@
 @media (max-width: 720px) {
   .board-chip-label { display: none; }
 }
+
+/* --- Archive-all-in-column --- */
+
+/* Sits at the right edge of the column header, and stays faint until the
+   column is hovered — it's a bulk destructive-ish action and shouldn't
+   compete with the column name for attention. */
+.board-column-archive {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #6c7086;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.board-column:hover .board-column-archive,
+.board-column-archive:focus-visible { opacity: 1; }
+.board-column-archive:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+}
+.board-column-archive:disabled { opacity: 0.5; cursor: default; }
+
+/* Touch has no hover, so the button would be permanently invisible.
+   It also gets a bigger tap target — 24x20 is fine for a mouse and
+   frustrating for a thumb — without growing the icon itself. */
+@media (hover: none) {
+  .board-column-archive {
+    opacity: 0.65;
+    padding: 8px 10px;
+    margin: -6px -4px -6px 0;
+  }
+}
+
+.board-column-confirm {
+  margin: 0 8px 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(249, 226, 175, 0.09);
+  border: 1px solid rgba(249, 226, 175, 0.24);
+}
+.board-column-confirm p {
+  margin: 0 0 9px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #cdd6f4;
+}
+.board-column-confirm strong { color: #f9e2af; }
+
+.board-column-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.board-column-confirm-btn {
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #cdd6f4;
+  font-size: 11px;
+  cursor: pointer;
+}
+.board-column-confirm-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.board-column-confirm-btn:disabled { opacity: 0.55; cursor: default; }
+.board-column-confirm-btn.ghost { background: transparent; }
+.board-column-confirm-btn.primary {
+  background: rgba(249, 226, 175, 0.18);
+  border-color: rgba(249, 226, 175, 0.36);
+  color: #f9e2af;
+}
+.board-column-confirm-btn.primary:hover:not(:disabled) { background: rgba(249, 226, 175, 0.28); }

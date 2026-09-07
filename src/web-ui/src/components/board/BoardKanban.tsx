@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, GitBranch, Terminal } from 'lucide-react'
+import { AlertTriangle, GitBranch, Terminal, Archive } from 'lucide-react'
 import type { BoardTask, BoardDrift } from '../../api/client'
 
 /**
@@ -21,9 +21,29 @@ interface Props {
   onOpenTask: (task: BoardTask) => void
   onMoveTask: (task: BoardTask, newStatus: string) => void | Promise<void>
   onAckDrift: (taskKey: string) => void
+  /** Archive every card in one column. The caller does the work; this
+   *  component owns the confirmation, so the prompt sits next to the
+   *  button that raised it instead of as a page-level modal. */
+  onArchiveColumn?: (status: string, count: number) => void | Promise<void>
+  /** Column currently being archived — disables its button and shows
+   *  progress. */
+  archivingColumn?: string | null
 }
 
-export function BoardKanban({ columns, tasks, driftByKey, onOpenTask, onMoveTask, onAckDrift }: Props) {
+export function BoardKanban({
+  columns,
+  tasks,
+  driftByKey,
+  onOpenTask,
+  onMoveTask,
+  onAckDrift,
+  onArchiveColumn,
+  archivingColumn,
+}: Props) {
+  /** Column whose "archive all" is awaiting confirmation. Inline rather
+   *  than a modal: it's a per-column action and the count it's asking
+   *  about is right there in the header. */
+  const [confirmColumn, setConfirmColumn] = useState<string | null>(null)
   // Track which card is being dragged and which column is currently the
   // drop target — powers the visual feedback (dimmed card + highlighted
   // column) that was missing before. Without these, HTML5 drag looks
@@ -106,7 +126,53 @@ export function BoardKanban({ columns, tasks, driftByKey, onOpenTask, onMoveTask
             <div className="board-column-header">
               <span className="board-column-name">{col}</span>
               <span className="board-column-count">{list.length}</span>
+              {onArchiveColumn && list.length > 0 && (
+                <button
+                  type="button"
+                  className="board-column-archive"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setConfirmColumn(confirmColumn === col ? null : col)
+                  }}
+                  disabled={archivingColumn === col}
+                  title={`Archive all ${list.length} task${list.length === 1 ? '' : 's'} in ${col}`}
+                  aria-label={`Archive all tasks in ${col}`}
+                >
+                  <Archive size={12} />
+                </button>
+              )}
             </div>
+
+            {confirmColumn === col && (
+              <div className="board-column-confirm" role="alertdialog" aria-label={`Archive all in ${col}`}>
+                <p>
+                  Archive all <strong>{list.length}</strong> task{list.length === 1 ? '' : 's'} in{' '}
+                  <strong>{col}</strong>? They move to the archive — nothing is deleted, and any
+                  running terminals are stopped.
+                </p>
+                <div className="board-column-confirm-actions">
+                  <button
+                    type="button"
+                    className="board-column-confirm-btn ghost"
+                    onClick={() => setConfirmColumn(null)}
+                    disabled={archivingColumn === col}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="board-column-confirm-btn primary"
+                    disabled={archivingColumn === col}
+                    onClick={async () => {
+                      await onArchiveColumn?.(col, list.length)
+                      setConfirmColumn(null)
+                    }}
+                  >
+                    {archivingColumn === col ? 'Archiving…' : 'Archive all'}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="board-column-body">
               {list.length === 0 && (
                 <div className="board-column-empty">

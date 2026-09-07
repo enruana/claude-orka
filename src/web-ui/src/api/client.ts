@@ -1129,6 +1129,22 @@ export const api = {
     return res.json()
   },
 
+  /** Archive every task in one column. Server-side loop so a big column
+   *  is one request, and so a partial failure still archives the rest. */
+  async archiveBoardColumn(
+    projectPath: string,
+    boardId: string,
+    status: string
+  ): Promise<{ archived: number; keys: string[]; failed: Array<{ key: string; error: string }> }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(
+      `${API_BASE}/board/${boardId}/columns/${encodeURIComponent(status)}/archive?project=${p}`,
+      { method: 'POST' }
+    )
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   /** Read-only liveness per task key. Never call `resumeBoardTask` for
    *  this — that one spawns a ttyd as a side effect. */
   async getBoardTaskTerminals(

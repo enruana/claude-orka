@@ -135,6 +135,56 @@ boardRouter.post('/:boardId/tasks', async (req, res) => {
 })
 
 /**
+ * `POST /:boardId/columns/:status/archive` — archive every task sitting
+ * in one column.
+ *
+ * A bulk route rather than the client looping over the single-task one:
+ * a column can hold a couple of dozen cards, each archive tears down a
+ * terminal, and doing that as N round trips would leave the board half
+ * archived if the tab were closed midway. Here it's one request and the
+ * server walks the list.
+ *
+ * Per-task failures do not abort the rest — one wedged tmux shouldn't
+ * block archiving the other twenty. The response reports what actually
+ * happened so the UI can say so.
+ */
+boardRouter.post('/:boardId/columns/:status/archive', async (req, res) => {
+  try {
+    const boardId = req.params.boardId
+    const status = req.params.status
+    const boardMgr = mgr(req)
+    const cfg = await boardMgr.getBoard(boardId)
+    if (!cfg) { res.status(404).json({ error: 'Board not found' }); return }
+    if (!cfg.columns.includes(status)) {
+      res.status(400).json({ error: `Unknown column "${status}" on board ${boardId}` })
+      return
+    }
+
+    const tasks = await boardMgr.listTasks(boardId, { status, archived: 'exclude' })
+    const archived: string[] = []
+    const failed: Array<{ key: string; error: string }> = []
+
+    for (const t of tasks) {
+      try {
+        if (t.terminalTmuxSessionId || t.ttydPid) {
+          await stopBoardTask(t.key, t.ttydPid)
+          await boardMgr.detachTaskTerminal(boardId, t.key)
+        }
+        await boardMgr.setTaskArchived(boardId, t.key, true)
+        archived.push(t.key)
+      } catch (err: any) {
+        logger.warn(`archive column ${status}: ${t.key} failed — ${err?.message || err}`)
+        failed.push({ key: t.key, error: err?.message || String(err) })
+      }
+    }
+
+    res.json({ archived: archived.length, keys: archived, failed })
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
  * `GET /:boardId/tasks/terminals` — read-only liveness map for the whole
  * board, keyed by task key.
  *
