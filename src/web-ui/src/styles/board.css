@@ -2327,3 +2327,51 @@
   color: #f9e2af;
 }
 .board-column-confirm-btn.primary:hover:not(:disabled) { background: rgba(249, 226, 175, 0.28); }
+
+/* --- Board header on narrow screens --- */
+/*
+ * The action row is wider than a phone (Sync + Standup + Task + Archive
+ * + settings ≈ 409px against a 393px viewport), and nothing was set up
+ * to scroll: the header simply overflowed and the last two buttons were
+ * unreachable.
+ *
+ * Only the ACTIONS scroll. The close button is a sibling outside that
+ * container, so it stays put on the left by construction rather than
+ * needing sticky positioning — which is what makes it a reliable escape
+ * hatch no matter how far the row is scrolled.
+ */
+@media (max-width: 768px) {
+  .board-header {
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  /* Basis 0 and no grow, so the title claims none of the row and the
+     actions take the whole remainder.
+     `flex: 1` on both split it evenly and left the action row 157px of a
+     313px header — scrollable, but showing barely two buttons. `flex: 0
+     1 auto` was worse: the title's content basis is wider than the
+     header, so it swallowed everything and the actions collapsed to 0.
+     Kept in the DOM rather than `display: none` — it's the page's h1 and
+     should stay in the accessibility tree. It was already squeezed to
+     zero width here before any of this, so nothing is lost visually. */
+  .board-header-title { flex: 0 1 0; overflow: hidden; }
+
+  .board-header-actions {
+    /* Claim the leftover width and allow shrinking below content — both
+       are required for overflow-x to engage at all inside a flex row. */
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* Momentum scrolling on iOS, and no scrollbar eating a row this
+       short — the cut-off edge is the affordance. */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .board-header-actions::-webkit-scrollbar { display: none; }
+
+  /* Buttons keep their size instead of being squeezed to fit; squeezing
+     is what produced a clipped row rather than a scrollable one. */
+  .board-header-actions > * { flex: none; }
+}
