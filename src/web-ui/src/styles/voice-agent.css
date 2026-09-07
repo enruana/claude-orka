@@ -367,7 +367,7 @@
 
 .va-transcript {
   position: relative;
-  padding: 20px 18px 12px;
+  padding: 20px 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -442,7 +442,6 @@
 .voice-agent-page-embedded .va-actions-bar {
   padding: 8px 12px;
   gap: 8px;
-  margin-top: -4px;
 }
 
 /* ============ Mic Control Area (Dock) ============ */
@@ -978,25 +977,24 @@
 @media (max-width: 520px) {
   .va-mic-compact { width: 56px; height: 56px; }
 
-  .va-transcript-wrap {
-    flex: 0 0 auto;
-    min-height: auto;
-    max-height: 250px;
+  /* The transcript deliberately keeps the base `flex: 1` here.
+     It used to be pinned to a fixed max-height on mobile — a workaround
+     from when the page scrolled as a whole and a growing transcript
+     shoved the controls past the fold. The height chain resolves
+     against the viewport now, so that cap does nothing but strand
+     space: on a 390x780 launcher it left the transcript at 180px, the
+     actions bar stuck right under it, and 370px of dead panel between
+     there and the mic. Letting it fill puts the conversation back in
+     the space that was already reserved for it. */
+
+  .va-mic-dock {
+    padding: 12px 18px 16px;
+    gap: 8px;
   }
 
-  .va-transcript-primary {
-    flex: 0 0 auto;
-    max-height: 250px;
-  }
-
-  /* Embedded mode (launcher wrapper) - very compact */
-  .voice-agent-page-embedded .va-transcript-wrap {
-    max-height: 180px;
-  }
-
-  .voice-agent-page-embedded .va-transcript-primary {
-    flex: 0 0 auto;
-    max-height: 180px;
+  .va-actions-bar {
+    padding: 8px 18px;
+    gap: 10px;
   }
 }
 

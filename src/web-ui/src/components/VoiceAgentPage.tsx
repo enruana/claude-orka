@@ -82,6 +82,20 @@ function nextTurnId(): string {
   return `t-${Date.now()}-${++turnCounter}`
 }
 
+/**
+ * Jump the scroller to its last pixel.
+ *
+ * `behavior: 'instant'`, not `'auto'`. Per the CSSOM spec `'auto'`
+ * means "defer to the element's scroll-behavior", and this scroller
+ * sets `scroll-behavior: smooth` — so `'auto'` animates. Following
+ * streamed text that way retargets the animation on every chunk and
+ * the scroller crawls toward the bottom without ever arriving, leaving
+ * the newest message permanently just off screen.
+ */
+function pinToBottom(el: HTMLElement) {
+  el.scrollTo({ top: el.scrollHeight, behavior: 'instant' })
+}
+
 function encodeProjectPath(p: string): string {
   return btoa(p).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
@@ -260,9 +274,13 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([])
   const playbackTailRef = useRef<number>(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
+  const hasTranscript = transcript.length > 0
   // False until the thread has been scrolled into place once. Guards the
   // one case where jumping to the bottom is unconditionally right.
   const didInitialScrollRef = useRef(false)
+  // True while the newest message should stay in view. Flipped off when
+  // the user scrolls up to read, back on when they return to the bottom.
+  const stickToBottomRef = useRef(true)
   // Preview sources per attachment id. `blob` sources own a Blob URL
   // that must be revoked on removal or unmount. `pending` is a FIFO
   // of previews we've built client-side while waiting for the
@@ -343,25 +361,44 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
 
     if (!didInitialScrollRef.current) {
       didInitialScrollRef.current = true
+      stickToBottomRef.current = true
       // Instant, not smooth: the CSS sets scroll-behavior: smooth, and
       // animating a jump the user never asked for just looks like the
       // page is loading twice.
-      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
-      // Bubbles can still reflow after this pass (wrapping, fonts), so
-      // settle once more on the next frame.
-      requestAnimationFrame(() => {
-        const e = transcriptRef.current
-        if (e) e.scrollTo({ top: e.scrollHeight, behavior: 'auto' })
-      })
+      pinToBottom(el)
       return
     }
-
-    // "Near bottom" tolerance — 120 px covers a full new bubble.
-    const nearBottom = el.scrollHeight - (el.scrollTop + el.clientHeight) < 120
-    if (nearBottom) {
-      el.scrollTop = el.scrollHeight
-    }
+    if (stickToBottomRef.current) pinToBottom(el)
   }, [transcript])
+
+  /**
+   * Re-pin whenever the scroller's own box changes size.
+   *
+   * Scrolling to the bottom is not durable on its own: the actions bar
+   * only renders once there's a transcript, so on the first message it
+   * mounts AFTER the scroll and takes 46 px off the scroller's height —
+   * silently pushing the newest message back below the fold, with no
+   * state change to re-trigger the effect above. Watching the element
+   * covers that, and every other late reflow (fonts, wrapping, the
+   * on-screen keyboard) for free.
+   */
+  useEffect(() => {
+    const el = transcriptRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current) pinToBottom(el)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [hasTranscript])
+
+  /** Track whether the user has deliberately scrolled away from the
+   *  bottom. While they have, new messages must not yank them back. */
+  const handleTranscriptScroll = useCallback(() => {
+    const el = transcriptRef.current
+    if (!el) return
+    stickToBottomRef.current = el.scrollHeight - (el.scrollTop + el.clientHeight) < 120
+  }, [])
 
   // Utility: send JSON control message on WS if open
   const sendCtrl = useCallback((msg: object) => {
@@ -1354,7 +1391,7 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
               {/* Transcript area — now takes top priority (70-80% of space) */}
               {transcript.length > 0 ? (
                 <div className="va-transcript-wrap va-transcript-primary">
-                  <div className="va-transcript" ref={transcriptRef}>
+                  <div className="va-transcript" ref={transcriptRef} onScroll={handleTranscriptScroll}>
                     {transcript.map((t) => (
                       <div key={t.id} className={`va-turn va-turn-${t.role}`}>
                         <div className="va-turn-role">{t.role === 'user' ? 'You' : 'Agent'}</div>
