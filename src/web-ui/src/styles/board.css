@@ -1392,7 +1392,10 @@
 .add-local-task-overlay {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  /* Above .board-task-modal (1000): this dialog is opened FROM that
+     modal via its Edit button, so anything lower renders behind it and
+     the click looks like it did nothing. */
+  z-index: 1200;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: center;
@@ -1911,4 +1914,285 @@
   .board-search-count {
     margin-left: 4px;
   }
+}
+
+/* ============================================================
+   Archive bucket + destructive confirmation
+   ============================================================ */
+
+/* Count badge on the header's Archive button. */
+.board-header-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(137, 180, 250, 0.22);
+  color: #cdd6f4;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Drawer --- */
+
+.board-archive-overlay {
+  position: fixed;
+  inset: 0;
+  /* Same reason as the edit dialog: the task modal sits at 1000 and can
+     be open underneath. */
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.board-archive-panel {
+  width: min(460px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #11111b;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+  animation: board-archive-in 0.16s ease-out;
+}
+
+@keyframes board-archive-in {
+  from { transform: translateX(14px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.board-archive-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex: none;
+}
+
+.board-archive-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cdd6f4;
+}
+.board-archive-title h2 { margin: 0; font-size: 15px; font-weight: 600; }
+
+.board-archive-count {
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a6adc8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.board-archive-close {
+  border: 0;
+  background: transparent;
+  color: #a6adc8;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 6px;
+  display: inline-flex;
+}
+.board-archive-close:hover { background: rgba(255, 255, 255, 0.08); color: #cdd6f4; }
+
+.board-archive-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 16px 4px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: #a6adc8;
+  flex: none;
+}
+.board-archive-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #cdd6f4;
+  font-size: 13px;
+  outline: none;
+}
+
+/* The list is the only scroller — `min-height: 0` so it can shrink
+   inside the flex column instead of pushing the panel taller. */
+.board-archive-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 16px 20px;
+}
+
+.board-archive-group h3 {
+  margin: 14px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #6c7086;
+}
+
+.board-archive-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.board-archive-item:hover { background: rgba(255, 255, 255, 0.06); }
+
+.board-archive-item-main { flex: 1; min-width: 0; }
+
+.board-archive-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+  font-size: 10px;
+  color: #6c7086;
+}
+.board-archive-key { font-weight: 700; color: #89b4fa; }
+.board-archive-status {
+  padding: 0 6px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.board-archive-item-title {
+  margin: 0;
+  font-size: 13px;
+  color: #cdd6f4;
+  line-height: 1.35;
+  /* Two lines then ellipsis — long titles shouldn't make rows uneven. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.board-archive-item-actions,
+.board-archive-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.board-archive-confirm { font-size: 11px; color: #f9e2af; }
+
+.board-archive-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cdd6f4;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.board-archive-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.board-archive-btn:disabled { opacity: 0.5; cursor: default; }
+.board-archive-btn.icon { padding: 5px 6px; }
+.board-archive-btn.ghost { background: transparent; }
+.board-archive-btn.danger { color: #f38ba8; border-color: rgba(243, 139, 168, 0.28); }
+.board-archive-btn.danger:hover:not(:disabled) { background: rgba(243, 139, 168, 0.14); }
+
+.board-archive-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 28px;
+  text-align: center;
+  color: #6c7086;
+}
+.board-archive-empty p { margin: 0; font-size: 13px; }
+.board-archive-empty-hint { font-size: 11px; max-width: 30ch; line-height: 1.5; }
+
+/* --- Delete confirmation --- */
+
+.board-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  /* Top of the stack — it's the confirmation for the one irreversible
+     action here, and it can be raised from the task modal or the
+     archive drawer, both of which sit below. */
+  z-index: 1300;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.board-confirm-panel {
+  width: min(420px, 100%);
+  padding: 20px;
+  border-radius: 14px;
+  background: #181825;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  color: #cdd6f4;
+}
+.board-confirm-panel h3 { margin: 0 0 10px; font-size: 15px; }
+.board-confirm-panel p { margin: 0 0 8px; font-size: 13px; }
+.board-confirm-note { color: #a6adc8; font-size: 12px; line-height: 1.5; }
+
+.board-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.board-confirm-btn {
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #cdd6f4;
+  font-size: 12px;
+  cursor: pointer;
+}
+.board-confirm-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.11); }
+.board-confirm-btn:disabled { opacity: 0.5; cursor: default; }
+.board-confirm-btn.ghost { background: transparent; }
+.board-confirm-btn.danger {
+  background: rgba(243, 139, 168, 0.16);
+  border-color: rgba(243, 139, 168, 0.34);
+  color: #f38ba8;
+}
+.board-confirm-btn.danger:hover:not(:disabled) { background: rgba(243, 139, 168, 0.26); }
+
+/* Destructive action in the task modal's header row. */
+.board-task-btn.danger { color: #f38ba8; }
+.board-task-btn.danger:hover:not(:disabled) {
+  background: rgba(243, 139, 168, 0.14);
+  border-color: rgba(243, 139, 168, 0.3);
+}
+
+@media (max-width: 640px) {
+  .board-archive-panel { width: 100%; }
+  .board-archive-item { flex-wrap: wrap; }
+  .board-archive-item-actions { width: 100%; justify-content: flex-end; }
 }

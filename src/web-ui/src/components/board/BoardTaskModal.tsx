@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X,
+  Pencil,
+  Archive,
+  Trash2,
   Terminal,
   ExternalLink,
   Play,
@@ -61,6 +64,13 @@ interface Props {
   onMoveTask: (task: BoardTask, newStatus: string) => void | Promise<void>
   onClose: () => void
   onChanged: () => void | Promise<void>
+  /** Open the edit dialog for this task. Only wired for local-origin
+   *  tasks — see the actions block for why Jira ones are excluded. */
+  onEdit?: (task: BoardTask) => void
+  /** Archive (hide from the board, keep the record) then close. */
+  onArchive?: (task: BoardTask) => void | Promise<void>
+  /** Delete permanently, after the caller has confirmed. */
+  onDelete?: (task: BoardTask) => void | Promise<void>
 }
 
 type ResumeState = 'idle' | 'checking' | 'alive' | 'dead' | 'no-handles'
@@ -77,7 +87,7 @@ function isMobileViewport(): boolean {
  */
 const EXIT_MS = 200
 
-export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask, onClose, onChanged }: Props) {
+export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask, onClose, onChanged, onEdit, onArchive, onDelete }: Props) {
   const [starting, setStarting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [resumeState, setResumeState] = useState<ResumeState>('idle')
@@ -369,6 +379,9 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
   // finished cleanly and stored the id. Provides a single-click path
   // back to work without dragging.
   const canReopen = task.status !== 'in-progress' && !!task.claudeSessionId
+  // `origin` is absent on rows created before local tasks existed, and
+  // those are all Jira-mirrored — so absent means jira, not local.
+  const isLocal = task.origin === 'local'
   const [busyMove, setBusyMove] = useState(false)
 
   const handleStatusChange = async (nextStatus: string) => {
@@ -402,8 +415,15 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
       </div>
 
       <dl className="board-task-details-grid">
-        <dt>Jira</dt>
-        <dd><a href={task.jiraUrl} target="_blank" rel="noreferrer">{task.jiraUrl}</a></dd>
+        {/* Local tasks have no ticket behind them — the row rendered an
+            empty "Jira" label with a dead link. Show the kind of work
+            instead, which is the field that actually identifies them. */}
+        {task.jiraUrl ? (
+          <><dt>Jira</dt>
+          <dd><a href={task.jiraUrl} target="_blank" rel="noreferrer">{task.jiraUrl}</a></dd></>
+        ) : isLocal && task.taskType ? (
+          <><dt>Kind</dt><dd>{task.taskType}</dd></>
+        ) : null}
         {task.branchName && (<><dt>Branch</dt><dd><code>{task.branchName}</code></dd></>)}
         {task.worktreePath && (<><dt>Worktree</dt><dd><code>{task.worktreePath}</code></dd></>)}
         {task.kbEntityId && (<><dt>KB entity</dt><dd><code>{task.kbEntityId}</code></dd></>)}
@@ -529,9 +549,11 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
         <div className="board-task-title-block">
           <span className="board-task-key">{task.key}</span>
           <h2>{task.title}</h2>
-          <a href={task.jiraUrl} target="_blank" rel="noreferrer" className="board-task-jira">
-            {task.jiraUrl}
-          </a>
+          {task.jiraUrl && (
+            <a href={task.jiraUrl} target="_blank" rel="noreferrer" className="board-task-jira">
+              {task.jiraUrl}
+            </a>
+          )}
         </div>
         <div className="board-task-actions">
           {!isMobile && !showRestart && (
@@ -624,6 +646,43 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
                 <span className="mobile-hide">{busy ? 'Wrapping up…' : 'Wrap up'}</span>
               </button>
             </>
+          )}
+          {/* Edit is local-only. A Jira card's title, description and
+              priority are mirrored FROM the ticket, so editing them here
+              would look like it worked and then be silently reverted by
+              the next sync. Change those in Jira. */}
+          {isLocal && onEdit && (
+            <button
+              className="board-task-btn ghost"
+              onClick={() => onEdit(task)}
+              title="Edit title, description, kind of work, column"
+              aria-label="Edit task"
+            >
+              <Pencil size={14} />
+              <span className="mobile-hide">Edit</span>
+            </button>
+          )}
+          {onArchive && (
+            <button
+              className="board-task-btn ghost"
+              onClick={() => void onArchive(task)}
+              title="Archive — hide from the board but keep the record and its history. Stops the terminal; restoring keeps the Claude session."
+              aria-label="Archive task"
+            >
+              <Archive size={14} />
+              <span className="mobile-hide">Archive</span>
+            </button>
+          )}
+          {isLocal && onDelete && (
+            <button
+              className="board-task-btn danger"
+              onClick={() => void onDelete(task)}
+              title="Delete permanently. Archive instead if you only want it off the board."
+              aria-label="Delete task"
+            >
+              <Trash2 size={14} />
+              <span className="mobile-hide">Delete</span>
+            </button>
           )}
           {/* Status selector — always visible so touch users can move a
               task between columns without drag & drop. Same three-branch

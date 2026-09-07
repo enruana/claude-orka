@@ -109,9 +109,16 @@ boardRouter.delete('/:boardId', async (req, res) => {
 
 boardRouter.get('/:boardId/tasks', async (req, res) => {
   try {
-    const status = (req.query.status as string) || undefined
-    const list = await mgr(req).listTasks(req.params.boardId, status ? { status } : undefined)
-    res.json(list)
+    // `archived`: 'all' (default) | 'exclude' | 'only'. The default has
+    // to stay 'all' so the sync skill still sees archived tickets as
+    // present locally and doesn't re-add them as new cards.
+    const a = String(req.query.archived || 'all')
+    const archived = a === 'exclude' || a === 'only' ? a : 'all'
+    const tasks = await mgr(req).listTasks(req.params.boardId, {
+      status: (req.query.status as string) || undefined,
+      archived,
+    })
+    res.json(tasks)
   } catch (err) {
     handle(res, err)
   }
@@ -145,10 +152,30 @@ boardRouter.patch('/:boardId/tasks/:key', async (req, res) => {
   }
 })
 
+/**
+ * Delete a task and everything the server spawned for it.
+ *
+ * `removeTask` only drops the record. Doing just that on a task with a
+ * live terminal would strand its tmux session and ttyd process with
+ * nothing left pointing at them — invisible in the UI, still holding a
+ * port, and only findable through `orka status`. So tear the terminal
+ * down first, exactly as the shutdown route does.
+ *
+ * The git worktree is deliberately NOT touched. It can hold uncommitted
+ * work, and removing a card from a board is not consent to delete code.
+ * The response returns the path so the caller can say where it is.
+ */
 boardRouter.delete('/:boardId/tasks/:key', async (req, res) => {
   try {
-    await mgr(req).removeTask(req.params.boardId, req.params.key)
-    res.json({ success: true })
+    const boardId = req.params.boardId
+    const taskKey = req.params.key
+    const boardMgr = mgr(req)
+    const task = await boardMgr.getTask(boardId, taskKey)
+    if (task?.terminalTmuxSessionId || task?.ttydPid) {
+      await stopBoardTask(taskKey, task.ttydPid)
+    }
+    await boardMgr.removeTask(boardId, taskKey)
+    res.json({ success: true, worktreePath: task?.worktreePath })
   } catch (err) {
     handle(res, err)
   }
@@ -552,6 +579,48 @@ boardRouter.post('/:boardId/tasks/:key/shutdown', async (req, res) => {
     await stopBoardTask(taskKey, task.ttydPid)
     await boardMgr.detachTaskTerminal(boardId, taskKey)
     res.json({ success: true })
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
+ * `POST /:boardId/tasks/:key/archive` — hide a task from the board
+ * without deleting it.
+ *
+ * The record stays in `tasks.json` in full; only `archivedAt` is
+ * stamped, and the Kanban filters on it. Restoring brings the card back
+ * with its KB entity, Claude session id and history untouched.
+ *
+ * A live terminal is torn down first. Archiving says "I'm not working
+ * on this", and leaving a tmux + ttyd running behind a card nobody can
+ * see is exactly the kind of orphan that only turns up in `orka status`
+ * weeks later. The Claude session id survives, so restoring and hitting
+ * resume picks the conversation back up.
+ */
+boardRouter.post('/:boardId/tasks/:key/archive', async (req, res) => {
+  try {
+    const boardId = req.params.boardId
+    const taskKey = req.params.key
+    const boardMgr = mgr(req)
+    const task = await boardMgr.getTask(boardId, taskKey)
+    if (!task) { res.status(404).json({ error: 'Task not found' }); return }
+    if (task.terminalTmuxSessionId || task.ttydPid) {
+      await stopBoardTask(taskKey, task.ttydPid)
+      await boardMgr.detachTaskTerminal(boardId, taskKey)
+    }
+    const updated = await boardMgr.setTaskArchived(boardId, taskKey, true)
+    res.json(updated)
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/** `POST /:boardId/tasks/:key/unarchive` — put the card back on the board. */
+boardRouter.post('/:boardId/tasks/:key/unarchive', async (req, res) => {
+  try {
+    const updated = await mgr(req).setTaskArchived(req.params.boardId, req.params.key, false)
+    res.json(updated)
   } catch (err) {
     handle(res, err)
   }

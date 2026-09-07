@@ -59,7 +59,7 @@ orka doctor
 | `orka git-account` | `git-account.ts` | Interactive SSH key selector in ssh-agent |
 | `orka aws-account` | `aws-account.ts` | AWS profile switcher + optional shell integration |
 | `orka kb …` | `kb.ts` | Knowledge Base (init, add, update, link, show, list, lint, upgrade, classify, …) |
-| `orka board …` | `board.ts` | Jira-mirrored boards (create, tasks, sync, standup, …) |
+| `orka board …` | `board.ts` | Jira-mirrored boards (create, tasks, archive-task, sync, standup, …) |
 | `orka ssl …` | `ssl.ts` | status, renew, remove (Tailscale-issued certs) |
 | `orka comment …` | `comment.ts` | Review comments: list, show, add, edit, resolve, delete, clear, prompt |
 | `orka update` | `update.ts` | Pull + install + build + prepare + restart (linked-source installs) |

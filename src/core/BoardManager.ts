@@ -153,10 +153,47 @@ export class BoardManager {
     await this.writeJson(path.join(this.boardDir(boardId), TASKS_FILE), tasks)
   }
 
-  async listTasks(boardId: string, filter?: { status?: string }): Promise<BoardTask[]> {
-    const all = await this.readTasks(boardId)
+  /**
+   * `archived` defaults to `'all'` ON PURPOSE. The sync skill decides
+   * whether a Jira ticket is new by checking whether its key exists
+   * locally; if the default hid archived rows, every sync would re-add
+   * each archived ticket as a fresh card. Callers that want a clean
+   * board — the Kanban — ask for `'exclude'` explicitly.
+   */
+  async listTasks(
+    boardId: string,
+    filter?: { status?: string; archived?: 'all' | 'exclude' | 'only' },
+  ): Promise<BoardTask[]> {
+    let all = await this.readTasks(boardId)
+    const archived = filter?.archived ?? 'all'
+    if (archived === 'exclude') all = all.filter((t) => !t.archivedAt)
+    else if (archived === 'only') all = all.filter((t) => !!t.archivedAt)
     if (!filter?.status) return all
     return all.filter((t) => t.status === filter.status)
+  }
+
+  /**
+   * Archive or restore a task. Archiving stamps `archivedAt`; restoring
+   * clears it. Everything else on the record is left untouched, so a
+   * restored task comes back with its KB entity, Claude session id and
+   * history intact.
+   */
+  async setTaskArchived(boardId: string, key: string, archived: boolean): Promise<BoardTask> {
+    const all = await this.readTasks(boardId)
+    const idx = all.findIndex((t) => t.key === key)
+    if (idx === -1) throw new Error(`Task not found: ${key}`)
+    const now = new Date().toISOString()
+    const next: BoardTask = { ...all[idx], updatedAt: now }
+    if (archived) next.archivedAt = now
+    else delete next.archivedAt
+    all[idx] = next
+    await this.writeTasks(boardId, all)
+    await this.appendEvent(boardId, {
+      ts: now,
+      event: archived ? 'task.archived' : 'task.unarchived',
+      taskKey: key,
+    })
+    return next
   }
 
   async getTask(boardId: string, key: string): Promise<BoardTask | null> {

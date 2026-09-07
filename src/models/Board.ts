@@ -125,6 +125,20 @@ export interface BoardTask {
   /** Branch name for the worktree. */
   branchName?: string
 
+  /**
+   * ISO timestamp of when the user archived this task. Present =
+   * archived: the card is hidden from the Kanban and lives in the
+   * archive drawer instead, so the board only shows work in flight.
+   *
+   * Archiving is NOT deletion — the record stays in `tasks.json` in
+   * full, and that's deliberate beyond just being reversible: the sync
+   * skill decides "new in Jira, absent locally → add-task" by looking
+   * for the key. If archiving removed or hid the row from the data
+   * layer, every sync would re-add the ticket as a fresh card. So the
+   * filtering happens in the view, never in `listTasks` by default.
+   */
+  archivedAt?: string
+
   /** ISO timestamp of first local creation. */
   createdAt: string
 
@@ -217,6 +231,8 @@ export interface BoardEvent {
     | 'task.added'
     | 'task.updated'
     | 'task.removed'
+    | 'task.archived'
+    | 'task.unarchived'
     | 'task.terminal.attached'
     | 'task.terminal.detached'
     | 'drift.marked'

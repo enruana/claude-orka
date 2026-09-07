@@ -319,15 +319,53 @@ export function boardCommand(program: Command): void {
     })
 
   board
+    .command('archive-task')
+    .description('Hide a task from the board without deleting it')
+    .requiredOption('--board <id>')
+    .requiredOption('--key <PROJ-123>')
+    .action(async (opts) => {
+      try {
+        const mgr = new BoardManager(process.cwd())
+        await mgr.setTaskArchived(opts.board, opts.key, true)
+        Output.success(`Archived ${opts.key} — restore with: orka board unarchive-task --board ${opts.board} --key ${opts.key}`)
+      } catch (error) {
+        handleError(error)
+      }
+    })
+
+  board
+    .command('unarchive-task')
+    .description('Put an archived task back on the board')
+    .requiredOption('--board <id>')
+    .requiredOption('--key <PROJ-123>')
+    .action(async (opts) => {
+      try {
+        const mgr = new BoardManager(process.cwd())
+        await mgr.setTaskArchived(opts.board, opts.key, false)
+        Output.success(`Restored ${opts.key} to the board`)
+      } catch (error) {
+        handleError(error)
+      }
+    })
+
+  board
     .command('list-tasks')
     .description('List tasks in a board')
     .requiredOption('--board <id>')
     .option('--status <status>', 'Filter by column')
+    // Defaults to listing everything, archived included. Sync decides
+    // "new in Jira" by whether the key exists locally, so hiding
+    // archived rows here would make it re-add them as fresh cards.
+    .option('--archived <mode>', 'all (default) | exclude | only', 'all')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
       try {
         const mgr = new BoardManager(process.cwd())
-        const tasks = await mgr.listTasks(opts.board, opts.status ? { status: opts.status } : undefined)
+        const mode = ['all', 'exclude', 'only'].includes(opts.archived) ? opts.archived : 'all'
+        const tasks = await mgr.listTasks(opts.board, {
+          status: opts.status || undefined,
+          archived: mode,
+        })
         if (opts.json) {
           console.log(JSON.stringify(tasks, null, 2))
           return
@@ -339,7 +377,8 @@ export function boardCommand(program: Command): void {
         for (const t of tasks) {
           const status = chalk.gray(`[${t.status}]`)
           const assignee = t.assignee ? chalk.gray(` @${t.assignee}`) : ''
-          console.log(`${chalk.bold(t.key)} ${status} ${t.title}${assignee}`)
+          const archived = t.archivedAt ? chalk.yellow(' (archived)') : ''
+          console.log(`${chalk.bold(t.key)} ${status} ${t.title}${assignee}${archived}`)
         }
       } catch (error) {
         handleError(error)

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Beaker, FileText, Palette, Search, MoreHorizontal, Sparkles, ExternalLink } from 'lucide-react'
-import { api, type BoardLocalTaskType, type KBEntity } from '../../api/client'
+import { api, type BoardLocalTaskType, type BoardTask, type KBEntity } from '../../api/client'
 
 /**
- * Modal for creating a local (non-Jira) board task.
+ * Modal for creating OR editing a local (non-Jira) board task.
  *
  * Two flavors:
  *
@@ -19,12 +19,18 @@ import { api, type BoardLocalTaskType, type KBEntity } from '../../api/client'
  *    resumes that entity in place — no duplicate creation, all docs +
  *    decisions + links carry over.
  *
+ * Passing `task` switches the whole thing to edit mode: fields prefill
+ * from the existing card, the mode tabs disappear (you can't re-port an
+ * existing task from KB), and save issues a PATCH instead of a POST.
+ *
  * Priority / labels are edited later via the normal task modal.
  */
 
 interface Props {
   boardName: string
   projectPath: string
+  /** Existing task to edit. Omit to create a new one. */
+  task?: BoardTask
   /** Real columns of the parent board. The dialog shows a chip picker
    *  so the user chooses where the new card lands. Server rejects any
    *  status not in this list — no point offering `'todo'` on a board
@@ -36,6 +42,7 @@ interface Props {
     description?: string
     taskType: BoardLocalTaskType
     status: string
+    /** Only set when porting from KB on create — never on edit. */
     kbEntityId?: string
   }) => Promise<void> | void
   onClose: () => void
@@ -117,12 +124,13 @@ function defaultStatus(columns: string[]): string {
   return columns[0] ?? 'backlog'
 }
 
-export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, onClose }: Props) {
+export function LocalTaskDialog({ boardName, projectPath, task, columns, onSave, onClose }: Props) {
+  const isEdit = !!task
   const [mode, setMode] = useState<Mode>('new')
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [taskType, setTaskType] = useState<BoardLocalTaskType>('research')
-  const [status, setStatus] = useState<string>(() => defaultStatus(columns))
+  const [title, setTitle] = useState(task?.title ?? '')
+  const [description, setDescription] = useState(task?.description ?? '')
+  const [taskType, setTaskType] = useState<BoardLocalTaskType>(task?.taskType ?? 'research')
+  const [status, setStatus] = useState<string>(() => task?.status ?? defaultStatus(columns))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -138,6 +146,11 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
   useEffect(() => {
     if (mode === 'new') setTimeout(() => titleRef.current?.focus(), 30)
   }, [mode])
+
+  // Editing an existing card must never re-run the KB prefill effect
+  // below — it would overwrite the user's own title and description with
+  // the linked entity's. `kbPicked` stays null in edit mode, which keeps
+  // that effect inert.
 
   // Esc closes only if we're not saving mid-flight.
   useEffect(() => {
@@ -228,13 +241,13 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
       })
       onClose()
     } catch (err: any) {
-      setError(err?.message || 'Failed to create task')
+      setError(err?.message || (isEdit ? 'Failed to save changes' : 'Failed to create task'))
     } finally {
       setSaving(false)
     }
   }
 
-  const canSave = title.trim().length > 0 && (mode === 'new' || kbPicked !== null)
+  const canSave = title.trim().length > 0 && (isEdit || mode === 'new' || kbPicked !== null)
 
   return (
     <div
@@ -246,8 +259,14 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
       <div className="add-local-task-panel">
         <header className="add-local-task-head">
           <div>
-            <div className="add-local-task-eyebrow">New task in {boardName}</div>
-            <h2>{mode === 'new' ? 'New internal task' : 'Port from KB entity'}</h2>
+            <div className="add-local-task-eyebrow">
+              {isEdit ? `Editing ${task!.key} in ${boardName}` : `New task in ${boardName}`}
+            </div>
+            <h2>
+              {isEdit
+                ? 'Edit task'
+                : mode === 'new' ? 'New internal task' : 'Port from KB entity'}
+            </h2>
           </div>
           <button
             className="add-local-task-close"
@@ -259,6 +278,7 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
           </button>
         </header>
 
+        {!isEdit && (
         <div className="add-local-task-mode-tabs" role="tablist">
           <button
             type="button"
@@ -281,8 +301,9 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
             <ExternalLink size={13} /> Port from KB entity
           </button>
         </div>
+        )}
 
-        {mode === 'new' && (
+        {!isEdit && mode === 'new' && (
           <p className="add-local-task-hint">
             Tracks work that doesn't live in Jira — research, docs, design proposals.
             Sync leaves it alone. When you move it to <strong>In Progress</strong>, the
@@ -290,7 +311,7 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
           </p>
         )}
 
-        {mode === 'port' && (
+        {!isEdit && mode === 'port' && (
           <p className="add-local-task-hint">
             Pick a KB entity (project, task, meeting, decision, spike, …).
             The new board task is <strong>pre-linked</strong> to it — when you move it to
@@ -351,7 +372,7 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
           </div>
         )}
 
-        {(mode === 'new' || kbPicked) && (
+        {(isEdit || mode === 'new' || kbPicked) && (
           <>
             <label className="add-local-task-field">
               <span>Title</span>
@@ -397,7 +418,11 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
 
             <div className="add-local-task-field">
               <span>Column</span>
-              <div className="add-local-task-status-row" role="radiogroup" aria-label="Initial column">
+              <div
+                className="add-local-task-status-row"
+                role="radiogroup"
+                aria-label={isEdit ? 'Column' : 'Initial column'}
+              >
                 {columns.map((c) => (
                   <button
                     key={c}
@@ -413,13 +438,14 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
                 ))}
               </div>
               <p className="add-local-task-type-hint">
-                Where the card lands on the board. Pick <code>in-progress</code> if you want
-                the init skill to run immediately.
+                {isEdit
+                  ? 'Which column the card sits in. Changing it here just moves the card — it does not run the init or close rituals, so use the board for those.'
+                  : <>Where the card lands on the board. Pick <code>in-progress</code> if you want the init skill to run immediately.</>}
               </p>
             </div>
 
             <label className="add-local-task-field">
-              <span>Description {mode === 'port' && '(prefilled from KB entity)'}</span>
+              <span>Description {!isEdit && mode === 'port' && '(prefilled from KB entity)'}</span>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -447,7 +473,10 @@ export function AddLocalTaskDialog({ boardName, projectPath, columns, onSave, on
             onClick={handleSave}
             disabled={saving || !canSave}
           >
-            {saving ? 'Adding…' : mode === 'port' ? 'Port to board' : 'Add task'}
+            {saving
+              ? (isEdit ? 'Saving…' : 'Adding…')
+              : isEdit ? 'Save changes'
+              : mode === 'port' ? 'Port to board' : 'Add task'}
           </button>
         </footer>
       </div>

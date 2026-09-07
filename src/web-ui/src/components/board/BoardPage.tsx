@@ -16,6 +16,7 @@ import {
   SplitSquareHorizontal,
   Newspaper,
   Plus,
+  Archive,
 } from 'lucide-react'
 import {
   api,
@@ -26,7 +27,8 @@ import {
 import { decodeProjectPath } from '../ProjectDashboard'
 import { BoardKanban } from './BoardKanban'
 import { BoardTaskModal } from './BoardTaskModal'
-import { AddLocalTaskDialog } from './AddLocalTaskDialog'
+import { LocalTaskDialog } from './LocalTaskDialog'
+import { BoardArchiveDrawer } from './BoardArchiveDrawer'
 import { BoardSearchBar, filterBoardTasks } from './BoardSearchBar'
 import { SessionCodeEditor } from '../code-editor'
 import { FinderExplorer } from '../finder'
@@ -75,6 +77,14 @@ export function BoardPage() {
   // Local tasks live only on this board and never sync to Jira; sync
   // ignores them and the init/close skills run their non-Jira branch.
   const [showAddLocalTask, setShowAddLocalTask] = useState(false)
+  /** Task being edited, or null. Separate from `openTaskKey` so the edit
+   *  dialog can sit over the task modal without fighting it for state. */
+  const [editingTask, setEditingTask] = useState<BoardTask | null>(null)
+  const [archived, setArchived] = useState<BoardTask[]>([])
+  const [showArchive, setShowArchive] = useState(false)
+  const [archiveBusyKey, setArchiveBusyKey] = useState<string | null>(null)
+  /** Task queued for deletion from the task modal, awaiting confirmation. */
+  const [pendingDelete, setPendingDelete] = useState<BoardTask | null>(null)
   // Kanban search query. Filters visible cards across key / title /
   // labels / assignee / description / branch. Kept in-memory only —
   // reset on board reload / navigation is intentional so the user
@@ -134,13 +144,19 @@ export function BoardPage() {
 
   const load = useCallback(async () => {
     try {
-      const [cfg, ts, ds] = await Promise.all([
+      // Two calls rather than one filtered client-side: the board and
+      // the archive are different views with different lifetimes, and
+      // keeping them apart means a large archive never slows the Kanban
+      // or leaks archived cards into it by accident.
+      const [cfg, ts, arch, ds] = await Promise.all([
         api.getBoard(projectPath, boardId),
-        api.listBoardTasks(projectPath, boardId),
+        api.listBoardTasks(projectPath, boardId, undefined, 'exclude'),
+        api.listBoardTasks(projectPath, boardId, undefined, 'only'),
         api.listBoardDrifts(projectPath, boardId),
       ])
       setBoard(cfg)
       setTasks(ts)
+      setArchived(arch)
       setDrifts(ds)
       setLoading(false)
     } catch (err: any) {
@@ -148,6 +164,49 @@ export function BoardPage() {
       setLoading(false)
     }
   }, [projectPath, boardId])
+
+  /** Archive from the task modal: hide the card, close the modal, reload. */
+  const handleArchiveTask = useCallback(async (task: BoardTask) => {
+    setArchiveBusyKey(task.key)
+    try {
+      await api.archiveBoardTask(projectPath, boardId, task.key)
+      setOpenTaskKey(null)
+      await load()
+    } catch (err: any) {
+      setError(err?.message || `Failed to archive ${task.key}`)
+    } finally {
+      setArchiveBusyKey(null)
+    }
+  }, [projectPath, boardId, load])
+
+  const handleRestoreTask = useCallback(async (task: BoardTask) => {
+    setArchiveBusyKey(task.key)
+    try {
+      await api.unarchiveBoardTask(projectPath, boardId, task.key)
+      await load()
+    } catch (err: any) {
+      setError(err?.message || `Failed to restore ${task.key}`)
+    } finally {
+      setArchiveBusyKey(null)
+    }
+  }, [projectPath, boardId, load])
+
+  /** Permanent delete. Callers must have confirmed first — this does not
+   *  prompt, so the confirmation can live wherever the action was taken
+   *  (archive row, or the modal's own confirm bar). */
+  const handleDeleteTask = useCallback(async (task: BoardTask) => {
+    setArchiveBusyKey(task.key)
+    try {
+      await api.deleteBoardTask(projectPath, boardId, task.key)
+      setOpenTaskKey((k) => (k === task.key ? null : k))
+      setPendingDelete(null)
+      await load()
+    } catch (err: any) {
+      setError(err?.message || `Failed to delete ${task.key}`)
+    } finally {
+      setArchiveBusyKey(null)
+    }
+  }, [projectPath, boardId, load])
 
   useEffect(() => {
     void load()
@@ -436,6 +495,17 @@ export function BoardPage() {
           </button>
           <button
             className="board-header-btn"
+            onClick={() => setShowArchive(true)}
+            title="Archived tasks — everything taken off the board without deleting it"
+          >
+            <Archive size={14} />
+            <span>Archive</span>
+            {archived.length > 0 && (
+              <span className="board-header-badge">{archived.length}</span>
+            )}
+          </button>
+          <button
+            className="board-header-btn"
             onClick={() => navigate(`/projects/${encodedPath}/boards/${boardId}/settings`)}
             title="Board settings"
           >
@@ -596,11 +666,91 @@ export function BoardPage() {
           onMoveTask={handleMoveTask}
           onClose={() => setOpenTaskKey(null)}
           onChanged={load}
+          onEdit={(t) => setEditingTask(t)}
+          onArchive={handleArchiveTask}
+          onDelete={(t) => setPendingDelete(t)}
+        />
+      )}
+
+      {/* Delete confirmation. Deliberately a separate step from the
+          modal's Delete button: this is the one action here that can't
+          be undone, and the archive is almost always what the user
+          actually wants. */}
+      {pendingDelete && (
+        <div
+          className="board-confirm-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setPendingDelete(null) }}
+        >
+          <div className="board-confirm-panel">
+            <h3>Delete {pendingDelete.key}?</h3>
+            <p>
+              <strong>{pendingDelete.title}</strong>
+            </p>
+            <p className="board-confirm-note">
+              This removes the card and its history for good, and stops its terminal.
+              {pendingDelete.worktreePath && ' Its git worktree is left on disk untouched.'}
+              {' '}Archive it instead if you just want it off the board.
+            </p>
+            <div className="board-confirm-actions">
+              <button
+                className="board-confirm-btn ghost"
+                onClick={() => setPendingDelete(null)}
+                disabled={archiveBusyKey === pendingDelete.key}
+              >
+                Cancel
+              </button>
+              <button
+                className="board-confirm-btn"
+                onClick={() => void handleArchiveTask(pendingDelete)}
+                disabled={archiveBusyKey === pendingDelete.key}
+              >
+                Archive instead
+              </button>
+              <button
+                className="board-confirm-btn danger"
+                onClick={() => void handleDeleteTask(pendingDelete)}
+                disabled={archiveBusyKey === pendingDelete.key}
+              >
+                {archiveBusyKey === pendingDelete.key ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showArchive && (
+        <BoardArchiveDrawer
+          tasks={archived}
+          busyKey={archiveBusyKey}
+          onRestore={handleRestoreTask}
+          onDelete={handleDeleteTask}
+          onClose={() => setShowArchive(false)}
+        />
+      )}
+
+      {editingTask && board && (
+        <LocalTaskDialog
+          boardName={board.name}
+          projectPath={projectPath}
+          task={editingTask}
+          columns={board.columns}
+          onClose={() => setEditingTask(null)}
+          onSave={async (input) => {
+            await api.updateBoardTask(projectPath, boardId, editingTask.key, {
+              title: input.title,
+              description: input.description,
+              taskType: input.taskType,
+              status: input.status,
+            })
+            await load()
+          }}
         />
       )}
 
       {showAddLocalTask && (
-        <AddLocalTaskDialog
+        <LocalTaskDialog
           boardName={board.name}
           projectPath={projectPath}
           // Real columns from the board config — used for the status

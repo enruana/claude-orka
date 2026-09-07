@@ -1096,13 +1096,22 @@ export const api = {
     if (!res.ok) throw new Error(await res.text())
   },
 
-  async listBoardTasks(projectPath: string, boardId: string, status?: string): Promise<BoardTask[]> {
+  /** `archived` defaults to 'exclude' for UI callers — the board should
+   *  only show work in flight. Pass 'only' for the archive drawer, or
+   *  'all' when you genuinely need both. */
+  async listBoardTasks(
+    projectPath: string,
+    boardId: string,
+    status?: string,
+    archived: 'all' | 'exclude' | 'only' = 'exclude'
+  ): Promise<BoardTask[]> {
     const p = encodeProjectPath(projectPath)
-    const q = status ? `&status=${encodeURIComponent(status)}` : ''
+    const q = `${status ? `&status=${encodeURIComponent(status)}` : ''}&archived=${archived}`
     const res = await fetch(`${API_BASE}/board/${boardId}/tasks?project=${p}${q}`)
     if (!res.ok) throw new Error(await res.text())
     return res.json()
   },
+
 
   async updateBoardTask(
     projectPath: string,
@@ -1115,6 +1124,39 @@ export const api = {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async deleteBoardTask(
+    projectPath: string,
+    boardId: string,
+    key: string
+  ): Promise<{ success: boolean; worktreePath?: string }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}?project=${p}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Hide a task from the board without deleting it. Tears down its
+   *  terminal server-side; the record and its history are kept. */
+  async archiveBoardTask(projectPath: string, boardId: string, key: string): Promise<BoardTask> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/archive?project=${p}`, {
+      method: 'POST',
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async unarchiveBoardTask(projectPath: string, boardId: string, key: string): Promise<BoardTask> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/unarchive?project=${p}`, {
+      method: 'POST',
     })
     if (!res.ok) throw new Error(await res.text())
     return res.json()
@@ -1477,6 +1519,8 @@ export interface BoardTask {
   ttydPid?: number
   worktreePath?: string
   branchName?: string
+  /** Present = archived: hidden from the board, kept in the archive. */
+  archivedAt?: string
   createdAt: string
   updatedAt: string
   raw?: unknown
