@@ -241,7 +241,15 @@
 
 .system-widget-header {
   display: flex;
-  align-items: baseline;
+  /* Center, not baseline. A flex item that is itself a flex container
+     takes its baseline from its FIRST child: the OS pill starts with an
+     SVG, which has no text baseline and falls back to its bottom margin
+     edge, while the version pill starts with text and uses a real one.
+     Under `baseline` that left the two pills sitting 2.5px apart, with
+     the gear off on a third line of its own. This row is a toolbar —
+     a label, two pills and an icon button — so centering is both the
+     correct model and the thing that visually lines them up. */
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   /* Wrap instead of forcing the card wider than the screen. The host
