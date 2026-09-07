@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { Search, X } from 'lucide-react'
-import type { BoardTask } from '../../api/client'
+import { Search, X, Terminal, Radio } from 'lucide-react'
+import type { BoardTask, BoardTaskTerminalState } from '../../api/client'
 
 /**
  * Search bar for the Board's Kanban tab.
@@ -18,16 +18,47 @@ import type { BoardTask } from '../../api/client'
  *  - When active, shows a "N of M tasks" counter so the user knows
  *    they're looking at a filtered view (avoids "why don't I see my
  *    card" confusion).
+ *  - Two terminal chips narrow to cards that have a terminal at all, or
+ *    only those whose terminal is live right now.
  */
+
+/**
+ * Terminal narrowing, on top of the text query.
+ *
+ *  - `all`  — no narrowing.
+ *  - `with` — the task has a terminal session: it has been started at
+ *             some point and can be opened or reopened, running or not.
+ *  - `live` — its tmux session exists right now.
+ *
+ * One exclusive choice rather than two independent switches: `live` is a
+ * strict subset of `with`, so having both on would just mean `live`
+ * while looking like a third, different state.
+ */
+export type TerminalFilter = 'all' | 'with' | 'live'
 
 interface Props {
   query: string
   onQueryChange: (q: string) => void
   matchCount: number
   totalCount: number
+  terminalFilter: TerminalFilter
+  onTerminalFilterChange: (f: TerminalFilter) => void
+  /** How many tasks each chip would show — rendered as a count so the
+   *  user can see there's nothing to filter to before clicking. */
+  withTerminalCount: number
+  liveCount: number
 }
 
-export function BoardSearchBar({ query, onQueryChange, matchCount, totalCount }: Props) {
+export function BoardSearchBar({
+  query,
+  onQueryChange,
+  matchCount,
+  totalCount,
+  terminalFilter,
+  onTerminalFilterChange,
+  withTerminalCount,
+  liveCount,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Global shortcut: `/` or Cmd/Ctrl+K focuses the search input from
@@ -53,15 +84,24 @@ export function BoardSearchBar({ query, onQueryChange, matchCount, totalCount }:
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const active = query.trim().length > 0
+  // Two notions of "active", deliberately separate: the input's own
+  // styling and its clear button follow the TEXT only — a chip being on
+  // shouldn't put an X inside an empty field that clears nothing — while
+  // the counter highlights whenever the view is narrowed by anything.
+  const queryActive = query.trim().length > 0
+  const active = queryActive || terminalFilter !== 'all'
   const hint = useMemo(() => {
     if (!active) return `${totalCount} task${totalCount === 1 ? '' : 's'}`
     return `${matchCount} of ${totalCount}`
   }, [active, matchCount, totalCount])
 
+  /** Clicking the chip that's already on turns it back off. */
+  const toggle = (f: TerminalFilter) =>
+    onTerminalFilterChange(terminalFilter === f ? 'all' : f)
+
   return (
     <div className="board-search-bar">
-      <div className={`board-search-input-wrap ${active ? 'active' : ''}`}>
+      <div className={`board-search-input-wrap ${queryActive ? 'active' : ''}`}>
         <Search size={14} className="board-search-icon" aria-hidden />
         <input
           ref={inputRef}
@@ -75,12 +115,12 @@ export function BoardSearchBar({ query, onQueryChange, matchCount, totalCount }:
               // Two-step: first Esc clears the query; a second Esc
               // (with the field already empty) blurs. Feels more like
               // Slack/Linear than an all-or-nothing clear.
-              if (active) onQueryChange('')
+              if (queryActive) onQueryChange('')
               else inputRef.current?.blur()
             }
           }}
         />
-        {active && (
+        {queryActive && (
           <button
             type="button"
             className="board-search-clear"
@@ -94,6 +134,30 @@ export function BoardSearchBar({ query, onQueryChange, matchCount, totalCount }:
             <X size={12} />
           </button>
         )}
+      </div>
+      <div className="board-search-chips" role="group" aria-label="Filter by terminal">
+        <button
+          type="button"
+          className={`board-search-chip ${terminalFilter === 'with' ? 'active' : ''}`}
+          onClick={() => toggle('with')}
+          aria-pressed={terminalFilter === 'with'}
+          title="Only tasks with a terminal session — started at some point, running or not"
+        >
+          <Terminal size={12} />
+          <span className="board-chip-label">Terminal</span>
+          <span className="board-chip-count">{withTerminalCount}</span>
+        </button>
+        <button
+          type="button"
+          className={`board-search-chip ${terminalFilter === 'live' ? 'active' : ''}`}
+          onClick={() => toggle('live')}
+          aria-pressed={terminalFilter === 'live'}
+          title="Only tasks whose tmux session is running right now"
+        >
+          <Radio size={12} />
+          <span className="board-chip-label">Live</span>
+          <span className="board-chip-count">{liveCount}</span>
+        </button>
       </div>
       <span className={`board-search-count ${active ? 'active' : ''}`}>{hint}</span>
     </div>
@@ -119,6 +183,28 @@ export function BoardSearchBar({ query, onQueryChange, matchCount, totalCount }:
  * copy — the parent compares by reference to decide whether to
  * re-render the kanban).
  */
+/**
+ * Narrow by terminal state. Split from the text filter so each stays
+ * simple, and so the chip counts can be computed from this one alone.
+ *
+ * A task with no entry in `terminals` is treated as having no terminal:
+ * the map is built from the same list, so a miss means the liveness
+ * fetch hasn't landed yet, and showing nothing is better than showing
+ * everything under a filter the user just switched on.
+ */
+export function filterByTerminal(
+  tasks: BoardTask[],
+  terminals: Record<string, BoardTaskTerminalState>,
+  filter: TerminalFilter,
+): BoardTask[] {
+  if (filter === 'all') return tasks
+  return tasks.filter((t) => {
+    const s = terminals[t.key]
+    if (!s) return false
+    return filter === 'live' ? s.tmuxAlive : s.hasTerminal
+  })
+}
+
 export function filterBoardTasks(tasks: BoardTask[], rawQuery: string): BoardTask[] {
   const q = rawQuery.trim().toLowerCase()
   if (!q) return tasks

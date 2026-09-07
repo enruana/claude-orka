@@ -22,6 +22,7 @@ import {
   api,
   type BoardConfig,
   type BoardTask,
+  type BoardTaskTerminalState,
   type BoardDrift,
 } from '../../api/client'
 import { decodeProjectPath } from '../ProjectDashboard'
@@ -29,7 +30,8 @@ import { BoardKanban } from './BoardKanban'
 import { BoardTaskModal } from './BoardTaskModal'
 import { LocalTaskDialog } from './LocalTaskDialog'
 import { BoardArchiveDrawer } from './BoardArchiveDrawer'
-import { BoardSearchBar, filterBoardTasks } from './BoardSearchBar'
+import { BoardSearchBar, filterBoardTasks, filterByTerminal } from './BoardSearchBar'
+import type { TerminalFilter } from './BoardSearchBar'
 import { SessionCodeEditor } from '../code-editor'
 import { FinderExplorer } from '../finder'
 import { KBGraph } from '../kb'
@@ -90,6 +92,11 @@ export function BoardPage() {
   // reset on board reload / navigation is intentional so the user
   // isn't surprised by a lingering filter later.
   const [searchQuery, setSearchQuery] = useState('')
+  const [terminalFilter, setTerminalFilter] = useState<TerminalFilter>('all')
+  /** Liveness per task key. Refreshed on load and on a slow interval —
+   *  a terminal can die (or be killed elsewhere) without anything on
+   *  this page knowing, so stored handles alone would go stale. */
+  const [terminals, setTerminals] = useState<Record<string, BoardTaskTerminalState>>({})
   // Active content tab. Persisted per-board so the user's last view is
   // restored on refresh / re-entry.
   const [tab, setTab] = useState<BoardTab>(() => {
@@ -158,11 +165,29 @@ export function BoardPage() {
       setTasks(ts)
       setArchived(arch)
       setDrifts(ds)
+      // Best-effort: a failed liveness read shouldn't blank the board.
+      // The filters just fall back to showing nothing until it lands.
+      api.getBoardTaskTerminals(projectPath, boardId)
+        .then(setTerminals)
+        .catch(() => {})
       setLoading(false)
     } catch (err: any) {
       setError(err?.message || 'Failed to load board')
       setLoading(false)
     }
+  }, [projectPath, boardId])
+
+  // Terminals die outside this page — a `orka stop`, a killed tmux, a
+  // server restart. Re-read liveness on a slow timer so the Live filter
+  // and its count don't drift; 10s is far below how often that happens
+  // and cheap (one `tmux list-sessions` plus a few kill(pid, 0) checks).
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      api.getBoardTaskTerminals(projectPath, boardId)
+        .then(setTerminals)
+        .catch(() => {})
+    }, 10000)
+    return () => window.clearInterval(id)
   }, [projectPath, boardId])
 
   /** Archive from the task modal: hide the card, close the modal, reload. */
@@ -364,8 +389,20 @@ export function BoardPage() {
   // production error #310 ("more hooks than during the previous
   // render") when the board finished loading.
   const visibleTasks = useMemo(
-    () => filterBoardTasks(tasks, searchQuery),
-    [tasks, searchQuery],
+    () => filterByTerminal(filterBoardTasks(tasks, searchQuery), terminals, terminalFilter),
+    [tasks, searchQuery, terminals, terminalFilter],
+  )
+
+  // Chip counts describe the whole board, not the current text query —
+  // they answer "is there anything to filter to", which shouldn't move
+  // as you type.
+  const withTerminalCount = useMemo(
+    () => tasks.filter((t) => terminals[t.key]?.hasTerminal).length,
+    [tasks, terminals],
+  )
+  const liveCount = useMemo(
+    () => tasks.filter((t) => terminals[t.key]?.tmuxAlive).length,
+    [tasks, terminals],
   )
 
   if (loading) {
@@ -552,6 +589,10 @@ export function BoardPage() {
             onQueryChange={setSearchQuery}
             matchCount={visibleTasks.length}
             totalCount={tasks.length}
+            terminalFilter={terminalFilter}
+            onTerminalFilterChange={setTerminalFilter}
+            withTerminalCount={withTerminalCount}
+            liveCount={liveCount}
           />
           <BoardKanban
             columns={board.columns}

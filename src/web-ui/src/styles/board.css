@@ -2196,3 +2196,52 @@
   .board-archive-item { flex-wrap: wrap; }
   .board-archive-item-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* Terminal filter chips in the board search bar. */
+.board-search-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.board-search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.04);
+  color: #a6adc8;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.board-search-chip:hover { background: rgba(255, 255, 255, 0.09); color: #cdd6f4; }
+
+.board-search-chip.active {
+  background: rgba(137, 180, 250, 0.16);
+  border-color: rgba(137, 180, 250, 0.36);
+  color: #cdd6f4;
+}
+
+.board-chip-count {
+  padding: 0 5px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.board-search-chip.active .board-chip-count {
+  background: rgba(137, 180, 250, 0.24);
+}
+
+/* The chips carry an icon, so the words are the first thing to drop on
+   a narrow board — the counts stay, which is the part that's hard to
+   guess from the icon alone. */
+@media (max-width: 720px) {
+  .board-chip-label { display: none; }
+}

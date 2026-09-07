@@ -8,6 +8,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 import { getGlobalStateManager } from './GlobalStateManager'
 import { BoardManager } from './BoardManager'
 import type { BoardPromptTemplate } from './GlobalStateManager'
+import type { BoardTask } from '../models/Board'
 
 /**
  * Standalone spawner for Board master / task tmux+ttyd+claude terminals.
@@ -441,6 +442,76 @@ export async function startBoardTask(
  * - `no-handles` — this task never had a terminal (kbEntityId set but the
  *               spawn was skipped), so nothing to recover.
  */
+/**
+ * Read-only liveness snapshot for a set of tasks.
+ *
+ * Deliberately separate from `resumeBoardTask`, which is the only other
+ * thing that knows whether a terminal is up: resume SPAWNS a ttyd as a
+ * side effect, so using it to answer "is this alive?" for a whole board
+ * would resurrect every terminal the user had shut down. This only
+ * looks.
+ *
+ * One `tmux list-sessions` for the entire board rather than a
+ * has-session per task — a board with 30 cards would otherwise mean 30
+ * process spawns on every poll.
+ */
+export interface BoardTaskTerminalState {
+  /**
+   * The task has a terminal session — it has been started at some point
+   * and can be opened or reopened.
+   *
+   * Keyed off `claudeSessionId` and not just the tmux/ttyd handles,
+   * because those get PRUNED: BoardPage sweeps every task with handles
+   * through `resumeBoardTask` on load, and resume calls
+   * `detachTaskTerminal` on anything whose tmux is gone. So a task you
+   * shut down yesterday has no handles left this morning, and keying on
+   * them alone would make this flag collapse into `tmuxAlive` and the
+   * two filters show the same thing. `claudeSessionId` survives
+   * shutdown, restart and reopen — it's what "Reopen" resumes from.
+   */
+  hasTerminal: boolean
+  /** Its tmux session exists right now. This is the one that matters:
+   *  tmux is where the Claude session actually lives, and a missing ttyd
+   *  is recoverable (resume spawns a new one) while a missing tmux is not. */
+  tmuxAlive: boolean
+  /** The ttyd serving its web view is alive. False after a server
+   *  restart even when tmux survived. */
+  ttydAlive: boolean
+}
+
+export async function readBoardTaskTerminals(
+  tasks: Array<Pick<BoardTask, 'key' | 'terminalTmuxSessionId' | 'ttydPort' | 'ttydPid' | 'claudeSessionId'>>,
+): Promise<Record<string, BoardTaskTerminalState>> {
+  let liveSessions = new Set<string>()
+  try {
+    const sessions = await TmuxCommands.listSessions()
+    liveSessions = new Set(sessions.map((s) => s.name))
+  } catch {
+    // No tmux server running at all → nothing is alive. Leaving the set
+    // empty says exactly that, so no special-casing needed below.
+  }
+
+  const out: Record<string, BoardTaskTerminalState> = {}
+  for (const t of tasks) {
+    const hasTerminal = !!(t.claudeSessionId || t.terminalTmuxSessionId || t.ttydPort)
+    const tmuxAlive = !!t.terminalTmuxSessionId && liveSessions.has(t.terminalTmuxSessionId)
+    const ttydAlive = !!t.ttydPid && isPidAlive(t.ttydPid)
+    out[t.key] = { hasTerminal, tmuxAlive, ttydAlive }
+  }
+  return out
+}
+
+/** `kill(pid, 0)` — signals nothing, just reports whether we could. */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err: any) {
+    // EPERM means it exists but belongs to another user; still alive.
+    return err?.code === 'EPERM'
+  }
+}
+
 export type BoardTaskResumeStatus = 'alive' | 'dead' | 'no-handles'
 
 export interface BoardTaskResumeResult {

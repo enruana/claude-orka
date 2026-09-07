@@ -23,6 +23,7 @@ import {
   triggerBoardMasterSync,
   startBoardTask,
   stopBoardTask,
+  readBoardTaskTerminals,
   sendCloseToBoardTask,
   sendInitToBoardTask,
   persistTaskHandles,
@@ -128,6 +129,24 @@ boardRouter.post('/:boardId/tasks', async (req, res) => {
   try {
     const t = await mgr(req).addTask(req.params.boardId, req.body)
     res.json(t)
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
+ * `GET /:boardId/tasks/terminals` — read-only liveness map for the whole
+ * board, keyed by task key.
+ *
+ * Powers the board's "with terminal" / "live" filters. It has to be its
+ * own route because the only other thing that knows whether a terminal
+ * is up is `resume`, and that SPAWNS a ttyd as a side effect — polling
+ * it for a filter would resurrect every terminal the user shut down.
+ */
+boardRouter.get('/:boardId/tasks/terminals', async (req, res) => {
+  try {
+    const tasks = await mgr(req).listTasks(req.params.boardId, { archived: 'exclude' })
+    res.json(await readBoardTaskTerminals(tasks))
   } catch (err) {
     handle(res, err)
   }

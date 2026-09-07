@@ -1129,6 +1129,18 @@ export const api = {
     return res.json()
   },
 
+  /** Read-only liveness per task key. Never call `resumeBoardTask` for
+   *  this — that one spawns a ttyd as a side effect. */
+  async getBoardTaskTerminals(
+    projectPath: string,
+    boardId: string
+  ): Promise<Record<string, BoardTaskTerminalState>> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/terminals?project=${p}`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   async deleteBoardTask(
     projectPath: string,
     boardId: string,
@@ -1524,6 +1536,13 @@ export interface BoardTask {
   createdAt: string
   updatedAt: string
   raw?: unknown
+}
+
+/** Mirror of BoardTaskTerminalState in src/core/BoardTerminals.ts. */
+export interface BoardTaskTerminalState {
+  hasTerminal: boolean
+  tmuxAlive: boolean
+  ttydAlive: boolean
 }
 
 export interface BoardDrift {
