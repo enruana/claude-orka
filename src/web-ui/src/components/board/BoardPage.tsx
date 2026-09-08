@@ -791,6 +791,7 @@ export function BoardPage() {
 
       {showArchive && (
         <BoardArchiveDrawer
+          projectPath={projectPath}
           tasks={archived}
           busyKey={archiveBusyKey}
           onRestore={handleRestoreTask}

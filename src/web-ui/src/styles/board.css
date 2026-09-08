@@ -2062,7 +2062,31 @@
 }
 .board-archive-item:hover { background: rgba(255, 255, 255, 0.06); }
 
-.board-archive-item-main { flex: 1; min-width: 0; }
+.board-archive-item-main {
+  flex: 1;
+  min-width: 0;
+  /* Was a div, now a button so the whole row is one keyboard-reachable
+     target for expanding. Reset the UA chrome. */
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.board-archive-item-text { flex: 1; min-width: 0; }
+
+.board-archive-chevron {
+  flex: none;
+  margin-top: 2px;
+  color: #6c7086;
+  transition: transform 0.14s ease;
+}
+.board-archive-chevron.open { transform: rotate(90deg); }
 
 .board-archive-item-meta {
   display: flex;
@@ -2080,6 +2104,7 @@
 }
 
 .board-archive-item-title {
+  display: -webkit-box;
   margin: 0;
   font-size: 13px;
   color: #cdd6f4;
@@ -2375,3 +2400,104 @@
      is what produced a clipped row rather than a scrollable one. */
   .board-header-actions > * { flex: none; }
 }
+
+/* --- Expanded details for an archived task --- */
+/*
+ * Read-only body under a row: description, links to where the work
+ * lives, and the metadata worth keeping. Lets the archive answer "what
+ * was this?" without restoring the card first.
+ */
+.board-archive-details {
+  flex-basis: 100%;
+  /* A flex item won't shrink below its content's min-content width by
+     default, and the link path is `nowrap` — so a long path made this
+     panel 682px wide inside a 427px row and it spilled out of the
+     drawer. The whole chain down to the ellipsizing path needs to be
+     allowed to shrink. */
+  min-width: 0;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.board-archive-desc {
+  margin: 0 0 9px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #bac2de;
+  /* Descriptions can be long; keep the row from taking over the drawer
+     while still allowing a scan of the first lines. */
+  max-height: 8.4em;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.board-archive-desc.empty { color: #6c7086; font-style: italic; }
+
+.board-archive-links-loading {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #6c7086;
+}
+
+.board-archive-links {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 9px;
+}
+
+.board-archive-link {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(137, 180, 250, 0.2);
+  background: rgba(137, 180, 250, 0.08);
+  color: #cdd6f4;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+}
+.board-archive-link:hover { background: rgba(137, 180, 250, 0.16); }
+.board-archive-link-label { flex: none; font-weight: 600; }
+.board-archive-link-path {
+  flex: 1;
+  min-width: 0;
+  color: #6c7086;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Long paths matter at the end (the filename), not the start. */
+  direction: rtl;
+  text-align: left;
+}
+.board-archive-link-arrow { flex: none; opacity: 0.6; }
+
+.board-archive-meta-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0;
+  font-size: 11px;
+}
+.board-archive-meta-grid dt { color: #6c7086; }
+.board-archive-meta-grid dd {
+  margin: 0;
+  color: #bac2de;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.board-archive-meta-grid code {
+  font-size: 10px;
+  color: #a6adc8;
+}
+.board-archive-meta-grid a { color: #89b4fa; }
+
+/* The row becomes a column once a detail panel is inside it. */
+.board-archive-item { flex-wrap: wrap; }

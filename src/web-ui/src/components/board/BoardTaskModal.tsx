@@ -24,13 +24,11 @@ import {
 import { api, type AIQueryContext, type BoardTask } from '../../api/client'
 import { TaskWidget } from '../TaskWidget'
 import { QuickAIDialogWrapper } from '../../App'
-import { encodeProjectPath } from '../ProjectDashboard'
+import { kbLinksFromEntity, labelForPathKey, openTaskPath } from './taskLinks'
 
 /** Same set the KB detail panel uses so both surfaces render identical
  *  Quick Access links from an entity's properties. Keep the priority
  *  order matching (`master_doc` first). */
-const PATH_PROPERTIES = ['master_doc', 'path', 'notes_path', 'profile_path', 'source_path', 'repo_path', 'filePath']
-
 /**
  * Fullscreen board task panel.
  *
@@ -162,46 +160,9 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
     return () => { cancelled = true }
   }, [projectPath, task.kbEntityId])
 
-  const encodedProject = encodeProjectPath(projectPath)
+  const openFilePath = (filePath: string) => openTaskPath(projectPath, filePath)
 
-  const openFilePath = (filePath: string) => {
-    const clean = filePath.replace(/^\/+/, '')
-    const isFile = /\.\w+$/.test(clean)
-    // HTML files open through the direct `/api/files/preview/:enc/*path`
-    // endpoint so relative assets (<link>, <img>, <script>) resolve
-    // against the file's own URL — needed for a self-contained
-    // overview.html that references its neighbors. Other files stay on
-    // the FileViewer SPA route (Markdown, images, code) which wraps them
-    // in the app chrome.
-    const isHtml = /\.html?$/i.test(clean)
-    let target: string
-    if (isHtml) {
-      const pathSegments = clean.split('/').map((s) => encodeURIComponent(s)).join('/')
-      // `?comments=1&voice=1` mounts both overlays — the review-comment
-      // rail and the voice widget. Board task artifacts (overview.html,
-      // report.html, etc.) are the docs users most often open on mobile
-      // to talk about, so voice is on by default here.
-      target = `/api/files/preview/${encodedProject}/${pathSegments}?comments=1&voice=1`
-    } else if (isFile) {
-      target = `/projects/${encodedProject}/files/view?path=${encodeURIComponent(clean)}`
-    } else {
-      target = `/projects/${encodedProject}/files?path=${encodeURIComponent(clean)}`
-    }
-    window.open(target, '_blank')
-  }
-
-  const kbLinks = (() => {
-    const props = kbEntity?.properties
-    if (!props) return [] as Array<{ key: string; path: string; isFile: boolean }>
-    const out: Array<{ key: string; path: string; isFile: boolean }> = []
-    for (const key of PATH_PROPERTIES) {
-      const raw = props[key]
-      if (typeof raw !== 'string' || !raw.trim()) continue
-      const clean = raw.trim().replace(/^\/+/, '')
-      out.push({ key, path: clean, isFile: /\.\w+$/.test(clean) })
-    }
-    return out
-  })()
+  const kbLinks = kbLinksFromEntity(kbEntity)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') startClose() }
@@ -754,15 +715,3 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
 
 /** Friendly Spanish label for a path property key — same wording the KB
  *  detail panel uses so both surfaces read alike. */
-function labelForPathKey(key: string): string {
-  switch (key) {
-    case 'master_doc': return 'Documento principal'
-    case 'path': return 'Carpeta'
-    case 'notes_path': return 'Notas'
-    case 'profile_path': return 'Perfil'
-    case 'source_path': return 'Fuente'
-    case 'repo_path': return 'Repositorio'
-    case 'filePath': return 'Archivo'
-    default: return key
-  }
-}
