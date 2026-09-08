@@ -2,7 +2,12 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
 import { ClaudeOrka } from '../../core/ClaudeOrka'
-import { startSystemTerminal, stopSystemTerminal } from '../../core/SessionManager'
+import {
+  startSystemTerminal,
+  stopSystemTerminal,
+  startEditorTerminal,
+  stopEditorTerminal,
+} from '../../core/SessionManager'
 import { StateManager, getOrkaVersion } from '../../core/StateManager'
 import { TmuxCommands } from '../../utils/tmux'
 import { KnowledgeBaseManager } from '../../core/KnowledgeBaseManager'
@@ -122,6 +127,48 @@ projectsRouter.delete('/system-terminal', async (_req, res) => {
     res.json({ success: true })
   } catch (error: any) {
     logger.error('Failed to stop system terminal:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/projects/editor-terminal
+ * Body: { projectPath }
+ *
+ * Start (or reattach to) the code editor's terminal for a project. The
+ * shell is rooted in the project directory, and the tmux session
+ * outlives the browser tab, so closing the panel and reopening it lands
+ * back in the same shell.
+ */
+projectsRouter.post('/editor-terminal', async (req, res) => {
+  try {
+    const projectPath = typeof req.body?.projectPath === 'string' ? req.body.projectPath : ''
+    if (!projectPath) {
+      res.status(400).json({ error: 'projectPath is required' })
+      return
+    }
+    res.json(await startEditorTerminal(projectPath))
+  } catch (error: any) {
+    logger.error('Failed to start editor terminal:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/projects/editor-terminal?projectPath=<abs path>
+ * Kill the editor terminal and its tmux session for good.
+ */
+projectsRouter.delete('/editor-terminal', async (req, res) => {
+  try {
+    const projectPath = typeof req.query.projectPath === 'string' ? req.query.projectPath : ''
+    if (!projectPath) {
+      res.status(400).json({ error: 'projectPath is required' })
+      return
+    }
+    await stopEditorTerminal(projectPath)
+    res.json({ success: true })
+  } catch (error: any) {
+    logger.error('Failed to stop editor terminal:', error)
     res.status(500).json({ error: error.message })
   }
 })

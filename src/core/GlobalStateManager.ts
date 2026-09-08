@@ -92,6 +92,10 @@ export interface GlobalConfig {
   ttydBasePort: number
   lastUpdated: string
   systemTerminal?: SystemTerminalInfo
+  /** Code-editor terminals, keyed by absolute project path. Separate
+   *  from `systemTerminal` because these are per-project shells rooted
+   *  in the project directory, and several can be alive at once. */
+  editorTerminals?: Record<string, SystemTerminalInfo>
   /** KB entities the user pinned to the ProjectDock. Global (not per-
    *  project) so pins from different projects live side-by-side in the
    *  dock — the projectPath on each entry disambiguates. */
@@ -374,6 +378,26 @@ export class GlobalStateManager {
     delete this.config!.systemTerminal
     await this.save()
     logger.info('System terminal cleared')
+  }
+
+  // ---------- Editor terminals (one per project) ----------
+
+  getEditorTerminal(projectPath: string): SystemTerminalInfo | null {
+    return this.config?.editorTerminals?.[projectPath] || null
+  }
+
+  async setEditorTerminal(projectPath: string, info: SystemTerminalInfo): Promise<void> {
+    if (!this.config!.editorTerminals) this.config!.editorTerminals = {}
+    this.config!.editorTerminals[projectPath] = info
+    await this.save()
+    logger.info(`Editor terminal saved for ${projectPath}: port=${info.ttydPort}, pid=${info.ttydPid}`)
+  }
+
+  async clearEditorTerminal(projectPath: string): Promise<void> {
+    if (this.config?.editorTerminals) {
+      delete this.config.editorTerminals[projectPath]
+      await this.save()
+    }
   }
 
   // ---------- Board prompt templates ----------

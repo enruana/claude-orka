@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
 import fs from 'fs-extra'
 import { spawn } from 'child_process'
+import crypto from 'crypto'
 import execa from 'execa'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -1950,4 +1951,123 @@ export async function stopSystemTerminal(): Promise<void> {
 
     await globalState.clearSystemTerminal()
   }
+}
+
+// ============================================================
+// Editor terminals — one shell per project, for the code editor
+// ============================================================
+
+/**
+ * A terminal for the code editor, rooted in the project directory.
+ *
+ * Distinct from the system terminal on purpose: that one is a single
+ * global shell starting wherever the daemon started, which is the wrong
+ * cwd for "open a terminal in the project I'm editing". These are keyed
+ * by project path, so each editor gets its own shell and switching
+ * projects doesn't drag the previous one's directory along.
+ *
+ * The tmux session outlives the browser tab, so closing the panel and
+ * reopening it lands back in the same shell with its history and any
+ * long-running process still attached.
+ */
+const EDITOR_TERMINAL_PREFIX = 'orka-editor'
+
+/** tmux session names can't hold a filesystem path, so derive a short
+ *  stable id from it. Same project always maps to the same session. */
+function editorTerminalSessionName(projectPath: string): string {
+  const hash = crypto.createHash('sha1').update(path.resolve(projectPath)).digest('hex').slice(0, 10)
+  return `${EDITOR_TERMINAL_PREFIX}-${hash}`
+}
+
+export async function startEditorTerminal(projectPath: string): Promise<{ port: number; session: string }> {
+  const resolved = path.resolve(projectPath)
+  if (!await fs.pathExists(resolved)) {
+    throw new Error(`Project path does not exist: ${resolved}`)
+  }
+
+  const sessionName = editorTerminalSessionName(resolved)
+  const globalState = await getGlobalStateManager()
+  const existing = globalState.getEditorTerminal(resolved)
+
+  // Reuse only if BOTH halves survived. A live ttyd whose tmux was
+  // killed elsewhere serves a dead terminal, and a live tmux with a
+  // dead ttyd has no port to connect to.
+  if (existing && isProcessAlive(existing.ttydPid)) {
+    let tmuxAlive = true
+    try {
+      await execa('tmux', ['has-session', '-t', sessionName])
+    } catch {
+      tmuxAlive = false
+    }
+    if (tmuxAlive) {
+      logger.info(`Editor terminal already running for ${resolved} on port ${existing.ttydPort}`)
+      return { port: existing.ttydPort, session: sessionName }
+    }
+    try { process.kill(existing.ttydPid, 'SIGTERM') } catch { /* already gone */ }
+  }
+  if (existing) await globalState.clearEditorTerminal(resolved)
+
+  try {
+    await execa('which', ['ttyd'])
+  } catch {
+    throw new Error('ttyd not found. Run: orka prepare')
+  }
+
+  try {
+    await execa('tmux', ['has-session', '-t', sessionName])
+  } catch {
+    // `-c` is what makes this a PROJECT terminal rather than another
+    // shell in the daemon's cwd.
+    await execa('tmux', ['new-session', '-d', '-s', sessionName, '-c', resolved])
+  }
+
+  const port = await globalState.getNextTtydPort()
+  const ttydProcess = spawn(
+    'ttyd',
+    [
+      '-W', '-p', port.toString(),
+      '-t', 'fontSize=12',
+      '-t', 'fontFamily=monospace',
+      '-t', 'cursorBlink=true',
+      '-t', 'macOptionIsMeta=true',
+      '-t', 'scrollOnUserInput=true',
+      'tmux', 'attach', '-t', sessionName,
+    ],
+    { detached: true, stdio: 'ignore' }
+  )
+  ttydProcess.unref()
+
+  const pid = ttydProcess.pid
+  if (!pid) throw new Error('Failed to start ttyd for the editor terminal')
+
+  await globalState.setEditorTerminal(resolved, {
+    tmuxSessionId: sessionName,
+    ttydPort: port,
+    ttydPid: pid,
+  })
+
+  logger.info(`Editor terminal for ${resolved} started on port ${port} (PID: ${pid})`)
+  return { port, session: sessionName }
+}
+
+export async function stopEditorTerminal(projectPath: string): Promise<void> {
+  const resolved = path.resolve(projectPath)
+  const sessionName = editorTerminalSessionName(resolved)
+  const globalState = await getGlobalStateManager()
+  const existing = globalState.getEditorTerminal(resolved)
+
+  if (existing && isProcessAlive(existing.ttydPid)) {
+    try {
+      process.kill(existing.ttydPid, 'SIGTERM')
+    } catch (err: any) {
+      logger.warn(`Failed to kill editor ttyd: ${err.message}`)
+    }
+  }
+  try {
+    await execa('tmux', ['kill-session', '-t', sessionName])
+  } catch {
+    // Session may already be gone.
+  }
+  await globalState.clearEditorTerminal(resolved)
+  logger.info(`Editor terminal for ${resolved} stopped`)
 }

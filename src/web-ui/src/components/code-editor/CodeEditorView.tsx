@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { ChevronLeft, ChevronDown, ChevronUp, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2, Check, Search } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronUp, Save, GitBranch, RefreshCw, X, FolderOpen, Undo2, Check, Search, TerminalSquare, Loader2 } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
 import { GitPanel } from './GitPanel'
@@ -118,6 +118,72 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
     document.addEventListener('mouseup', onUp)
   }, [sidebarWidth])
 
+  // Bottom terminal panel. `port` is the ttyd the server spun up for
+  // this project; null while it's still starting.
+  const [terminalOpen, setTerminalOpen] = useState(false)
+  const [terminalPort, setTerminalPort] = useState<number | null>(null)
+  const [terminalError, setTerminalError] = useState<string | null>(null)
+  const [terminalHeight, setTerminalHeight] = useState(() => {
+    const saved = localStorage.getItem('orka.editor.terminalHeight')
+    const n = saved ? parseInt(saved, 10) : NaN
+    return Number.isFinite(n) ? Math.min(Math.max(n, 120), 700) : 280
+  })
+
+  /**
+   * Open the project terminal, starting it on first use.
+   *
+   * The tmux session behind it survives the panel being closed, so
+   * toggling this is genuinely cheap after the first time — you come
+   * back to the same shell, same cwd, same scrollback.
+   */
+  const toggleTerminal = useCallback(async () => {
+    if (terminalOpen) { setTerminalOpen(false); return }
+    setTerminalOpen(true)
+    if (terminalPort) return
+    setTerminalError(null)
+    try {
+      const { port } = await api.getEditorTerminal(projectPath)
+      setTerminalPort(port)
+    } catch (err: any) {
+      setTerminalError(err?.message || 'Could not start the terminal')
+    }
+  }, [terminalOpen, terminalPort, projectPath])
+
+  const handleTerminalResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+    const startY = e.clientY
+    const startHeight = terminalHeight
+    const onMove = (ev: MouseEvent) => {
+      // Dragging UP grows the panel, hence the inverted delta.
+      setTerminalHeight(Math.min(Math.max(startHeight - (ev.clientY - startY), 120), 700))
+    }
+    const onUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      setTerminalHeight(h => { localStorage.setItem('orka.editor.terminalHeight', String(h)); return h })
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [terminalHeight])
+
+  // Ctrl+` toggles the terminal, the way every editor does it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '`') {
+        e.preventDefault()
+        void toggleTerminalRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  const toggleTerminalRef = useRef(toggleTerminal)
+  useEffect(() => { toggleTerminalRef.current = toggleTerminal }, [toggleTerminal])
+
   // Resizable Git panel
   const GIT_PANEL_KEY = 'orka-code-fullpage-git-width'
   const [gitPanelWidth, setGitPanelWidth] = useState(() => {
@@ -162,6 +228,7 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
 
   // Toast notification state
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' })
+
 
   // Create file/folder modal state
   const [createModal, setCreateModal] = useState<{
@@ -711,6 +778,13 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
             <Save size={18} />
           </button>
           <button
+            className={`icon-button ${terminalOpen ? 'active' : ''}`}
+            onClick={() => void toggleTerminal()}
+            title="Toggle terminal (Ctrl+`)"
+          >
+            <TerminalSquare size={18} />
+          </button>
+          <button
             className={`icon-button ${showGitPanel ? 'active' : ''}`}
             onClick={() => setShowGitPanel(!showGitPanel)}
             title="Toggle Git Panel"
@@ -864,6 +938,43 @@ export function CodeEditorView({ projectPath, encodedPath, onBack, initialFile }
               )
             )}
           </div>
+
+          {/* Terminal panel */}
+          {terminalOpen && (
+            <>
+              <div className="terminal-resize-handle" onMouseDown={handleTerminalResizeStart} />
+              <div className="editor-terminal-panel" style={{ height: terminalHeight }}>
+                <div className="editor-terminal-header">
+                  <TerminalSquare size={13} />
+                  <span className="editor-terminal-title">Terminal</span>
+                  <span className="editor-terminal-cwd">{projectName}</span>
+                  <button
+                    className="editor-terminal-close"
+                    onClick={() => setTerminalOpen(false)}
+                    title="Hide terminal (the shell keeps running)"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="editor-terminal-body">
+                  {terminalError ? (
+                    <div className="editor-terminal-message error">{terminalError}</div>
+                  ) : terminalPort ? (
+                    <iframe
+                      className="editor-terminal-frame"
+                      src={`/terminal/${terminalPort}?desktop=1`}
+                      title="Project terminal"
+                    />
+                  ) : (
+                    <div className="editor-terminal-message">
+                      <Loader2 size={16} className="editor-terminal-spin" />
+                      <span>Starting terminal…</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </main>
 
         {/* Git Panel resize handle (desktop only) */}

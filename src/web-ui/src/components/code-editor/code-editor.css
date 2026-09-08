@@ -2626,3 +2626,288 @@
 .session-code-sidebar .search-panel .search-match-row {
   padding: 2px var(--space-sm) 2px var(--space-lg);
 }
+
+/* ============================================================
+   Inline AI editing — selection bar, prompt, review
+   ============================================================ */
+
+/* Floating toolbar under a selection. Replaces the lone round comment
+   button: asking Claude is the primary action now, so it gets a label
+   and the shortcut, and commenting sits beside it as an icon. */
+.editor-selection-bar {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: #1e1e2a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  touch-action: manipulation;
+}
+
+.editor-selection-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.editor-selection-action:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.editor-selection-action-primary {
+  color: #cdd6f4;
+}
+.editor-selection-action-primary:hover {
+  background: var(--accent-blue, #4c7fff);
+  color: #fff;
+}
+
+.editor-selection-action kbd {
+  font-family: inherit;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.55);
+}
+.editor-selection-action-primary:hover kbd {
+  background: rgba(0, 0, 0, 0.2);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Instruction box */
+.editor-ai-prompt {
+  position: absolute;
+  z-index: 21;
+  width: min(380px, calc(100% - 16px));
+  border-radius: 10px;
+  background: #1e1e2a;
+  border: 1px solid rgba(137, 180, 250, 0.35);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.editor-ai-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+}
+
+.editor-ai-prompt-icon {
+  flex-shrink: 0;
+  color: #89b4fa;
+}
+
+.editor-ai-prompt-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #e6e6f0;
+  font-size: 13px;
+  font-family: inherit;
+}
+.editor-ai-prompt-input::placeholder { color: rgba(255, 255, 255, 0.32); }
+.editor-ai-prompt-input:disabled { opacity: 0.6; }
+
+.editor-ai-prompt-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  padding: 3px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+}
+.editor-ai-prompt-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.editor-ai-spin {
+  flex-shrink: 0;
+  color: #89b4fa;
+  animation: editor-ai-spin 0.9s linear infinite;
+}
+@keyframes editor-ai-spin { to { transform: rotate(360deg); } }
+
+.editor-ai-prompt-hint,
+.editor-ai-prompt-error {
+  padding: 6px 10px 8px;
+  font-size: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.editor-ai-prompt-hint { color: rgba(255, 255, 255, 0.38); }
+.editor-ai-prompt-error { color: #f38ba8; }
+
+/* Docked review bar for an applied edit. Anchored to the pane rather
+   than the selection so it can't scroll out of reach while the user
+   reads the change. */
+.editor-ai-review {
+  position: absolute;
+  z-index: 22;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #1e1e2a;
+  border: 1px solid rgba(137, 180, 250, 0.35);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5);
+  color: #89b4fa;
+  font-size: 12px;
+}
+
+.editor-ai-review-label {
+  color: rgba(255, 255, 255, 0.7);
+  margin-right: 2px;
+}
+
+.editor-ai-review-accept,
+.editor-ai-review-revert {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.editor-ai-review-accept {
+  background: rgba(166, 227, 161, 0.16);
+  border-color: rgba(166, 227, 161, 0.4);
+  color: #a6e3a1;
+}
+.editor-ai-review-accept:hover { background: rgba(166, 227, 161, 0.28); }
+
+.editor-ai-review-revert {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.75);
+}
+.editor-ai-review-revert:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* The lines Claude just rewrote. */
+.ai-edit-line {
+  background: rgba(137, 180, 250, 0.13);
+  border-left: 2px solid #89b4fa;
+}
+
+@media (max-width: 640px) {
+  .editor-ai-review { left: 12px; right: 12px; justify-content: center; }
+  .editor-selection-action kbd { display: none; }
+}
+
+/* ============================================================
+   Editor terminal panel
+   ============================================================ */
+
+.editor-terminal-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-height: 0;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  background: #12121a;
+}
+
+.editor-terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.editor-terminal-title { font-weight: 700; }
+
+.editor-terminal-cwd {
+  color: rgba(255, 255, 255, 0.32);
+  text-transform: none;
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-terminal-close {
+  margin-left: auto;
+  display: inline-flex;
+  padding: 3px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+}
+.editor-terminal-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.editor-terminal-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.editor-terminal-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.editor-terminal-message {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 13px;
+}
+.editor-terminal-message.error { color: #f38ba8; }
+
+.editor-terminal-spin { animation: editor-ai-spin 0.9s linear infinite; }
+
+/* Horizontal sibling of .sidebar-resize-handle. */
+.terminal-resize-handle {
+  height: 4px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.terminal-resize-handle:hover { background: var(--accent-blue, #4c7fff); }
+
+@media (max-width: 768px) {
+  .terminal-resize-handle { display: none; }
+  .editor-terminal-panel { height: 45% !important; }
+}

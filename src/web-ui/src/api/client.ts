@@ -385,6 +385,46 @@ export const api = {
   },
 
   // System Terminal
+  /** Start or reattach the code editor's project-rooted terminal. */
+  async getEditorTerminal(projectPath: string): Promise<{ port: number; session: string }> {
+    const res = await fetch(`${API_BASE}/projects/editor-terminal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectPath }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async stopEditorTerminal(projectPath: string): Promise<void> {
+    const res = await fetch(
+      `${API_BASE}/projects/editor-terminal?projectPath=${encodeURIComponent(projectPath)}`,
+      { method: 'DELETE' }
+    )
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  /** Rewrite a selected snippet with Claude. Returns only the
+   *  replacement text, ready to drop into the selection's range. */
+  async editCode(body: {
+    selection: string
+    instruction: string
+    filePath?: string
+    contextBefore?: string
+    contextAfter?: string
+  }): Promise<{ edited: string; unchanged: boolean }> {
+    const res = await fetch(`${API_BASE}/ai/edit-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      try { throw new Error(JSON.parse(text).error || text) } catch { throw new Error(text) }
+    }
+    return res.json()
+  },
+
   async getSystemTerminal(): Promise<{ port: number }> {
     const res = await fetch(`${API_BASE}/projects/system-terminal`, { method: 'POST' })
     if (!res.ok) throw new Error(await res.text())
