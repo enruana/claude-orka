@@ -496,105 +496,242 @@ Output ONLY the summary, no preamble or closing remarks.`
 //     the frontend uses.
 // ---------------------------------------------------------------------------
 
+interface TopicStreamTopic {
+  id: string
+  title: string
+  summary: string
+  keyPoints: string[]
+  sentiment: string
+}
+
 interface TopicStreamBody {
+  /** Full running transcript. Still accepted so an older extension build
+   *  keeps working — when no `existingTopics` are sent this is what gets
+   *  segmented, exactly as before. */
   transcript: string
+  /** Only the speech since the last segmentation. Sent together with
+   *  `existingTopics` — that pair is what makes the call incremental. */
+  newTranscript?: string
+  /** Topics already established and shown to the user. They are treated
+   *  as settled: the model extends them, it does not re-derive them. */
+  existingTopics?: TopicStreamTopic[]
   language?: 'es' | 'en' | 'auto'
   hint?: string
 }
 
-const TOPIC_SYSTEM_PROMPT = `You are a meeting-transcript segmenter. You receive the FULL live transcript of a meeting and split it into an ordered list of topic segments — each one representing a coherent subject the speakers discussed for some stretch of the conversation.
+/**
+ * Incremental segmentation prompt.
+ *
+ * The original prompt re-segmented the whole transcript on every poll,
+ * with no knowledge of what it had already produced. Twenty seconds
+ * later it would merge two topics into one, split another, and reword
+ * every title — so the panel rewrote itself every cycle and nothing the
+ * user had read stayed put.
+ *
+ * This one is handed the topics already on screen and only the new
+ * speech, and is told the existing ones are settled. Its job shrinks
+ * from "segment a meeting" to "does this new stretch continue the last
+ * topic, or start a new one?" — a far narrower question, and a stable
+ * one, because past answers are inputs rather than something to
+ * re-derive.
+ */
+const TOPIC_INCREMENTAL_SYSTEM_PROMPT = `You are a meeting-transcript segmenter working INCREMENTALLY on a live meeting.
+
+You receive:
+1. TOPICS SO FAR — the segments already established and already shown to the user, in chronological order, each with a stable id.
+2. NEW TRANSCRIPT — only the speech since the last time you were called.
+
+Your job is NOT to re-segment the meeting. The existing topics are SETTLED. You decide what the new speech does to them.
 
 Output ONE JSON object with this shape (nothing else):
 {
-  "topics": [
-    {
-      "title": "string, 3-8 words",
-      "summary": "string, 2-3 sentences",
-      "keyPoints": ["string", "..."],
-      "sentiment": "neutral" | "positive" | "concerned" | "excited"
-    },
-    ...
+  "updates": [
+    { "id": "existing-topic-id", "summary": "...", "keyPoints": ["..."], "sentiment": "...", "title": "..." }
+  ],
+  "newTopics": [
+    { "title": "...", "summary": "...", "keyPoints": ["..."], "sentiment": "..." }
   ]
 }
 
-The topics array is ordered EARLIEST to LATEST (chronological). The client renders it with the most recent on top; you don't reverse it yourself.
+## Decide per stretch of new speech
 
-Segmentation rules:
-- Group by SUBJECT, not by paragraph. A stretch of small talk about the same joke is one topic. A tangent that briefly interrupts a decision discussion and then returns should be folded into the surrounding topic unless it's clearly its own subject.
-- Aim for 1 topic every ~30-90 seconds of discussion. A 5-minute meeting typically has 3-8 topics; a 30-minute meeting typically has 10-25.
-- Do NOT create a new topic just because the wording changed. The bar is a real shift in what's being discussed (new question, new agenda item, new problem).
-- The FIRST topic can be small talk / setup / greetings if that's what the meeting opened with. Give it a real title like "Saludos iniciales" rather than "Introduction".
-- If the transcript is too short or noisy to segment (< 3 sentences of real content), return a single-topic array whose title = "(sin contenido suficiente)" (or "(not enough content)" in English) and empty keyPoints.
+- The new speech CONTINUES the last topic → put an entry in "updates" for that topic id, with an enriched summary and any new keyPoints.
+- The new speech STARTS a new subject → add one entry to "newTopics".
+- The new speech RETURNS to an earlier subject → you may update that older topic by its id. This is rare; only do it when the new speech genuinely adds facts to that subject.
+- The new speech adds nothing (filler, crosstalk, silence) → return {"updates":[],"newTopics":[]}. Returning nothing is a valid and useful answer.
 
-Field rules per topic:
-- title: 3-8 words in the transcript's dominant language (Spanish/English; default Spanish if mixed). No filler like "Discussion about" or "Introduction to".
-- summary: 2-3 sentences describing what was actually discussed inside this segment. Concrete, not generic.
-- keyPoints: at most 5 short bullets (facts, decisions, questions, action items). Empty array if nothing concrete.
-- sentiment: exactly one of the four allowed values.
-- Never invent speaker names. Only mention names if clearly stated in the transcript.
+## The test for "continue" vs "new"
 
-Output rules — VIOLATIONS BREAK THE UPSTREAM PARSER:
+Ask: would someone scanning the existing titles expect to find this content under the last one?
+
+- YES → it continues. Update it.
+- NO → it is a new topic, even if it is related, and even if the same people are still talking. Stretching a topic to cover a subject its title does not describe is WORSE than adding one: the user reads the title, opens the card, and finds something else.
+
+Strong signals that a new topic started — treat these as new unless the content plainly says otherwise:
+- The speakers announce one: "segundo punto", "pasemos a", "otro tema", "cambiando de tema", "next up".
+- A different system, component, or product becomes the subject.
+- A different problem or question is put on the table.
+- The meeting turns to wrap-up: assigning owners, next steps, scheduling the follow-up.
+
+Signals that it is NOT a new topic:
+- Same subject, more detail, an example, or someone confirming what was just said.
+- A brief tangent or joke that returns to the same subject.
+- Only the wording changed.
+
+## Rules that keep the panel stable — these matter most
+
+- NEVER change the "title" of an existing topic unless it is now plainly wrong. A settled title the user has already read must not churn between polls.
+- NEVER split an existing topic, merge two of them, delete one, or reorder them. You cannot express those operations and must not try.
+- Only include a topic in "updates" if something ACTUALLY changed. An update that restates the same summary is noise — leave it out.
+- When you update a summary, EXTEND what is there: keep the facts already recorded and add the new ones. Do not rewrite it from scratch in different words.
+- keyPoints in an update REPLACE the topic's list, so repeat the existing points you want to keep and append the new ones. At most 5 total — when full, keep the most important, not merely the most recent.
+- Do not open a new topic for a rephrasing, an example, or a follow-up question about the subject already being discussed. Several new topics from one short stretch of speech means you over-segmented — but folding a genuinely different subject into an existing card to avoid that is the worse error.
+
+## Field rules
+
+- title: 3-8 words in the transcript's dominant language (Spanish/English; default Spanish if mixed). No filler like "Discussion about".
+- summary: 2-4 sentences of what was actually discussed. Concrete, not generic.
+- keyPoints: at most 5 short bullets (facts, decisions, questions, action items).
+- sentiment: exactly one of "neutral" | "positive" | "concerned" | "excited".
+- Never invent speaker names.
+
+## When TOPICS SO FAR is empty
+
+There is nothing to continue, so segment the transcript you were given into "newTopics" (leave "updates" empty). Aim for 1 topic per ~30-90 seconds of discussion. The first topic can be greetings/setup if that is how the meeting opened — give it a real title like "Saludos iniciales".
+
+## Output rules — VIOLATIONS BREAK THE UPSTREAM PARSER
 - Your FIRST character MUST be "{" and your LAST character MUST be "}".
 - Do NOT wrap the JSON in Markdown fences.
-- Do NOT preface with prose ("Here is...", "Analizando...", "Based on the transcript...").
+- Do NOT preface with prose ("Here is...", "Analizando...").
 - Do NOT append anything after the closing "}".
 
-Example valid output (Spanish meeting, 3 topics):
-{"topics":[{"title":"Saludos iniciales","summary":"El equipo se reunió y comentó cómo estuvo el fin de semana antes de arrancar la agenda.","keyPoints":[],"sentiment":"positive"},{"title":"Bug en el pipeline de transcripción","summary":"Se detectó que la calidad del transcript en vivo bajaba con chunks cortos. Se acordó subir el mínimo de hop a 1.5s y agregar overlap de 500ms.","keyPoints":["Chunks cortos degradan calidad","Subir mínimo a 1.5s","Overlap 500ms"],"sentiment":"concerned"},{"title":"Siguientes pasos y responsables","summary":"Se asignaron las tareas: Ana revisa el backend, Luis prueba con un audio real, revisamos mañana.","keyPoints":["Ana: backend","Luis: prueba con audio real","Revisión mañana"],"sentiment":"neutral"}]}`
+Example — new speech continues the last topic and opens one new subject:
+{"updates":[{"id":"t3","summary":"Se detectó que la calidad del transcript baja con chunks cortos. Se acordó subir el mínimo de hop a 1.5s y agregar overlap de 500ms, y ya se probó con un audio real.","keyPoints":["Chunks cortos degradan calidad","Subir mínimo a 1.5s","Overlap 500ms","Probado con audio real"],"sentiment":"concerned"}],"newTopics":[{"title":"Siguientes pasos y responsables","summary":"Se repartieron las tareas para el cierre de la semana.","keyPoints":["Ana: backend","Luis: pruebas"],"sentiment":"neutral"}]}
 
-const TOPIC_SCHEMA = {
+Example — nothing worth recording happened:
+{"updates":[],"newTopics":[]}`
+
+const TOPIC_INCREMENTAL_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    topics: {
+    updates: {
       type: 'array',
-      description: 'Ordered chronologically (earliest first). One entry per coherent subject discussed.',
+      description: 'Existing topics that the new speech genuinely changed. Empty when nothing changed.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', description: 'Id of the existing topic being extended' },
+          title: { type: 'string', description: 'Only when the old title is plainly wrong' },
+          summary: { type: 'string', description: 'Extended summary — keeps prior facts, adds new ones' },
+          keyPoints: {
+            type: 'array',
+            items: { type: 'string' },
+            maxItems: 5,
+            description: 'Full replacement list: repeat the points to keep, append the new ones',
+          },
+          sentiment: { type: 'string', enum: ['neutral', 'positive', 'concerned', 'excited'] },
+        },
+        required: ['id'],
+      },
+    },
+    newTopics: {
+      type: 'array',
+      description: 'Subjects that started in the new speech. Usually zero or one.',
       items: {
         type: 'object',
         additionalProperties: false,
         properties: {
           title: { type: 'string', description: '3-8 word topic title in the transcript language' },
-          summary: { type: 'string', description: '2-3 sentence description of what was actually said' },
-          keyPoints: {
-            type: 'array',
-            items: { type: 'string' },
-            maxItems: 5,
-            description: 'At most 5 short bullets of facts, decisions, or action items',
-          },
-          sentiment: {
-            type: 'string',
-            enum: ['neutral', 'positive', 'concerned', 'excited'],
-          },
+          summary: { type: 'string', description: '2-4 sentence description of what was actually said' },
+          keyPoints: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+          sentiment: { type: 'string', enum: ['neutral', 'positive', 'concerned', 'excited'] },
         },
         required: ['title', 'summary', 'keyPoints', 'sentiment'],
       },
     },
   },
-  required: ['topics'],
+  required: ['updates', 'newTopics'],
+}
+
+/**
+ * Render the settled topics for the prompt.
+ *
+ * Recent topics go in full because the new speech most likely continues
+ * one of them. Older ones collapse to a title — the model still needs to
+ * know they exist so it doesn't open a duplicate, but their bodies would
+ * just spend context. A 30-minute meeting reaches ~25 topics, which sent
+ * in full would dwarf the handful of new sentences being classified.
+ */
+const TOPIC_FULL_DETAIL_COUNT = 8
+
+function renderExistingTopics(topics: TopicStreamTopic[]): string {
+  const splitAt = Math.max(0, topics.length - TOPIC_FULL_DETAIL_COUNT)
+  const older = topics.slice(0, splitAt)
+  const recent = topics.slice(splitAt)
+
+  const lines: string[] = []
+  if (older.length > 0) {
+    lines.push('Earlier topics (titles only — already closed, listed so you do not duplicate them):')
+    older.forEach((t, i) => lines.push(`  ${i + 1}. [${t.id}] ${t.title}`))
+    lines.push('')
+  }
+  lines.push('Most recent topics (full detail — the new speech most likely continues the LAST one):')
+  recent.forEach((t, i) => {
+    const n = splitAt + i + 1
+    lines.push(`  ${n}. [${t.id}] ${t.title}`)
+    if (t.summary) lines.push(`     summary: ${t.summary}`)
+    if (t.keyPoints?.length) lines.push(`     keyPoints: ${t.keyPoints.join(' | ')}`)
+    lines.push(`     sentiment: ${t.sentiment || 'neutral'}`)
+  })
+  return lines.join('\n')
 }
 
 aiRouter.post('/topic-stream', async (req, res) => {
-  const { transcript, language, hint } = (req.body || {}) as TopicStreamBody
-  if (!transcript || typeof transcript !== 'string' || transcript.trim().length < 20) {
+  const { transcript, newTranscript, existingTopics, language, hint } =
+    (req.body || {}) as TopicStreamBody
+
+  const priorTopics = Array.isArray(existingTopics) ? existingTopics : []
+  const incremental = priorTopics.length > 0
+
+  // Incremental calls are judged on the DELTA; only the first call (no
+  // topics yet) needs the whole transcript.
+  const source = incremental ? (newTranscript || '') : (transcript || '')
+  if (typeof source !== 'string' || source.trim().length < 20) {
+    if (incremental) {
+      // Not an error — 20s of silence or crosstalk is normal. Answering
+      // "nothing changed" keeps the client's poll loop simple.
+      res.json({ updates: [], newTopics: [], latencyMs: 0, skipped: 'not enough new speech' })
+      return
+    }
     res.status(400).json({ error: 'transcript too short to segment' })
     return
   }
 
-  // Cap the transcript we send at 12000 chars (~25 min of talk) so a very
-  // long meeting doesn't blow past the model's context / our latency
-  // budget. When it grows past the cap we keep the tail — Claude sees
-  // the most recent content in full and only loses the early minutes,
-  // which is the least useful thing to drop for a live-panel view.
-  const MAX_CHARS = 12000
-  const trimmedTranscript = transcript.length > MAX_CHARS
-    ? '(…earlier transcript trimmed…)\n' + transcript.slice(-MAX_CHARS)
-    : transcript
+  // Cap what we send. On the first call this is the whole meeting, so we
+  // keep the tail — the most recent content matters most for a live
+  // panel and the early minutes are the least costly thing to drop. On
+  // incremental calls the delta is a few hundred chars and the cap never
+  // bites; it only guards against a client that stalled and then sent a
+  // huge catch-up chunk.
+  const MAX_CHARS = incremental ? 6000 : 12000
+  const trimmedSource = source.length > MAX_CHARS
+    ? '(…earlier transcript trimmed…)\n' + source.slice(-MAX_CHARS)
+    : source
 
   const userText = [
     hint ? `Extra hint: ${hint}` : null,
     language && language !== 'auto' ? `Preferred output language: ${language}` : null,
-    `Full meeting transcript so far:\n"""\n${trimmedTranscript}\n"""`,
-    'Segment this into topics as instructed. Respond with exactly one JSON object matching the schema. No prose, no fences. First character "{", last character "}".',
+    incremental
+      ? `TOPICS SO FAR:\n${renderExistingTopics(priorTopics)}`
+      : 'TOPICS SO FAR:\n  (none — this is the first segmentation)',
+    incremental
+      ? `NEW TRANSCRIPT (only the speech since the last call):\n"""\n${trimmedSource}\n"""`
+      : `Full meeting transcript so far:\n"""\n${trimmedSource}\n"""`,
+    incremental
+      ? 'Decide what this new speech does to the topics above. Respond with exactly one JSON object matching the schema. No prose, no fences. First character "{", last character "}".'
+      : 'Segment this into topics as instructed, all of them under "newTopics" with "updates" empty. Respond with exactly one JSON object matching the schema. No prose, no fences. First character "{", last character "}".',
   ].filter(Boolean).join('\n\n')
 
   try {
@@ -613,12 +750,12 @@ aiRouter.post('/topic-stream', async (req, res) => {
       prompt: userText,
       options: {
         model: 'haiku',
-        systemPrompt: TOPIC_SYSTEM_PROMPT,
+        systemPrompt: TOPIC_INCREMENTAL_SYSTEM_PROMPT,
         maxTurns: 2,
         allowedTools: [],
         outputFormat: {
           type: 'json_schema',
-          schema: TOPIC_SCHEMA,
+          schema: TOPIC_INCREMENTAL_SCHEMA,
         },
       } as any,  // outputFormat may not be in the sdk d.ts yet; the runtime accepts it
     })) {
@@ -690,20 +827,183 @@ aiRouter.post('/topic-stream', async (req, res) => {
       return
     }
 
-    // Response shape: { topics: [...] }. If Claude returned the shape
-    // right, this is a pass-through. If it returned a single topic
-    // (older client behavior), wrap it for backward compatibility.
     const parsed = structured as Record<string, unknown>
-    const topics = Array.isArray(parsed.topics)
-      ? parsed.topics
-      : (parsed.title ? [parsed] : [])
+    const updates = Array.isArray(parsed.updates) ? parsed.updates : []
+    // `topics` is tolerated as an alias for `newTopics`: the two prompts
+    // differ only in framing and the model occasionally reaches for the
+    // older key on a first-call segmentation.
+    const newTopics = Array.isArray(parsed.newTopics)
+      ? parsed.newTopics
+      : (Array.isArray(parsed.topics) ? parsed.topics : [])
+
+    // Drop updates that name a topic the client doesn't have. The model
+    // does occasionally invent an id, and applying one would silently do
+    // nothing on the client while looking like a successful poll here.
+    const knownIds = new Set(priorTopics.map((t) => t.id))
+    const applicable = updates.filter((u) => {
+      const id = (u as Record<string, unknown>)?.id
+      return typeof id === 'string' && knownIds.has(id)
+    })
+    const droppedUpdates = updates.length - applicable.length
+    if (droppedUpdates > 0) {
+      console.warn(`[topic-stream] dropped ${droppedUpdates} update(s) for unknown topic ids`)
+    }
+
     res.json({
-      topics,
+      updates: applicable,
+      newTopics,
+      // Back-compat: an older extension build reads `topics` and expects
+      // the full list. It never sends `existingTopics`, so its calls are
+      // always first-call segmentations and `newTopics` IS the full list.
+      topics: incremental ? undefined : newTopics,
       latencyMs: Date.now() - t0,
     })
   } catch (err) {
     const e = err as Error
     console.error('Error in AI topic-stream:', e)
     res.status(500).json({ error: e.message || 'topic-stream failed' })
+  }
+})
+
+interface EditCodeBody {
+  /** The exact text the user selected — this is what gets rewritten. */
+  selection: string
+  /** What to do with it, in the user's words ("make it an arrow function"). */
+  instruction: string
+  /** Project-relative path, used for language cues in the prompt. */
+  filePath?: string
+  /** Lines around the selection. Not rewritten, but the model needs them
+   *  to keep names, types and style consistent with the file. */
+  contextBefore?: string
+  contextAfter?: string
+}
+
+/**
+ * Strip the wrapper a model puts around code even when told not to.
+ *
+ * Instructions alone don't hold: ```-fences and a leading "Here's the
+ * updated code:" show up often enough that the caller would be pasting
+ * prose into the file. Peeling them here is cheap and idempotent — text
+ * that arrives clean passes through untouched.
+ */
+function unwrapCodeReply(raw: string): string {
+  let out = raw.trim()
+
+  // A single fenced block, optionally preceded by a sentence of preamble.
+  const fenced = out.match(/```[a-zA-Z0-9+#-]*\n([\s\S]*?)```/)
+  if (fenced) {
+    out = fenced[1]
+  } else {
+    // Unterminated fence (truncated reply) — drop the opener.
+    out = out.replace(/^```[a-zA-Z0-9+#-]*\n?/, '')
+  }
+
+  // Trailing newline only; leading whitespace can be meaningful
+  // indentation, so it stays.
+  return out.replace(/\s+$/, '')
+}
+
+/**
+ * Put back the selection's leading indentation if the reply dropped it.
+ *
+ * A selection dragged from the start of a line carries its indent, and
+ * the replacement is substituted at that exact position — so a reply
+ * that starts flush left silently dedents the first line while the rest
+ * of the block keeps its original depth. Models do this often enough
+ * that the prompt alone can't be trusted.
+ *
+ * Only applied when the reply has no leading whitespace at all: if it
+ * came back indented differently, that was a deliberate choice and
+ * second-guessing it would be worse.
+ */
+function restoreLeadingIndent(original: string, edited: string): string {
+  const indent = original.match(/^[ \t]+/)?.[0]
+  if (!indent) return edited
+  if (/^[ \t]/.test(edited)) return edited
+  return indent + edited
+}
+
+/**
+ * POST /api/ai/edit-code
+ *
+ * Rewrite a selected span of code according to a plain-language
+ * instruction, and return ONLY the replacement text so the editor can
+ * drop it straight into the selection's range.
+ *
+ * The surrounding lines are sent as read-only context: rewriting a
+ * function body in isolation produces code that doesn't match the
+ * file's naming or style, and the model needs to see what's in scope.
+ * They are explicitly marked do-not-return so they don't come back
+ * duplicated into the file.
+ */
+aiRouter.post('/edit-code', async (req, res) => {
+  try {
+    const { selection, instruction, filePath, contextBefore, contextAfter } = req.body as EditCodeBody
+
+    if (!selection?.trim()) {
+      res.status(400).json({ error: 'selection is required' })
+      return
+    }
+    if (!instruction?.trim()) {
+      res.status(400).json({ error: 'instruction is required' })
+      return
+    }
+
+    const prompt = [
+      'You are editing code inside an editor. Rewrite ONLY the selected snippet',
+      'according to the instruction.',
+      '',
+      'Output rules — these are absolute:',
+      '- Return the replacement snippet and NOTHING else.',
+      '- No markdown fences, no language tag, no explanation, no preamble.',
+      '- Do not return the surrounding context; it is shown to you only so the',
+      '  rewrite matches the file, and it stays in the file either way.',
+      '- Preserve the indentation style of the original snippet, since the text',
+      '  is substituted directly into its position.',
+      '- If the instruction cannot be applied, return the snippet unchanged.',
+      '',
+      filePath ? `File: ${filePath}` : '',
+      '',
+      `Instruction: ${instruction}`,
+    ].filter(Boolean).join('\n')
+
+    // Everything sizeable travels on stdin rather than argv — a large
+    // selection would otherwise risk the command-line length limit.
+    const stdin = [
+      contextBefore ? `--- CONTEXT BEFORE (do not return) ---\n${contextBefore}` : '',
+      `--- SELECTED SNIPPET (rewrite this) ---\n${selection}`,
+      contextAfter ? `--- CONTEXT AFTER (do not return) ---\n${contextAfter}` : '',
+    ].filter(Boolean).join('\n\n')
+
+    const { stdout } = await execa(
+      'claude',
+      ['-p', prompt, '--model', 'sonnet', '--no-session-persistence'],
+      {
+        timeout: 120000,
+        input: stdin,
+        // Unset CLAUDECODE so the CLI doesn't refuse as a nested session.
+        env: { ...process.env, CLAUDECODE: '' },
+        extendEnv: false,
+      }
+    )
+
+    const edited = restoreLeadingIndent(selection, unwrapCodeReply(stdout))
+    if (!edited) {
+      res.status(502).json({ error: 'The model returned an empty edit' })
+      return
+    }
+
+    res.json({ edited, unchanged: edited === selection })
+  } catch (error: any) {
+    console.error('Error in AI edit-code:', error)
+    if (error.code === 'ENOENT') {
+      res.status(500).json({ error: 'Claude CLI not found. Make sure claude is installed and in PATH.' })
+      return
+    }
+    if (error.timedOut) {
+      res.status(500).json({ error: 'The edit timed out. Try a smaller selection.' })
+      return
+    }
+    res.status(500).json({ error: error.message || 'Failed to edit code' })
   }
 })

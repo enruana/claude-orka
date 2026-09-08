@@ -84,17 +84,27 @@ const view = {
   // authoritative version but for the topic tab we keep enough state
   // here to make the periodic topic-stream call.
   transcriptChunks: [],
-  // Segmentation returned by the last topic-stream call, ordered
-  // chronologically (earliest first). Replaced wholesale on every
-  // response — Claude re-segments from scratch each poll so the
-  // client doesn't need to reconcile.
+  // Topics accumulated so far, chronological (earliest first). Each has
+  // a stable local id. This list GROWS: a poll can extend an entry or
+  // append new ones, and it is never rebuilt from scratch — that churn
+  // is what made the panel rewrite itself every 20 seconds.
   topics: [],
+  // Next id to hand out. Ids only need to be unique within a session,
+  // and a counter makes them readable in logs and prompts.
+  nextTopicId: 1,
+  // How many transcript chunks have already been segmented. Everything
+  // past this index is the delta sent on the next poll.
+  topicCursor: 0,
   lastTopicRequestAt: 0,
 }
 
 const NUM_BARS = 6
 const TOPIC_INTERVAL_MS = 20000
 const TOPIC_MIN_CHARS = 240
+// Bar for an INCREMENTAL poll. Lower than the first call because there
+// is already context to attach to — a sentence or two is enough to
+// extend a topic, whereas a cold segmentation needs a real stretch.
+const TOPIC_MIN_NEW_CHARS = 120
 
 // Pre-create bar elements once
 for (let i = 0; i < NUM_BARS; i++) {
@@ -479,6 +489,8 @@ function exitReviewToSetup() {
   view.transcriptChunks = []
   view.fullTranscript = ''
   view.topics = []
+  view.nextTopicId = 1
+  view.topicCursor = 0
   view.lastTopicRequestAt = 0
   view.topicLastError = null
   els.liveTranscript.innerHTML = ''
@@ -547,19 +559,49 @@ function renderChunk(text, since, until, fresh) {
 
 // ---------- Topic segmentation (cloud opt-in) ------------------------------
 //
-// Each poll asks Claude to segment the FULL running transcript into a
-// list of coherent topic cards, ordered chronologically. We replace the
-// local `view.topics` wholesale with the model's answer — no local
-// reconciliation, no history bucket. The list gets rendered in the
-// Topics tab with the newest topic pinned to the top.
+// Incremental by design. Each poll sends the topics we already have plus
+// ONLY the speech since the last call, and gets back edits to existing
+// entries and any genuinely new ones. The list accumulates.
+//
+// It used to send the whole transcript and replace `view.topics` with a
+// fresh segmentation every 20 seconds. With no memory of its previous
+// answer the model would merge two topics into one, split another, and
+// reword every title — so a card the user was reading changed under
+// them, and the numbering shifted. Feeding the established topics back
+// in turns each poll into a much narrower question ("does this continue
+// the last topic?"), which is both cheaper and stable.
+//
+// It also fixes a quieter bug: the old call capped the transcript at
+// 12000 chars and kept the tail, so in a long meeting the early topics
+// fell out of the window and vanished from the panel. Now they live in
+// the client's list and are never re-derived.
 
 async function maybeRequestTopic() {
   if (!view.cloudOptIn) return
   if (view.topicRequestInFlight) return
   const now = Date.now()
   if (now - view.lastTopicRequestAt < TOPIC_INTERVAL_MS) return
-  const fullTranscript = view.transcriptChunks.map((c) => c.text).join(' ').trim()
-  if (fullTranscript.length < TOPIC_MIN_CHARS) return
+
+  const chunks = view.transcriptChunks
+  const isFirst = view.topics.length === 0
+  // First call segments everything; later ones only classify the delta.
+  const pending = chunks.slice(view.topicCursor)
+  const newText = pending.map((c) => c.text).join(' ').trim()
+  const fullTranscript = chunks.map((c) => c.text).join(' ').trim()
+
+  if (isFirst) {
+    if (fullTranscript.length < TOPIC_MIN_CHARS) return
+  } else {
+    // A lower bar than the first call: by now there's context to attach
+    // to, so a couple of sentences are enough to extend a topic.
+    if (newText.length < TOPIC_MIN_NEW_CHARS) return
+  }
+
+  // Snapshot the cursor BEFORE the request. Chunks keep arriving while
+  // Claude thinks, and advancing to the live length afterwards would
+  // skip everything transcribed during the call.
+  const cursorAtRequest = chunks.length
+
   view.lastTopicRequestAt = now
   view.topicRequestInFlight = true
   view.topicLastError = null
@@ -572,6 +614,14 @@ async function maybeRequestTopic() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         transcript: fullTranscript,
+        newTranscript: newText,
+        existingTopics: view.topics.map((t) => ({
+          id: t.id,
+          title: t.title,
+          summary: t.summary,
+          keyPoints: t.keyPoints,
+          sentiment: t.sentiment,
+        })),
         language: view.liveLanguage === 'auto' ? undefined : view.liveLanguage,
       }),
     })
@@ -583,26 +633,73 @@ async function maybeRequestTopic() {
       return
     }
     const data = await resp.json()
-    const topics = Array.isArray(data.topics) ? data.topics : []
-    if (topics.length === 0) {
-      view.topicLastError = 'no topics returned'
-      return
-    }
-    // Normalize each entry — defensive against schema drift from Claude.
-    view.topics = topics.map((t) => ({
-      title: (t && t.title) || '(untitled)',
-      summary: (t && t.summary) || '',
-      keyPoints: Array.isArray(t && t.keyPoints) ? t.keyPoints : [],
-      sentiment: (t && t.sentiment) || 'neutral',
-    }))
+    const updates = Array.isArray(data.updates) ? data.updates : []
+    // `topics` is the old server's key for a first-call segmentation.
+    const newTopics = Array.isArray(data.newTopics)
+      ? data.newTopics
+      : (Array.isArray(data.topics) ? data.topics : [])
+
+    applyTopicUpdates(updates)
+    appendNewTopics(newTopics)
+
+    // Only advance once the answer is in. A failed or errored call
+    // leaves the cursor alone so that speech is retried next poll
+    // instead of being silently dropped from the segmentation.
+    view.topicCursor = cursorAtRequest
+
     renderTopics()
-    logView(`topics segmented (${view.topics.length}) in ${data.latencyMs || '?'}ms`, 'ok')
+    const changed = updates.length + newTopics.length
+    logView(
+      changed === 0
+        ? `topics unchanged (${view.topics.length} total) in ${data.latencyMs || '?'}ms`
+        : `topics +${newTopics.length} new, ${updates.length} updated (${view.topics.length} total) in ${data.latencyMs || '?'}ms`,
+      'ok'
+    )
   } catch (err) {
     view.topicLastError = err.message
     logView('topic-stream err: ' + err.message, 'err')
   } finally {
     view.topicRequestInFlight = false
     updateTopicStatus()
+  }
+}
+
+/**
+ * Apply the model's edits in place, by id.
+ *
+ * Only fields actually present are touched, so an update that carries
+ * just a summary can't blank out the keyPoints. Unknown ids are ignored
+ * — the server filters them too, but a stale response arriving after a
+ * reset would otherwise resurrect a topic that no longer exists.
+ */
+function applyTopicUpdates(updates) {
+  for (const u of updates) {
+    if (!u || typeof u.id !== 'string') continue
+    const topic = view.topics.find((t) => t.id === u.id)
+    if (!topic) continue
+    if (typeof u.title === 'string' && u.title.trim()) topic.title = u.title
+    if (typeof u.summary === 'string' && u.summary.trim()) topic.summary = u.summary
+    if (Array.isArray(u.keyPoints)) topic.keyPoints = u.keyPoints
+    if (typeof u.sentiment === 'string' && u.sentiment) topic.sentiment = u.sentiment
+    topic.updatedAt = Date.now()
+  }
+}
+
+/** Append genuinely new topics, assigning each a stable local id. */
+function appendNewTopics(newTopics) {
+  for (const t of newTopics) {
+    if (!t) continue
+    const title = (t.title || '').trim()
+    if (!title) continue
+    view.topics.push({
+      id: 't' + view.nextTopicId++,
+      title,
+      summary: t.summary || '',
+      keyPoints: Array.isArray(t.keyPoints) ? t.keyPoints : [],
+      sentiment: t.sentiment || 'neutral',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
   }
 }
 
@@ -625,26 +722,38 @@ function updateTopicStatus() {
     return
   }
   const now = Date.now()
-  const chars = view.transcriptChunks.map((c) => c.text).join(' ').trim().length
+  const isFirst = view.topics.length === 0
+  // Mirror what maybeRequestTopic() actually gates on: the whole
+  // transcript before the first segmentation, only the un-segmented
+  // delta after it. Reporting total chars once topics exist would show a
+  // number that never explains why the next poll is waiting.
+  const chars = isFirst
+    ? view.transcriptChunks.map((c) => c.text).join(' ').trim().length
+    : view.transcriptChunks.slice(view.topicCursor).map((c) => c.text).join(' ').trim().length
+  const needed = isFirst ? TOPIC_MIN_CHARS : TOPIC_MIN_NEW_CHARS
   const sinceRequest = view.lastTopicRequestAt ? now - view.lastTopicRequestAt : Infinity
 
   if (view.topicRequestInFlight) {
     el.hidden = false
     el.className = 'sp-topic-status working'
-    el.textContent = 'Asking Claude Haiku to segment the transcript…'
+    el.textContent = isFirst
+      ? 'Asking Claude Haiku to segment the transcript…'
+      : 'Asking Claude Haiku what changed…'
   } else if (view.topicLastError) {
     el.hidden = false
     el.className = 'sp-topic-status err'
     el.textContent = 'Last call failed: ' + view.topicLastError
-  } else if (chars < TOPIC_MIN_CHARS) {
+  } else if (chars < needed) {
     el.hidden = false
     el.className = 'sp-topic-status'
-    el.textContent = `Buffering transcript — ${chars} / ${TOPIC_MIN_CHARS} chars until the first segmentation.`
+    el.textContent = isFirst
+      ? `Buffering transcript — ${chars} / ${needed} chars until the first segmentation.`
+      : `Listening — ${chars} / ${needed} new chars until the next update · ${view.topics.length} topics so far.`
   } else if (sinceRequest < TOPIC_INTERVAL_MS) {
     const wait = Math.ceil((TOPIC_INTERVAL_MS - sinceRequest) / 1000)
     el.hidden = false
     el.className = 'sp-topic-status'
-    el.textContent = `Next segmentation in ~${wait}s · ${view.topics.length} topics so far.`
+    el.textContent = `Next update in ~${wait}s · ${view.topics.length} topics so far.`
   } else {
     el.hidden = true
   }
@@ -656,9 +765,10 @@ setInterval(() => {
 }, 1000)
 
 /**
- * Render the topic list — newest at the top. Called after every
- * successful segmentation call. The list is a full replacement of the
- * previous DOM state; the model returns the full segmentation each poll.
+ * Render the topic list — newest at the top. Called after every poll
+ * that changed something. The DOM is rebuilt from `view.topics`, but
+ * that list itself is accumulated, not re-derived, so cards keep their
+ * identity and position across renders.
  */
 function renderTopics() {
   updateEmptyMessages()
