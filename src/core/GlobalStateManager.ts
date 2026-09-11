@@ -382,6 +382,10 @@ export class GlobalStateManager {
 
   // ---------- Editor terminals (one per project) ----------
 
+  getAllEditorTerminals(): Record<string, SystemTerminalInfo> {
+    return this.config?.editorTerminals || {}
+  }
+
   getEditorTerminal(projectPath: string): SystemTerminalInfo | null {
     return this.config?.editorTerminals?.[projectPath] || null
   }

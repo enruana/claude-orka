@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
+import { useEscapeClose } from '../../hooks/useEscapeClose'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -119,11 +120,7 @@ function IPhoneContextMenu({
   onClose: () => void
   header?: React.ReactNode
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   // Menu position: anchor's bottom-left, clamped inside viewport with an
   // 8px margin so it never clips off-screen. If it would overflow the
@@ -305,14 +302,7 @@ export function IPhoneLauncher() {
   }, [loadAll])
 
   // Esc closes an open folder, matching the native iOS gesture-equivalent.
-  useEffect(() => {
-    if (!openFolderPath) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpenFolderPath(null)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [openFolderPath])
+  useEscapeClose(() => setOpenFolderPath(null), !!openFolderPath)
 
   // Grab the system terminal ttyd port once. A missing / erroring endpoint
   // (dashboard hasn't spun up the terminal yet) leaves the port `null`,
@@ -1249,13 +1239,7 @@ function SystemTerminalModal({
   isMobile: boolean
   onClose: () => void
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   const url = `/terminal/${port}${isMobile ? '' : '?desktop=1'}`
 
@@ -1353,13 +1337,7 @@ function VoiceAgentModal({
   isMobile: boolean
   onClose: () => void
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   const url = '/voice-agent?embedded=1'
 
@@ -1444,13 +1422,7 @@ function MobileSessionModal({
   const [view, setView] = useState<'terminal' | 'tabs'>('terminal')
 
   // Esc closes — convenient when testing on desktop in mobile viewport mode.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   // Manual ack of the waiting flag the moment the user "enters the app",
   // matching SessionPage's behavior on web routes.
@@ -1551,13 +1523,7 @@ function DesktopSessionModal({
 }) {
   // Esc closes — keeps the keyboard escape hatch even when SessionView's
   // header back button is not yet rendered (loading state).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   // Re-ack every time the flag transitions to true while the modal is
   // open. Previously the deps only tracked session.id so an ack fired

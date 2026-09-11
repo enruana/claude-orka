@@ -321,6 +321,13 @@ function encodeProjectPath(path: string): string {
   return btoa(path)
 }
 
+export interface EditorTerminal {
+  cwd: string
+  port: number
+  session: string
+  alive?: boolean
+}
+
 export const api = {
   // Projects
   async listProjects(): Promise<RegisteredProject[]> {
@@ -385,20 +392,34 @@ export const api = {
   },
 
   // System Terminal
-  /** Start or reattach the code editor's project-rooted terminal. */
-  async getEditorTerminal(projectPath: string): Promise<{ port: number; session: string }> {
+  /** Start or reattach an editor terminal. `cwd` defaults to the project
+   *  root; pass a folder inside it for "open terminal here". */
+  async getEditorTerminal(projectPath: string, cwd?: string): Promise<EditorTerminal> {
     const res = await fetch(`${API_BASE}/projects/editor-terminal`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectPath }),
+      body: JSON.stringify({ projectPath, cwd }),
     })
-    if (!res.ok) throw new Error(await res.text())
+    if (!res.ok) {
+      const text = await res.text()
+      try { throw new Error(JSON.parse(text).error || text) } catch { throw new Error(text) }
+    }
     return res.json()
   },
 
-  async stopEditorTerminal(projectPath: string): Promise<void> {
+  async listEditorTerminals(projectPath: string): Promise<EditorTerminal[]> {
     const res = await fetch(
-      `${API_BASE}/projects/editor-terminal?projectPath=${encodeURIComponent(projectPath)}`,
+      `${API_BASE}/projects/editor-terminals?projectPath=${encodeURIComponent(projectPath)}`
+    )
+    if (!res.ok) throw new Error(await res.text())
+    const data = await res.json()
+    return Array.isArray(data.terminals) ? data.terminals : []
+  },
+
+  /** Kill a terminal's ttyd and tmux session for good. */
+  async stopEditorTerminal(cwd: string): Promise<void> {
+    const res = await fetch(
+      `${API_BASE}/projects/editor-terminal?cwd=${encodeURIComponent(cwd)}`,
       { method: 'DELETE' }
     )
     if (!res.ok) throw new Error(await res.text())

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe, Pencil, Code, FolderOpen, Eye, Download } from 'lucide-react'
+import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe, Pencil, Code, FolderOpen, Eye, Download, TerminalSquare } from 'lucide-react'
 
 export interface ContextMenuItem {
   label: string
@@ -337,6 +337,16 @@ export function createNewFolderItem(onNewFolder: () => void): ContextMenuItem {
     label: 'New Folder',
     icon: <FolderPlus size={14} />,
     onClick: onNewFolder
+  }
+}
+
+/** "Open Terminal Here" — a shell rooted at the folder that was
+ *  right-clicked, rather than at the project root. */
+export function createOpenTerminalItem(onOpenTerminal: () => void): ContextMenuItem {
+  return {
+    label: 'Open Terminal Here',
+    icon: <TerminalSquare size={14} />,
+    onClick: onOpenTerminal
   }
 }
 

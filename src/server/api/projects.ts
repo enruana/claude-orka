@@ -7,6 +7,7 @@ import {
   stopSystemTerminal,
   startEditorTerminal,
   stopEditorTerminal,
+  listEditorTerminals,
 } from '../../core/SessionManager'
 import { StateManager, getOrkaVersion } from '../../core/StateManager'
 import { TmuxCommands } from '../../utils/tmux'
@@ -147,7 +148,10 @@ projectsRouter.post('/editor-terminal', async (req, res) => {
       res.status(400).json({ error: 'projectPath is required' })
       return
     }
-    res.json(await startEditorTerminal(projectPath))
+    // `cwd` is optional and must sit inside the project — the core
+    // function enforces that; this route just forwards it.
+    const cwd = typeof req.body?.cwd === 'string' && req.body.cwd ? req.body.cwd : undefined
+    res.json(await startEditorTerminal(projectPath, cwd))
   } catch (error: any) {
     logger.error('Failed to start editor terminal:', error)
     res.status(500).json({ error: error.message })
@@ -155,17 +159,38 @@ projectsRouter.post('/editor-terminal', async (req, res) => {
 })
 
 /**
- * DELETE /api/projects/editor-terminal?projectPath=<abs path>
- * Kill the editor terminal and its tmux session for good.
+ * GET /api/projects/editor-terminals?projectPath=<abs path>
+ * The editor terminals under a project that are still running.
  */
-projectsRouter.delete('/editor-terminal', async (req, res) => {
+projectsRouter.get('/editor-terminals', async (req, res) => {
   try {
     const projectPath = typeof req.query.projectPath === 'string' ? req.query.projectPath : ''
     if (!projectPath) {
       res.status(400).json({ error: 'projectPath is required' })
       return
     }
-    await stopEditorTerminal(projectPath)
+    res.json({ terminals: await listEditorTerminals(projectPath) })
+  } catch (error: any) {
+    logger.error('Failed to list editor terminals:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/projects/editor-terminal?cwd=<abs path>
+ * Kill one editor terminal — its ttyd and its tmux session — for good.
+ */
+projectsRouter.delete('/editor-terminal', async (req, res) => {
+  try {
+    // `projectPath` stays accepted as the older name for the same thing.
+    const target = typeof req.query.cwd === 'string' && req.query.cwd
+      ? req.query.cwd
+      : (typeof req.query.projectPath === 'string' ? req.query.projectPath : '')
+    if (!target) {
+      res.status(400).json({ error: 'cwd is required' })
+      return
+    }
+    await stopEditorTerminal(target)
     res.json({ success: true })
   } catch (error: any) {
     logger.error('Failed to stop editor terminal:', error)

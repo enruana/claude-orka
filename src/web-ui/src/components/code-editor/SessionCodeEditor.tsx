@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Save, GitBranch, RefreshCw, X, ExternalLink, Check, FolderOpen, Search } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Save, GitBranch, RefreshCw, X, ExternalLink, Check, FolderOpen, Search, TerminalSquare } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
+import { EditorTerminalPanel, useEditorTerminals, useTerminalShortcut } from './EditorTerminals'
 import { GitPanel } from './GitPanel'
 import { DiffViewer } from './DiffViewer'
 import { SearchPanel } from './SearchPanel'
@@ -13,6 +14,7 @@ import {
   createCopyFileNameItem,
   createNewFileItem,
   createNewFolderItem,
+  createOpenTerminalItem,
   createDeleteItem,
   createRenameItem,
   createPreviewHtmlItem,
@@ -234,6 +236,13 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
   }
 
   // Build context menu items for a path - must be before any early returns
+  const termCtl = useEditorTerminals(projectPath)
+  useTerminalShortcut(termCtl.toggle)
+  // The menu builder is memoised on a narrow dep list; reach the opener
+  // through a ref so it doesn't have to become a dependency.
+  const openTerminalRef = useRef(termCtl.openAt)
+  useEffect(() => { openTerminalRef.current = termCtl.openAt }, [termCtl.openAt])
+
   const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
     const fullPath = `${projectPath}/${path}`
 
@@ -265,7 +274,9 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
 
     // Add create options for directories
     if (isDirectory) {
+      const fullPath = path ? `${projectPath}/${path}` : projectPath
       items.push(
+        createOpenTerminalItem(() => { void openTerminalRef.current(fullPath) }),
         createNewFileItem(() => {
           setCreateModal({ show: true, type: 'file', parentPath: path })
           setCreateName('')
@@ -533,6 +544,13 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
             <Save size={14} />
           </button>
           <button
+            className={`toolbar-btn ${termCtl.open ? 'active' : ''}`}
+            onClick={() => void termCtl.toggle()}
+            title="Toggle terminal (Ctrl+`)"
+          >
+            <TerminalSquare size={14} />
+          </button>
+          <button
             className={`toolbar-btn ${showGitPanel ? 'active' : ''}`}
             onClick={() => setShowGitPanel(!showGitPanel)}
             title="Toggle Git Panel"
@@ -674,6 +692,12 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
               )
             )}
           </div>
+
+          <EditorTerminalPanel
+            ctl={termCtl}
+            projectPath={projectPath}
+            projectName={projectPath.split('/').filter(Boolean).pop() || 'project'}
+          />
         </div>
 
         {/* Git Panel resize handle */}

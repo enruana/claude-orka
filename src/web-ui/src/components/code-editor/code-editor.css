@@ -2911,3 +2911,95 @@
   .terminal-resize-handle { display: none; }
   .editor-terminal-panel { height: 45% !important; }
 }
+
+/* Terminal tabs — one shell per directory. */
+.editor-terminal-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.editor-terminal-tabs::-webkit-scrollbar { display: none; }
+
+.editor-terminal-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 190px;
+  padding: 3px 4px 3px 9px;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.editor-terminal-tab:hover { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.8); }
+.editor-terminal-tab.active {
+  background: rgba(137, 180, 250, 0.16);
+  color: #cdd6f4;
+}
+
+.editor-terminal-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Kill, not hide — this ends the shell. */
+.editor-terminal-kill {
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.editor-terminal-kill:hover {
+  opacity: 1;
+  background: rgba(243, 139, 168, 0.25);
+  color: #f38ba8;
+}
+
+.editor-terminal-new {
+  display: inline-flex;
+  padding: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+}
+.editor-terminal-new:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+
+.editor-terminal-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.editor-terminal-banner.error {
+  background: rgba(243, 139, 168, 0.16);
+  color: #f38ba8;
+}
+.editor-terminal-banner button {
+  margin-left: auto;
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}

@@ -1979,10 +1979,42 @@ function editorTerminalSessionName(projectPath: string): string {
   return `${EDITOR_TERMINAL_PREFIX}-${hash}`
 }
 
-export async function startEditorTerminal(projectPath: string): Promise<{ port: number; session: string }> {
-  const resolved = path.resolve(projectPath)
+/**
+ * Is `child` the same as, or inside, `parent`?
+ *
+ * "Open terminal here" takes a directory from the file tree, and that
+ * path arrives over HTTP — so it gets checked against the project root
+ * rather than trusted, or the endpoint would hand out a shell anywhere
+ * on the filesystem.
+ */
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(path.resolve(parent), path.resolve(child))
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+/**
+ * Start (or reattach) a terminal rooted at `cwd`.
+ *
+ * `cwd` defaults to the project root but can be any directory inside
+ * it, which is what makes "open terminal here" work: sessions are keyed
+ * by the directory, so each folder gets its own shell and asking twice
+ * for the same folder reattaches instead of spawning a second one.
+ */
+export async function startEditorTerminal(
+  projectPath: string,
+  cwd?: string
+): Promise<{ port: number; session: string; cwd: string }> {
+  const projectRoot = path.resolve(projectPath)
+  const resolved = cwd ? path.resolve(cwd) : projectRoot
+
+  if (!isInside(projectRoot, resolved)) {
+    throw new Error(`Refusing to open a terminal outside the project: ${resolved}`)
+  }
   if (!await fs.pathExists(resolved)) {
-    throw new Error(`Project path does not exist: ${resolved}`)
+    throw new Error(`Directory does not exist: ${resolved}`)
+  }
+  if (!(await fs.stat(resolved)).isDirectory()) {
+    throw new Error(`Not a directory: ${resolved}`)
   }
 
   const sessionName = editorTerminalSessionName(resolved)
@@ -2001,7 +2033,7 @@ export async function startEditorTerminal(projectPath: string): Promise<{ port: 
     }
     if (tmuxAlive) {
       logger.info(`Editor terminal already running for ${resolved} on port ${existing.ttydPort}`)
-      return { port: existing.ttydPort, session: sessionName }
+      return { port: existing.ttydPort, session: sessionName, cwd: resolved }
     }
     try { process.kill(existing.ttydPid, 'SIGTERM') } catch { /* already gone */ }
   }
@@ -2047,11 +2079,53 @@ export async function startEditorTerminal(projectPath: string): Promise<{ port: 
   })
 
   logger.info(`Editor terminal for ${resolved} started on port ${port} (PID: ${pid})`)
-  return { port, session: sessionName }
+  return { port, session: sessionName, cwd: resolved }
 }
 
-export async function stopEditorTerminal(projectPath: string): Promise<void> {
-  const resolved = path.resolve(projectPath)
+export interface EditorTerminalInfo {
+  cwd: string
+  port: number
+  session: string
+  alive: boolean
+}
+
+/**
+ * Every editor terminal under a project that is still actually running.
+ *
+ * Both halves are probed rather than trusted: a stored entry survives a
+ * ttyd that was killed elsewhere or a tmux session that died with a
+ * reboot, and listing those would offer the user tabs that connect to
+ * nothing. Dead entries are swept as they're found.
+ */
+export async function listEditorTerminals(projectPath: string): Promise<EditorTerminalInfo[]> {
+  const projectRoot = path.resolve(projectPath)
+  const globalState = await getGlobalStateManager()
+  const all = globalState.getAllEditorTerminals()
+
+  let live: Set<string>
+  try {
+    const { stdout } = await execa('tmux', ['list-sessions', '-F', '#{session_name}'])
+    live = new Set(stdout.split('\n').map((l) => l.trim()).filter(Boolean))
+  } catch {
+    // No tmux server at all means nothing is running.
+    live = new Set()
+  }
+
+  const out: EditorTerminalInfo[] = []
+  for (const [cwd, info] of Object.entries(all)) {
+    if (!isInside(projectRoot, cwd)) continue
+    const alive = isProcessAlive(info.ttydPid) && live.has(info.tmuxSessionId)
+    if (!alive) {
+      await globalState.clearEditorTerminal(cwd)
+      continue
+    }
+    out.push({ cwd, port: info.ttydPort, session: info.tmuxSessionId, alive })
+  }
+  return out.sort((a, b) => a.cwd.localeCompare(b.cwd))
+}
+
+export async function stopEditorTerminal(targetPath: string): Promise<void> {
+  const resolved = path.resolve(targetPath)
   const sessionName = editorTerminalSessionName(resolved)
   const globalState = await getGlobalStateManager()
   const existing = globalState.getEditorTerminal(resolved)

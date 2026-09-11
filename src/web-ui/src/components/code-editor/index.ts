@@ -18,4 +18,5 @@ export {
   createCopyPathItem,
   createCopyRelativePathItem,
   createCopyFileNameItem,
+  createOpenTerminalItem,
 } from './ContextMenu'
