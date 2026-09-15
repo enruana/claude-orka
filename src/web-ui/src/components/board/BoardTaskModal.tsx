@@ -21,6 +21,7 @@ import {
   SplitSquareHorizontal,
   Power,
 } from 'lucide-react'
+import { VoiceTerminalButton } from '../VoiceTerminalButton'
 import { api, type AIQueryContext, type BoardTask } from '../../api/client'
 import { TaskWidget } from '../TaskWidget'
 import { QuickAIDialogWrapper } from '../../App'
@@ -457,6 +458,15 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
               >
                 <SplitSquareHorizontal size={12} />
               </button>
+              <VoiceTerminalButton
+                paneId={task.terminalPaneId}
+                tmuxSession={task.terminalTmuxSessionId}
+                label={`${task.key} · ${task.title || 'task'}`}
+                ttydPort={task.ttydPort}
+                projectB64={btoa(projectPath)}
+                sessionId={task.key}
+                className="board-task-term-btn"
+              />
               <button
                 onClick={() => window.open(`/terminal/${task.ttydPort}?desktop=1`, '_blank')}
                 title="Open in new tab"

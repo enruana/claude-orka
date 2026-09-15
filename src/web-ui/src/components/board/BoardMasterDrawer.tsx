@@ -6,6 +6,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react'
+import { VoiceTerminalButton } from '../VoiceTerminalButton'
 
 /**
  * Bottom-anchored drawer that embeds the Board's master terminal.
@@ -34,6 +35,9 @@ interface Props {
    *  widgets like CommentWidget can target the master specifically when
    *  a task modal isn't in the foreground. */
   sessionId?: string
+  /** tmux session behind the master terminal, so the voice agent can be
+   *  pointed at it without the drawer having to know its pane. */
+  tmuxSession?: string
 }
 
 const MIN_H = 180
@@ -45,7 +49,7 @@ function isMobileViewport(): boolean {
   return window.matchMedia('(max-width: 768px)').matches
 }
 
-export function BoardMasterDrawer({ expanded, onToggle, port, lastSyncedAt, syncing, sessionId }: Props) {
+export function BoardMasterDrawer({ expanded, onToggle, port, lastSyncedAt, syncing, sessionId , tmuxSession }: Props) {
   const [height, setHeight] = useState<number>(() => {
     const raw = localStorage.getItem('orka-board-master-height')
     const n = raw ? Number(raw) : 320
@@ -182,6 +186,13 @@ export function BoardMasterDrawer({ expanded, onToggle, port, lastSyncedAt, sync
                 <span>Master Terminal</span>
                 <span className={`board-master-dot ${port ? 'running' : 'idle'}`} />
               </div>
+              <VoiceTerminalButton
+                tmuxSession={tmuxSession}
+                label="Board master"
+                ttydPort={port ?? undefined}
+                sessionId={sessionId}
+                className="board-master-popout"
+              />
               <button
                 className="board-master-mobile-popout"
                 onClick={() => window.open(`/terminal/${port}?desktop=1`, '_blank')}
@@ -222,6 +233,13 @@ export function BoardMasterDrawer({ expanded, onToggle, port, lastSyncedAt, sync
       {expanded && port && (
         <div className="board-master-body">
           <div className="board-master-toolbar">
+            <VoiceTerminalButton
+              tmuxSession={tmuxSession}
+              label="Board master"
+              ttydPort={port ?? undefined}
+              sessionId={sessionId}
+              className="board-master-popout"
+            />
             <button
               className="board-master-popout"
               onClick={() => window.open(`/terminal/${port}?desktop=1`, '_blank')}

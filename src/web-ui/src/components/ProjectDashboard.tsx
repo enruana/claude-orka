@@ -19,6 +19,7 @@ import {
   Save,
   Mic,
 } from 'lucide-react'
+import { VoiceTerminalButton } from './VoiceTerminalButton'
 import { FolderBrowser } from './FolderBrowser'
 import { NewSessionModal } from './NewSessionModal'
 import { GroupPickerModal } from './GroupPickerModal'
@@ -666,6 +667,12 @@ export function ProjectDashboard() {
                 className="terminal-iframe"
                 allow="clipboard-read; clipboard-write; microphone"
                 onLoad={() => setTerminalLoading(false)}
+              />
+              <VoiceTerminalButton
+                tmuxSession="orka-system-terminal"
+                label="System terminal"
+                ttydPort={systemTerminalPort ?? undefined}
+                variant="floating"
               />
             </>
           ) : (

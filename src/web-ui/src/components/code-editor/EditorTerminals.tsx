@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { TerminalSquare, X, Plus, Loader2, ChevronDown } from 'lucide-react'
 import { api, EditorTerminal } from '../../api/client'
+import { VoiceTerminalButton } from '../VoiceTerminalButton'
 
 /**
  * The editor's terminal panel, shared by both editor shells.
@@ -150,6 +151,7 @@ export function EditorTerminalPanel({
   projectName: string
 }) {
   if (!ctl.open) return null
+  const active = ctl.terminals.find(t => t.cwd === ctl.active) || null
 
   return (
     <>
@@ -190,6 +192,15 @@ export function EditorTerminalPanel({
               <Plus size={13} />
             </button>
           </div>
+          {active && (
+            <VoiceTerminalButton
+              tmuxSession={active.session}
+              label={`Terminal · ${active.cwd.split('/').filter(Boolean).pop() || projectName}`}
+              ttydPort={active.port}
+              projectB64={btoa(projectPath)}
+              className="editor-terminal-new"
+            />
+          )}
           <button
             className="editor-terminal-close"
             onClick={() => ctl.setOpen(false)}

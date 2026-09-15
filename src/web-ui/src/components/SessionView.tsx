@@ -26,7 +26,9 @@ import {
   Pencil,
   Maximize2,
   Minimize2,
+  Mic,
 } from 'lucide-react'
+import { VoiceTerminalButton } from './VoiceTerminalButton'
 import { SessionCodeEditor } from './code-editor'
 import { FinderExplorer } from './finder'
 import { KBGraph } from './kb'
@@ -463,6 +465,12 @@ export function SessionView({
     return `/terminal/${session.ttydPort}?desktop=1&project=${btoa(project.path)}&session=${session.id}`
   }
 
+  /** The pane behind whatever branch is on screen — a fork must talk
+   *  about that fork, not about main. */
+  const selectedPaneId = selectedNode === 'main'
+    ? session.main?.tmuxPaneId
+    : session.forks.find((f) => f.id === selectedNode)?.tmuxPaneId
+
   // Get mobile terminal URL - uses our custom wrapper with virtual keyboard
   const getMobileTerminalUrl = () => {
     return `/terminal/${session.ttydPort}?project=${btoa(project.path)}&session=${session.id}`
@@ -892,13 +900,22 @@ export function SessionView({
             </button>
             <div className="panel-tab-spacer" />
             {rightPanelTab === 'terminal' && session.ttydPort && (
-              <button
-                className="icon-button"
-                onClick={handleOpenTerminalInNewTab}
-                title="Open Claude Code in new tab"
-              >
-                <ExternalLink size={14} />
-              </button>
+              <>
+                <VoiceTerminalButton
+                  paneId={selectedPaneId}
+                  label={`${session.name}${selectedNode === 'main' ? '' : ` · ${branchLabel}`}`}
+                  ttydPort={session.ttydPort}
+                  projectB64={btoa(project.path)}
+                  sessionId={session.id}
+                />
+                <button
+                  className="icon-button"
+                  onClick={handleOpenTerminalInNewTab}
+                  title="Open Claude Code in new tab"
+                >
+                  <ExternalLink size={14} />
+                </button>
+              </>
             )}
             {rightPanelTab === 'code' && (
               <button
