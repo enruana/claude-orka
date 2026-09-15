@@ -1,117 +1,173 @@
 import { useCallback, useEffect, useState } from 'react'
 
 /**
- * Borrow another machine's speech models for the voice agent.
+ * Where the voice agent's speech models run.
  *
- * Opening a remote Orka from a laptop that also runs Orka means whisper
- * and Kokoro run on the remote host, even though the laptop is sitting
- * there idle with the same models installed. This lets the browser send
- * its audio to the LOCAL host instead — the conversation, the sessions
- * and the terminals stay remote, where they belong; only the voice
- * moves.
+ * By default: on the server serving the page. Opening a remote Orka
+ * from a laptop that also runs Orka means whisper and Kokoro run
+ * remotely while the laptop sits idle with the same models installed,
+ * so the browser can send its speech work to another host instead. The
+ * conversation, the sessions and the terminals stay where they are;
+ * only the voice moves.
  *
- * Off by default, and only offered when a local host actually answers:
- * a phone has no Orka to borrow, and silently failing over to a machine
- * that isn't there would just break the microphone.
+ * Hosts are REGISTERED rather than typed each time, because the address
+ * is not guessable and not memorable: a browser cannot discover its own
+ * machine's address, and a Tailscale certificate covers the tailnet
+ * name only — `localhost` and raw IPs fail hostname verification even
+ * when the host is right there and healthy. Registering once and
+ * picking from a list is the difference between a usable setting and a
+ * URL the user re-derives every time.
  *
- * The URL is configurable because the browser cannot discover its own
- * machine's address. `localhost` is the obvious default and usually the
- * wrong one over HTTPS — a Tailscale certificate is issued for the
- * host's tailnet name, so `https://localhost` fails hostname
- * verification. Plain `http://localhost` is blocked outright as mixed
- * content from an HTTPS page. The working answer is the machine's own
- * tailnet hostname.
+ * `null` selection means the serving host, which is always available
+ * and always the fallback.
  */
 
-const ENABLED_KEY = 'orka.voice.localHost.enabled'
-const URL_KEY = 'orka.voice.localHost.url'
+const HOSTS_KEY = 'orka.voice.speechHosts'
+const SELECTED_KEY = 'orka.voice.speechHost.selected'
 
-export interface LocalVoiceHost {
-  /** A reachable local host with speech models, or null. */
-  available: boolean
-  /** Whether the user turned it on (only meaningful when available). */
-  enabled: boolean
-  /** Base URL to send speech work to, e.g. https://my-mac.tailnet.ts.net:3456 */
+export interface SpeechHost {
   url: string
-  probing: boolean
-  error: string | null
-  setEnabled: (on: boolean) => void
-  setUrl: (url: string) => void
-  /** Re-probe after the user edits the URL. */
-  probe: () => Promise<void>
+  /** Short name for the picker; defaults to the URL's hostname. */
+  label: string
 }
 
-function readStoredUrl(): string {
+export type HostReachability = 'unknown' | 'checking' | 'ok' | 'unreachable'
+
+export interface LocalVoiceHost {
+  /** Registered hosts, not including the serving host. */
+  hosts: SpeechHost[]
+  /** Selected host URL, or null for "this server". */
+  selected: string | null
+  /** True when speech should go somewhere other than the serving host. */
+  enabled: boolean
+  /** Base URL to send speech work to — only meaningful when enabled. */
+  url: string
+  reachability: Record<string, HostReachability>
+  error: string | null
+  /** Pick a registered host, or null to go back to this server. */
+  select: (url: string | null) => void
+  addHost: (url: string) => Promise<boolean>
+  removeHost: (url: string) => void
+  probeAll: () => Promise<void>
+}
+
+function read<T>(key: string, fallback: T): T {
   try {
-    const saved = localStorage.getItem(URL_KEY)
-    if (saved) return saved
-  } catch { /* blocked storage */ }
-  return 'https://localhost:3456'
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch { return fallback }
+}
+
+function write(key: string, value: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* blocked storage */ }
+}
+
+function labelFor(url: string): string {
+  try { return new URL(url).hostname.split('.')[0] || url } catch { return url }
+}
+
+/** Why a host is unreachable, in terms the user can act on. */
+function describeFailure(url: string, err: unknown): string {
+  const e = err as { name?: string }
+  if (e?.name === 'TimeoutError') return 'No answer from that host.'
+  if (/localhost|127\.0\.0\.1|^https?:\/\/\d/.test(url)) {
+    return "localhost and IP addresses can't be verified over HTTPS — use the machine's tailnet name, like https://my-mac.your-tailnet.ts.net:3456"
+  }
+  return 'Could not reach it — check the URL is https and its certificate is valid.'
 }
 
 export function useLocalVoiceHost(): LocalVoiceHost {
-  const [url, setUrlState] = useState(readStoredUrl)
-  const [enabled, setEnabledState] = useState(() => {
-    try { return localStorage.getItem(ENABLED_KEY) === '1' } catch { return false }
-  })
-  const [available, setAvailable] = useState(false)
-  const [probing, setProbing] = useState(false)
+  const [hosts, setHosts] = useState<SpeechHost[]>(() => read<SpeechHost[]>(HOSTS_KEY, []))
+  const [selected, setSelected] = useState<string | null>(() => read<string | null>(SELECTED_KEY, null))
+  const [reachability, setReachability] = useState<Record<string, HostReachability>>({})
   const [error, setError] = useState<string | null>(null)
 
-  const probe = useCallback(async () => {
-    const base = url.replace(/\/+$/, '')
-    // Pointing "local" at the page's own origin is a no-op dressed up as
-    // a feature — say so instead of pretending it worked.
-    if (base === window.location.origin) {
-      setAvailable(false)
-      setError('That is this server. Point it at your own machine instead.')
-      return
-    }
-    setProbing(true)
-    setError(null)
+  const probeOne = useCallback(async (url: string): Promise<boolean> => {
+    setReachability(r => ({ ...r, [url]: 'checking' }))
     try {
-      const res = await fetch(`${base}/api/voice/capabilities`, {
-        signal: AbortSignal.timeout(5000),
-      })
+      const res = await fetch(`${url}/api/voice/capabilities`, { signal: AbortSignal.timeout(5000) })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const caps = await res.json()
-      setAvailable(!!caps.tts)
-      if (!caps.tts) setError('That host has no speech models installed.')
-    } catch (err: any) {
-      setAvailable(false)
-      // The common causes are worth naming: an expired or mismatched
-      // certificate and a plain-HTTP host both surface as one opaque
-      // "failed to fetch", and the user cannot act on that.
-      setError(
-        err?.name === 'TimeoutError'
-          ? 'No answer from that host.'
-          : 'Could not reach it — check the URL is https and its certificate is valid.'
-      )
-    } finally {
-      setProbing(false)
+      const ok = !!caps.tts
+      setReachability(r => ({ ...r, [url]: ok ? 'ok' : 'unreachable' }))
+      if (!ok) setError('That host has no speech models installed.')
+      return ok
+    } catch (err) {
+      setReachability(r => ({ ...r, [url]: 'unreachable' }))
+      setError(describeFailure(url, err))
+      return false
     }
-  }, [url])
-
-  useEffect(() => { void probe() }, [probe])
-
-  const setEnabled = useCallback((on: boolean) => {
-    setEnabledState(on)
-    try { localStorage.setItem(ENABLED_KEY, on ? '1' : '0') } catch { /* blocked */ }
   }, [])
 
-  const setUrl = useCallback((next: string) => {
-    setUrlState(next)
-    try { localStorage.setItem(URL_KEY, next) } catch { /* blocked */ }
+  const probeAll = useCallback(async () => {
+    setError(null)
+    await Promise.all(hosts.map(h => probeOne(h.url)))
+  }, [hosts, probeOne])
+
+  // A selected host that stopped answering must not silently swallow the
+  // microphone — fall back to the serving host and say why.
+  useEffect(() => {
+    if (!selected) return
+    void (async () => {
+      const ok = await probeOne(selected)
+      if (!ok) {
+        setSelected(null)
+        write(SELECTED_KEY, null)
+        setError('That host stopped answering, so speech is back on the server.')
+      }
+    })()
+    // Intentionally only on mount / when the selection changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected])
+
+  const select = useCallback((url: string | null) => {
+    setSelected(url)
+    write(SELECTED_KEY, url)
+    setError(null)
+  }, [])
+
+  const addHost = useCallback(async (raw: string): Promise<boolean> => {
+    const url = raw.trim().replace(/\/+$/, '')
+    if (!url) return false
+    if (url === window.location.origin) {
+      setError('That is this server — it is already the default.')
+      return false
+    }
+    const ok = await probeOne(url)
+    if (!ok) return false
+    setHosts(prev => {
+      if (prev.some(h => h.url === url)) return prev
+      const next = [...prev, { url, label: labelFor(url) }]
+      write(HOSTS_KEY, next)
+      return next
+    })
+    setError(null)
+    return true
+  }, [probeOne])
+
+  const removeHost = useCallback((url: string) => {
+    setHosts(prev => {
+      const next = prev.filter(h => h.url !== url)
+      write(HOSTS_KEY, next)
+      return next
+    })
+    setSelected(cur => {
+      if (cur !== url) return cur
+      write(SELECTED_KEY, null)
+      return null
+    })
   }, [])
 
   return {
-    available,
-    enabled: enabled && available,
-    url: url.replace(/\/+$/, ''),
-    probing,
+    hosts,
+    selected,
+    enabled: !!selected,
+    url: selected || '',
+    reachability,
     error,
-    setEnabled,
-    setUrl,
-    probe,
+    select,
+    addHost,
+    removeHost,
+    probeAll,
   }
 }

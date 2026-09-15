@@ -280,6 +280,8 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   const localVoiceRef = useRef(localVoice)
   useEffect(() => { localVoiceRef.current = localVoice }, [localVoice])
   const [localVoiceOpen, setLocalVoiceOpen] = useState(false)
+  const [hostDraft, setHostDraft] = useState('')
+  const [addingHost, setAddingHost] = useState(false)
 
   const speakLocalRef = useRef<(t: string) => Promise<void>>(async () => {})
   const languageRef = useRef<VoiceLanguage>(language)
@@ -1108,6 +1110,17 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   const autoAttachRef = useRef(autoAttachTerminal)
   useEffect(() => { autoAttachRef.current = autoAttachTerminal }, [autoAttachTerminal])
 
+  /** Register a speech host. It is probed before being saved, so a
+   *  typo or an unreachable machine never lands in the list. */
+  const addHost = useCallback(async () => {
+    const url = hostDraft.trim()
+    if (!url) return
+    setAddingHost(true)
+    const ok = await localVoice.addHost(url)
+    setAddingHost(false)
+    if (ok) setHostDraft('')
+  }, [hostDraft, localVoice])
+
   const handleRemove = useCallback((id: string) => {
     sendCtrl({ type: 'attachment-remove', id })
   }, [sendCtrl])
@@ -1625,7 +1638,12 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                     {justSaved ? <Check size={18} /> : <Save size={18} />}
                   </button>
                 )}
-                {(localVoice.available || localVoiceOpen) && (
+                {/* Always shown: this is the only way into the setting,
+                    and hiding it until a local host answers made it
+                    unreachable — the default URL (localhost) can never
+                    validate against a tailnet certificate, so the probe
+                    always failed and the button never appeared. */}
+                {(
                   <button
                     className={`va-attach-btn va-attach-btn-icon${localVoice.enabled ? ' va-attach-btn-armed' : ''}`}
                     onClick={() => setLocalVoiceOpen(true)}
@@ -1703,40 +1721,74 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                         <X size={14} />
                       </button>
                     </div>
-                    <div className="va-modal-body">
-                      <label className="va-local-toggle">
-                        <input
-                          type="checkbox"
-                          checked={localVoice.enabled}
-                          disabled={!localVoice.available}
-                          onChange={(e) => localVoice.setEnabled(e.target.checked)}
-                        />
-                        <span>Use this machine for speech</span>
-                      </label>
-                      <p className="va-modal-hint">
-                        Transcription and the voice run on the machine you&apos;re sitting at.
-                        The conversation, your sessions and their terminals stay on the server.
-                      </p>
-                      <input
-                        type="url"
-                        className="va-url-input"
-                        value={localVoice.url}
-                        onChange={(e) => localVoice.setUrl(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') void localVoice.probe() }}
-                        placeholder="https://my-laptop.tailnet.ts.net:3456"
-                      />
-                      <p className="va-modal-hint">
-                        {localVoice.probing
-                          ? 'Checking…'
-                          : localVoice.available
-                            ? 'Reachable, with speech models installed.'
-                            : localVoice.error || 'Not reachable.'}
-                      </p>
-                    </div>
-                    <div className="va-modal-footer">
-                      <button className="va-url-submit" onClick={() => void localVoice.probe()}>
-                        Check again
+
+                    <div className="va-host-list">
+                      {/* Always first, always available: the way back. */}
+                      <button
+                        className={`va-host-row${localVoice.selected === null ? ' active' : ''}`}
+                        onClick={() => localVoice.select(null)}
+                      >
+                        <span className="va-host-dot va-host-ok" />
+                        <span className="va-host-info">
+                          <span className="va-host-name">This server</span>
+                          <span className="va-host-meta">Default · {window.location.host}</span>
+                        </span>
+                        {localVoice.selected === null && <Check size={14} />}
                       </button>
+
+                      {localVoice.hosts.map((h) => {
+                        const state = localVoice.reachability[h.url] || 'unknown'
+                        return (
+                          <div key={h.url} className="va-host-row-wrap">
+                            <button
+                              className={`va-host-row${localVoice.selected === h.url ? ' active' : ''}`}
+                              onClick={() => localVoice.select(h.url)}
+                              disabled={state === 'unreachable'}
+                            >
+                              <span className={`va-host-dot va-host-${state}`} />
+                              <span className="va-host-info">
+                                <span className="va-host-name">{h.label}</span>
+                                <span className="va-host-meta">
+                                  {state === 'checking' ? 'checking…' : state === 'unreachable' ? 'not answering' : h.url}
+                                </span>
+                              </span>
+                              {localVoice.selected === h.url && <Check size={14} />}
+                            </button>
+                            <button
+                              className="va-host-remove"
+                              onClick={() => localVoice.removeHost(h.url)}
+                              title="Forget this host"
+                              aria-label={`Forget ${h.label}`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="va-modal-body">
+                      <div className="va-url-form">
+                        <input
+                          type="url"
+                          className="va-url-input"
+                          placeholder="https://my-mac.your-tailnet.ts.net:3456"
+                          value={hostDraft}
+                          onChange={(e) => setHostDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void addHost() }}
+                        />
+                        <button
+                          className="va-url-submit"
+                          onClick={() => void addHost()}
+                          disabled={!hostDraft.trim() || addingHost}
+                        >
+                          {addingHost ? 'Checking…' : 'Add'}
+                        </button>
+                      </div>
+                      <p className="va-modal-hint">
+                        {localVoice.error
+                          || 'Transcription and the voice run on the host you pick. The conversation, your sessions and their terminals stay on the server.'}
+                      </p>
                     </div>
                   </div>
                 </div>
