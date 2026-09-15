@@ -1,5 +1,4 @@
 import path from 'path'
-import os from 'os'
 import fs from 'fs-extra'
 import execa from 'execa'
 import { Command } from 'commander'
@@ -63,6 +62,27 @@ export function sslCommand(program: Command) {
         }
 
         Output.info('')
+        Output.section('Which URL to open')
+        // A Tailscale certificate is issued for the tailnet name and
+        // covers only that name. Reaching the same server through
+        // `localhost` or its IP presents a certificate for a different
+        // host, so the browser says "Not secure" — with a valid, freshly
+        // renewed certificate sitting right there. That is an unreasonable
+        // thing to deduce from the warning alone, so say it plainly.
+        let port = 3456
+        try {
+          const { getGlobalStateManager } = await import('../../core/GlobalStateManager')
+          port = (await getGlobalStateManager()).getServerPort()
+        } catch {
+          // Never configured, or the config is unreadable — the default
+          // is right often enough to still be worth printing.
+        }
+        Output.success(`  https://${certPair.hostname}:${port}`)
+        Output.warn('  https://localhost — will always read as "Not secure"')
+        Output.info('    The certificate is issued for the tailnet name and covers only it.')
+        Output.info('    Same for the raw IP address.')
+
+        Output.info('')
         Output.section('Tailscale Status')
         if (tailscaleHostname) {
           Output.success(`✓ Tailscale hostname: ${tailscaleHostname}`)
@@ -115,49 +135,75 @@ export function sslCommand(program: Command) {
         }
 
         // Generate certificate
+        //
+        // Written STRAIGHT to the destination with --cert-file/--key-file.
+        // `tailscale cert <domain>` with no flags writes DOMAIN.crt and
+        // DOMAIN.key into the CURRENT WORKING DIRECTORY — not into
+        // ~/.tailscale/certs, which is where an earlier version of this
+        // command went looking. It found nothing, copied nothing, and
+        // reported success while leaving the expired certificate in
+        // place; the only trace was stray .crt/.key files wherever the
+        // user happened to run it from.
         await ensureCertsDir()
-        Output.info('Generating new certificate with Tailscale...')
-        Output.warn('This will open your browser to complete authentication')
-        Output.info('Command: sudo tailscale cert ' + tailscaleHostname)
-        Output.info('')
+        const certPath = path.join(CERTS_DIR, `${tailscaleHostname}.crt`)
+        const keyPath = path.join(CERTS_DIR, `${tailscaleHostname}.key`)
 
+        Output.info(`Requesting a certificate for ${tailscaleHostname}…`)
+        const args = ['cert', '--cert-file', certPath, '--key-file', keyPath, tailscaleHostname]
+
+        // sudo is not required on every platform, and when it isn't, using
+        // it writes root-owned files the server then cannot read. Try as
+        // the current user first and escalate only if that's refused.
+        let usedSudo = false
         try {
-          // Try to run the command - it may require interactive auth
-          await execa('sudo', ['tailscale', 'cert', tailscaleHostname], {
-            stdio: 'inherit',
-          })
+          await execa('tailscale', args, { stdio: 'inherit' })
+        } catch (err: any) {
+          Output.warn('Retrying with sudo (the daemon requires elevated access here)')
+          usedSudo = true
+          await execa('sudo', ['tailscale', ...args], { stdio: 'inherit' })
+        }
 
-          Output.success('✓ Certificate generated successfully')
-          Output.info('Copying certificates to orka...')
-
-          // Find and copy the generated certs
-          const tailscaleCertsDir = path.join(os.homedir(), '.tailscale', 'certs')
-          if (await fs.pathExists(tailscaleCertsDir)) {
-            const files = await fs.readdir(tailscaleCertsDir)
-            const crtFile = files.find((f) => f.endsWith('.crt') && f.includes(tailscaleHostname))
-            const keyFile = files.find((f) => f.endsWith('.key') && f.includes(tailscaleHostname))
-
-            if (crtFile && keyFile) {
-              await fs.copy(path.join(tailscaleCertsDir, crtFile), path.join(CERTS_DIR, crtFile))
-              await fs.copy(path.join(tailscaleCertsDir, keyFile), path.join(CERTS_DIR, keyFile))
-              Output.success(`✓ Certificates copied to ${CERTS_DIR}`)
+        if (usedSudo) {
+          // Hand the files back to the user running the server, or it
+          // will fail to read the key at startup.
+          const uid = typeof process.getuid === 'function' ? process.getuid() : null
+          const gid = typeof process.getgid === 'function' ? process.getgid() : null
+          if (uid !== null && gid !== null) {
+            try {
+              await execa('sudo', ['chown', `${uid}:${gid}`, certPath, keyPath])
+            } catch {
+              Output.warn('Could not change ownership — you may need to chown the certs manually')
             }
           }
-
-          Output.info('')
-          Output.section('Next Steps')
-          Output.info('1. Restart the server: orka start')
-          Output.info('2. Verify: orka ssl status')
-        } catch (err: any) {
-          if (err.code === 'ENOENT') {
-            Output.error('sudo command not found')
-            Output.info('Manual steps:')
-            Output.info('  sudo tailscale cert ' + tailscaleHostname)
-            Output.info(`  cp ~/.tailscale/certs/${tailscaleHostname}.* ~/.orka/certs/`)
-          } else {
-            throw err
-          }
         }
+
+        // VERIFY. The previous version reported success without ever
+        // checking, which is exactly how a silent no-op survived two
+        // renewals.
+        if (!(await fs.pathExists(certPath)) || !(await fs.pathExists(keyPath))) {
+          Output.error('Tailscale reported success but the files are not there')
+          Output.info(`  Expected: ${certPath}`)
+          process.exit(1)
+        }
+        const fresh = await getCertInfo(certPath)
+        if (!fresh) {
+          Output.error('The new certificate could not be parsed')
+          process.exit(1)
+        }
+        const expiresAt = new Date(fresh.validUntil)
+        if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+          Output.error(`The new certificate is already expired (valid until ${fresh.validUntil})`)
+          process.exit(1)
+        }
+
+        const days = Math.round((expiresAt.getTime() - Date.now()) / 86400000)
+        Output.success(`✓ Certificate installed · valid until ${fresh.validUntil} (${days} days)`)
+        Output.info(`  Cert: ${certPath}`)
+        Output.info(`  Key:  ${keyPath}`)
+        Output.info('')
+        Output.section('Next Steps')
+        Output.info('Restart the server so it picks up the new certificate:')
+        Output.info('  orka restart')
       } catch (err: any) {
         Output.error(`Failed to renew certificate: ${err.message}`)
         process.exit(1)
