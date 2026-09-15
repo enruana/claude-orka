@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Mic, X } from 'lucide-react'
+import { useCallback, useRef, useState } from 'react'
+import { Mic, X, Minus, Maximize2, GripHorizontal } from 'lucide-react'
 import './VoiceTerminalButton.css'
 
 /**
@@ -49,6 +49,45 @@ export function VoiceTerminalButton({
   title,
 }: VoiceTerminalButtonProps) {
   const [open, setOpen] = useState(false)
+  const [minimized, setMinimized] = useState(false)
+  // Offset from the panel's docked corner, in px. Null until dragged,
+  // so it keeps its sensible default position until the user moves it.
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
+
+  /**
+   * Drag by the header.
+   *
+   * Pointer events are captured on the header rather than tracked on
+   * the window so the drag survives the pointer crossing the iframe —
+   * without capture, the terminal underneath swallows the move events
+   * and the panel sticks to the cursor's last position outside it.
+   */
+  const onDragStart = useCallback((e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return
+    const el = panelRef.current
+    if (!el) return
+    e.preventDefault()
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      baseX: pos?.x ?? 0,
+      baseY: pos?.y ?? 0,
+    }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }, [pos])
+
+  const onDragMove = useCallback((e: React.PointerEvent) => {
+    const d = dragRef.current
+    if (!d) return
+    setPos({ x: d.baseX + (e.clientX - d.startX), y: d.baseY + (e.clientY - d.startY) })
+  }, [])
+
+  const onDragEnd = useCallback((e: React.PointerEvent) => {
+    dragRef.current = null
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* already released */ }
+  }, [])
 
   // Nothing to talk to — better to render nothing than a button that
   // opens an agent pointed at a terminal that doesn't exist.
@@ -79,14 +118,34 @@ export function VoiceTerminalButton({
       </button>
 
       {open && (
-        <div className="voice-term-panel">
-          <div className="voice-term-header">
-            <Mic size={12} />
+        <div
+          ref={panelRef}
+          className={`voice-term-panel${minimized ? ' minimized' : ''}`}
+          style={pos ? { transform: `translate(${pos.x}px, ${pos.y}px)` } : undefined}
+        >
+          <div
+            className="voice-term-header"
+            onPointerDown={onDragStart}
+            onPointerMove={onDragMove}
+            onPointerUp={onDragEnd}
+            onPointerCancel={onDragEnd}
+          >
+            <GripHorizontal size={12} className="voice-term-grip" />
             <span className="voice-term-title">Voice · {label}</span>
+            <button
+              className="voice-term-close"
+              onClick={() => setMinimized(m => !m)}
+              title={minimized ? 'Expand' : 'Minimize'}
+            >
+              {minimized ? <Maximize2 size={12} /> : <Minus size={13} />}
+            </button>
             <button className="voice-term-close" onClick={() => setOpen(false)} title="Close">
               <X size={13} />
             </button>
           </div>
+          {/* The iframe stays MOUNTED while minimized — unmounting it
+              would drop the WebSocket and end the conversation, which is
+              not what "minimize" means. */}
           <iframe
             className="voice-term-frame"
             title={`Voice agent — ${label}`}
