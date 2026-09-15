@@ -6,6 +6,15 @@ import fs from 'fs-extra'
 import path from 'path'
 import { logger } from '../../utils'
 import { transcribeUtterancePcm16 } from './transcribe-live'
+import { describeTerminal, resolvePaneForSession } from './voice-terminals'
+import {
+  createVoiceMcpServer,
+  voiceAllowedTools,
+  VOICE_MCP_SERVER_NAME,
+  VOICE_DISALLOWED_TOOLS,
+  type SelectedTerminal,
+  type PendingSendStore,
+} from './voice-tools'
 import {
   getConversation,
   saveConversation,
@@ -70,6 +79,52 @@ const VOICE_ASSETS_MIME: Record<string, string> = {
   '.onnx':  'application/octet-stream',
   '.wasm':  'application/wasm',
 }
+
+/**
+ * POST /api/voice/tts  { text, voice?, language? }
+ *
+ * Synthesize one chunk of speech over plain HTTP, outside any voice
+ * session. This exists so a browser can borrow ANOTHER machine's
+ * Kokoro: when you open a remote Orka from a laptop that also runs
+ * Orka, the speech models can run on the laptop while the conversation,
+ * the sessions and the terminals stay on the remote host where they
+ * belong. Returns raw little-endian PCM16; the sample rate comes back
+ * in a header so the caller can feed Web Audio without parsing a
+ * container.
+ */
+voiceRouter.post('/tts', async (req, res) => {
+  try {
+    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : ''
+    if (!text) { res.status(400).json({ error: 'text is required' }); return }
+    if (text.length > 4000) { res.status(413).json({ error: 'text too long' }); return }
+
+    const language = typeof req.body?.language === 'string' ? req.body.language : 'en'
+    const voice = typeof req.body?.voice === 'string' && req.body.voice ? req.body.voice : undefined
+
+    const { pcm, sampleRate, audioMs, synthMs } = await synthesizePcm16(text, {
+      voice, language, outSampleRate: 24000,
+    })
+    res.setHeader('Content-Type', 'application/octet-stream')
+    res.setHeader('X-Sample-Rate', String(sampleRate))
+    res.setHeader('X-Audio-Ms', String(audioMs))
+    res.setHeader('X-Synth-Ms', String(synthMs))
+    res.send(pcm)
+  } catch (error: any) {
+    logger.error('[voice/tts] failed:', error)
+    res.status(500).json({ error: error?.message || 'synthesis failed' })
+  }
+})
+
+/** GET /api/voice/capabilities — cheap probe used by a browser to decide
+ *  whether THIS host can serve speech for it. */
+voiceRouter.get('/capabilities', async (_req, res) => {
+  try {
+    const voices = await listKokoroVoices()
+    res.json({ tts: voices.length > 0, stt: true, voices })
+  } catch {
+    res.json({ tts: false, stt: true, voices: [] })
+  }
+})
 
 voiceRouter.get('/assets/:filename', async (req, res) => {
   const filename = req.params.filename
@@ -229,7 +284,7 @@ interface HistoryEntry {
  * yet — the next user turn prepends a note about it so the model
  * knows there's new material.
  */
-type AttachmentSource = 'project-file' | 'upload' | 'url' | 'text'
+type AttachmentSource = 'project-file' | 'upload' | 'url' | 'text' | 'terminal'
 interface Attachment {
   id: string
   source: AttachmentSource
@@ -297,6 +352,15 @@ interface VoiceSession {
   // the echo tail of the interrupted TTS being picked up by the mic,
   // not a real new user turn.
   lastBargeInAt: number
+  // The terminal the user pointed the agent at, if any. The MCP tools
+  // read this at call time rather than taking a target, so speech
+  // recognition can never redirect them to a different terminal.
+  selectedTerminal: SelectedTerminal | null
+  /** A write staged by the agent and awaiting the user's spoken
+   *  confirmation. Lives on the session because staging and confirming
+   *  are, by design, two different turns — and a turn boundary tears
+   *  down the query and can tear down the driver with it. */
+  pendingSend: PendingSendStore
   // Id of the saved conversation this session is bound to, if any.
   // Set when resuming, and on the first save so subsequent saves
   // update in place instead of spawning duplicates.
@@ -306,6 +370,13 @@ interface VoiceSession {
   // turn carries an explicit switch instruction so the model changes
   // over without waiting for a re-arm to rebuild the seed.
   pendingLanguageNote: boolean
+  /**
+   * When true the browser is synthesizing speech itself — on its own
+   * machine's Kokoro — so this side emits `assistant-text` and skips
+   * the audio entirely. The conversation, the attachments and the
+   * terminals stay here; only the voice moves.
+   */
+  clientTts: boolean
   // TTS state: sentence buffer + the FIFO synthesis chain.
   ttsBuffer: string
   ttsCancelToken: { cancelled: boolean }
@@ -409,6 +480,19 @@ function htmlToText(html: string): string {
 // runaway upload from silently eating the whole budget.
 const MAX_ATTACHMENT_CHARS = 80 * 1024
 const MAX_TOTAL_ATTACHMENT_CHARS = 240 * 1024
+
+/**
+ * Whether the voice agent may TYPE into the selected terminal.
+ *
+ * On by default now that writing goes through a two-call handshake:
+ * the model can only STAGE text, and the staged text reaches the
+ * terminal solely via a second call carrying a server-issued token — so
+ * the exact characters always pass through the user's ears first. That
+ * lock is what the earlier opt-in flag was standing in for.
+ *
+ * Set ORKA_VOICE_TERMINAL_WRITE=0 to take the write tools away entirely.
+ */
+const VOICE_TERMINAL_WRITE_ENABLED = process.env.ORKA_VOICE_TERMINAL_WRITE !== '0'
 // Raw upload byte cap. 20 MB is comfortable for scanned PDFs and well
 // below Node's default WS max-payload (~100 MB).
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -743,6 +827,37 @@ const SYSTEM_PROMPT_HEADER =
  * most weight. Everything else (no markdown, short turns, café tone)
  * applies identically whatever the language.
  */
+/**
+ * Extra rules that only apply once a terminal is selected.
+ *
+ * The 2-to-4-sentence cap is right for chat and wrong for a status
+ * rundown — "what's happening here" needs a couple more beats, and
+ * truncating it mid-thought is worse than being slightly long. Kept
+ * narrow so it can't become a licence to lecture everywhere else.
+ */
+function terminalDirective(sel: { label: string } | null): string {
+  if (!sel) return ''
+  return (
+    `\nSELECTED TERMINAL: "${sel.label}"\n` +
+    `The user has pointed you at this terminal. When they ask what is\n` +
+    `happening, how it is going, or what it is waiting on, call your\n` +
+    `terminal tools and answer from what you actually read — never guess\n` +
+    `and never describe a terminal you have not read this turn.\n` +
+    `For a status rundown you may use up to six sentences instead of\n` +
+    `four. Everything else still applies: no markdown, no reading out\n` +
+    `symbols, plain spoken language.\n` +
+    `\n` +
+    `TYPING INTO IT — when the user asks you to run or send something:\n` +
+    `1. Call send_to_terminal with the exact text. This does NOT send it.\n` +
+    `2. Read the text back out loud, word for word, and ask them to\n` +
+    `   confirm. Speech recognition mangles literal strings, so this is\n` +
+    `   their chance to catch it.\n` +
+    `3. Only when they clearly agree, call confirm_send with the token.\n` +
+    `If they correct you, stage the new text instead. Never claim you\n` +
+    `sent something you only staged.\n\n`
+  )
+}
+
 function languageDirective(language: string): string {
   if (language === 'es') {
     return (
@@ -805,6 +920,7 @@ async function* userTurnGenerator(sess: VoiceSession): AsyncGenerator<{
   // mid-conversation adds are reflected on the next re-arm without
   // extra bookkeeping.
   let seed = SYSTEM_PROMPT_HEADER
+    + terminalDirective(sess.selectedTerminal)
     + languageDirective(sess.language)
     + 'Here is the document to discuss:\n\n'
     + buildDocsContext(sess.attachments)
@@ -880,6 +996,24 @@ async function runClaudeSession(sess: VoiceSession): Promise<void> {
   sess.driverRunning = true
   const query = await getSDKQuery()
 
+  // Built ONCE for the whole session, not per re-arm.
+  //
+  // Every completed turn ends its query(), and the loop below starts a
+  // fresh one for the next utterance — so a server constructed inside
+  // that loop is a new object each turn, and anything it holds between
+  // calls is silently discarded. That is what broke the write
+  // handshake: `send_to_terminal` staged a token in turn one, the user
+  // confirmed in turn two, and `confirm_send` found nothing staged, so
+  // the agent apologised and staged again, forever.
+  //
+  // `getSelected` reads through to the session on every call, so
+  // hoisting this costs nothing in freshness.
+  const voiceMcp = createVoiceMcpServer({
+    getSelected: () => sess.selectedTerminal,
+    allowWrite: VOICE_TERMINAL_WRITE_ENABLED,
+    pendingStore: sess.pendingSend,
+  })
+
   try {
   while (!sess.closed) {
     // Fresh abort controller per run — the previous one may have been
@@ -895,6 +1029,13 @@ async function runClaudeSession(sess: VoiceSession): Promise<void> {
           model: 'claude-haiku-4-5-20251001',
           permissionMode: 'bypassPermissions',
           abortController: sess.abortController,
+          // `bypassPermissions` with no allowlist hands the model the
+          // SDK's whole built-in toolset, unprompted — asked to run
+          // `echo`, it reaches for Bash and runs it. Pin the surface to
+          // our own read-only terminal tools.
+          mcpServers: { [VOICE_MCP_SERVER_NAME]: voiceMcp },
+          allowedTools: voiceAllowedTools(VOICE_TERMINAL_WRITE_ENABLED),
+          disallowedTools: VOICE_DISALLOWED_TOOLS,
         },
       })) {
         if (sess.closed || sess.bargeInPending) break
@@ -1051,6 +1192,10 @@ function flushTtsTail(sess: VoiceSession): void {
  * transcript (`assistant-text` is sent before synthesis is queued).
  */
 function speakSentence(sess: VoiceSession, text: string): Promise<void> {
+  // The caption already went out; with client-side TTS there is nothing
+  // left for this side to do, and synthesizing anyway would burn CPU on
+  // audio nobody plays.
+  if (sess.clientTts) return Promise.resolve()
   const token = sess.ttsCancelToken
   // The catch keeps the chain resolvable: a rejection left in place
   // would make every later `.then` skip its sentence, turning one
@@ -1164,6 +1309,23 @@ async function transcribeAndTurn(sess: VoiceSession): Promise<void> {
       logger.debug(`[voice-live ${sess.id}] empty transcript, skipping`)
       return
     }
+    await handleUserText(sess, rawText)
+  } catch (err: any) {
+    logger.error(`[voice-live ${sess.id}] transcription failed:`, err)
+    sendJson(sess.ws, { type: 'error', message: err?.message || 'transcription failed' })
+  }
+}
+
+/**
+ * Everything a user turn does once the words exist.
+ *
+ * Split out of `transcribeAndTurn` because the words can now arrive two
+ * ways: from our own whisper, or already transcribed by a browser that
+ * ran the model on its own machine. Past this point the two are
+ * indistinguishable and must stay that way.
+ */
+async function handleUserText(sess: VoiceSession, rawText: string): Promise<void> {
+  try {
     // If new attachments arrived since the last turn AND we're feeding
     // this into an active query() (not a re-arm — those rebuild the
     // seed which includes attachments), prepend a note about them so
@@ -1273,7 +1435,7 @@ function replyAttachmentError(sess: VoiceSession, message: string): void {
 
 /** A card gets a sync button only if there's somewhere to sync FROM. */
 function isRefreshable(a: Attachment): boolean {
-  return !!a.origin && (a.source === 'url' || a.source === 'project-file')
+  return !!a.origin && (a.source === 'url' || a.source === 'project-file' || a.source === 'terminal')
 }
 
 function tryAddAttachment(sess: VoiceSession, next: Attachment): boolean {
@@ -1546,7 +1708,7 @@ async function handleAttachmentRefresh(sess: VoiceSession, msg: Record<string, u
   const id = typeof msg.id === 'string' ? msg.id : ''
   const att = sess.attachments.find((a) => a.id === id)
   if (!att) { replyAttachmentError(sess, 'attachment-refresh: unknown attachment'); return }
-  if (!att.origin || (att.source !== 'url' && att.source !== 'project-file')) {
+  if (!att.origin || (att.source !== 'url' && att.source !== 'project-file' && att.source !== 'terminal')) {
     replyAttachmentError(sess, `"${att.label}" has no source to reload from`)
     return
   }
@@ -1554,7 +1716,11 @@ async function handleAttachmentRefresh(sess: VoiceSession, msg: Record<string, u
   try {
     let text: string
     let label = att.label
-    if (att.source === 'url') {
+    if (att.source === 'terminal') {
+      const described = await describeTerminal(att.origin, 160)
+      if (!described) { replyAttachmentError(sess, `Terminal "${att.label}" is no longer running`); return }
+      text = clampText(`Terminal ${att.label} — state: ${described.state.label}\n\n${described.content}`)
+    } else if (att.source === 'url') {
       const loaded = await loadUrlAsText(att.origin)
       text = clampText(loaded.text)
       label = loaded.label || label
@@ -1622,11 +1788,74 @@ function handleAttachmentContent(sess: VoiceSession, msg: Record<string, unknown
   })
 }
 
+/**
+ * Point the agent at a terminal.
+ *
+ * The pane is captured once and kept as a normal attachment, so the
+ * card, the viewer and the existing sync button all work on it for
+ * free — a terminal is just a document that changes. `selectedTerminal`
+ * is what the tools read, and it is set here and nowhere else.
+ */
+async function handleAttachTerminal(sess: VoiceSession, msg: Record<string, unknown>): Promise<void> {
+  // Callers address a terminal with whatever they hold: the session
+  // views know a pane, the editor / system / board-master terminals know
+  // only their tmux session name.
+  let paneId = typeof msg.paneId === 'string' ? msg.paneId : ''
+  const tmuxSession = typeof msg.tmuxSession === 'string' ? msg.tmuxSession : ''
+  if (!paneId && tmuxSession) {
+    paneId = (await resolvePaneForSession(tmuxSession)) || ''
+    if (!paneId) { replyAttachmentError(sess, `No live pane in tmux session "${tmuxSession}"`); return }
+  }
+  const label = typeof msg.label === 'string' && msg.label ? msg.label : (paneId || tmuxSession)
+  if (!paneId) { replyAttachmentError(sess, 'attach-terminal: paneId or tmuxSession required'); return }
+
+  const described = await describeTerminal(paneId, 160)
+  if (!described) { replyAttachmentError(sess, `Terminal "${label}" is not running`); return }
+
+  sess.selectedTerminal = {
+    paneId,
+    label,
+    projectPath: typeof msg.projectPath === 'string' ? msg.projectPath : sess.projectPath,
+    sessionId: typeof msg.sessionId === 'string' ? msg.sessionId : '',
+  }
+
+  // Replace any previously selected terminal — one target at a time is
+  // the whole point.
+  const previous = sess.attachments.findIndex((a) => a.source === 'terminal')
+  if (previous >= 0) {
+    const [dropped] = sess.attachments.splice(previous, 1)
+    sendJson(sess.ws, {
+      type: 'attachment-removed',
+      id: dropped.id,
+      totalChars: totalAttachmentChars(sess.attachments),
+    })
+  }
+
+  const text = clampText(`Terminal ${label} — state: ${described.state.label}
+
+${described.content}`)
+  tryAddAttachment(sess, {
+    id: makeAttachmentId(),
+    source: 'terminal',
+    label,
+    origin: paneId,
+    text,
+    chars: text.length,
+    addedAt: Date.now(),
+    pendingAnnounce: true,
+    announceKind: 'new',
+  })
+  sendJson(sess.ws, { type: 'terminal-selected', paneId, label, state: described.state })
+}
+
 function handleAttachmentRemove(sess: VoiceSession, msg: Record<string, unknown>): void {
   const id = typeof msg.id === 'string' ? msg.id : ''
   const idx = sess.attachments.findIndex((a) => a.id === id)
   if (idx < 0) return
   const [removed] = sess.attachments.splice(idx, 1)
+  // Losing the card means losing the target: the tools must not keep
+  // pointing at a terminal the user just dismissed.
+  if (removed.source === 'terminal') sess.selectedTerminal = null
   sendJson(sess.ws, {
     type: 'attachment-removed',
     id: removed.id,
@@ -1757,6 +1986,9 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         queuedUserText: null,
         driverRunning: false,
         lastBargeInAt: 0,
+        clientTts: url.searchParams.get('clientTts') === '1',
+        selectedTerminal: null,
+        pendingSend: { current: null },
         conversationId: resumed?.id ?? null,
         conversationName: resumed?.name ?? null,
         pendingLanguageNote: false,
@@ -1829,6 +2061,14 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         case 'utterance-end':
           await transcribeAndTurn(sess)
           break
+        case 'user-text':
+          // The browser transcribed locally and is handing over the
+          // words. Everything downstream is identical to a turn that
+          // came from our own whisper.
+          if (typeof msg.text === 'string' && msg.text.trim()) {
+            await handleUserText(sess, msg.text.trim())
+          }
+          break
         case 'interrupt':
           handleInterrupt(sess)
           break
@@ -1849,6 +2089,9 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
           break
         case 'attach-text':
           handleAttachText(sess, msg)
+          break
+        case 'attach-terminal':
+          await handleAttachTerminal(sess, msg)
           break
         case 'save-conversation':
           await handleSaveConversation(sess, msg)

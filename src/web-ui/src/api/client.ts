@@ -328,6 +328,19 @@ export interface EditorTerminal {
   alive?: boolean
 }
 
+export interface ActiveTerminal {
+  paneId: string
+  projectPath: string
+  projectName: string
+  sessionId: string
+  sessionName: string
+  branch: string
+  branchLabel: string
+  ttydPort?: number
+  lastActivity: string
+  state: { label: string; detail: string }
+}
+
 export const api = {
   // Projects
   async listProjects(): Promise<RegisteredProject[]> {
@@ -405,6 +418,14 @@ export const api = {
       try { throw new Error(JSON.parse(text).error || text) } catch { throw new Error(text) }
     }
     return res.json()
+  },
+
+  /** Active Claude session panes across every registered project. */
+  async listActiveTerminals(): Promise<ActiveTerminal[]> {
+    const res = await fetch(`${API_BASE}/voice/terminals`)
+    if (!res.ok) throw new Error(await res.text())
+    const data = await res.json()
+    return Array.isArray(data.terminals) ? data.terminals : []
   },
 
   async listEditorTerminals(projectPath: string): Promise<EditorTerminal[]> {

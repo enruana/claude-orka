@@ -1360,3 +1360,99 @@
 .va-attachment-sync-busy svg {
   animation: va-spin 0.9s linear infinite;
 }
+
+/* ============ Terminal picker ============ */
+
+/* The button glows while a terminal is bound — you should never have to
+   wonder what the agent is pointed at. */
+.va-attach-btn-armed {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.16);
+  border-color: rgba(166, 227, 161, 0.45);
+}
+
+.va-term-list {
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.va-term-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(137, 180, 250, 0.16);
+  background: rgba(137, 180, 250, 0.06);
+  color: #cdd6f4;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.va-term-row:hover {
+  background: rgba(137, 180, 250, 0.14);
+  border-color: rgba(137, 180, 250, 0.35);
+}
+.va-term-row.active {
+  border-color: rgba(166, 227, 161, 0.6);
+  background: rgba(166, 227, 161, 0.12);
+}
+
+/* State at a glance: colour carries the same word the agent will say. */
+.va-term-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+}
+.va-term-waiting { background: #a6e3a1; box-shadow: 0 0 6px #a6e3a1; }
+.va-term-processing { background: #89b4fa; box-shadow: 0 0 6px #89b4fa; animation: va-blink 1s ease-in-out infinite; }
+.va-term-permission { background: #f9e2af; box-shadow: 0 0 6px #f9e2af; }
+.va-term-error,
+.va-term-context-limit { background: #f38ba8; box-shadow: 0 0 6px #f38ba8; }
+
+.va-term-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.va-term-name { font-size: 13px; font-weight: 600; }
+.va-term-branch { color: rgba(255, 255, 255, 0.5); font-weight: 400; }
+.va-term-meta { font-size: 11px; color: rgba(255, 255, 255, 0.45); }
+.va-term-detail {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.32);
+  font-family: 'SF Mono', Monaco, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.va-term-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.va-attachment-terminal {
+  background: rgba(166, 227, 161, 0.08);
+  border-color: rgba(166, 227, 161, 0.25);
+}
+
+/* Where-speech-runs toggle */
+.va-local-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 0 8px;
+  color: #cdd6f4;
+  font-size: 13px;
+  cursor: pointer;
+}
+.va-local-toggle input { width: 15px; height: 15px; accent-color: #89b4fa; cursor: pointer; }
+.va-local-toggle input:disabled { cursor: not-allowed; opacity: 0.5; }
+.va-modal-body .va-url-input { margin-top: 6px; }

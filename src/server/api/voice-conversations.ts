@@ -34,7 +34,9 @@ import { logger } from '../../utils/logger'
 const CONVERSATIONS_DIR = path.join(os.homedir(), '.claude-orka', 'voice-conversations')
 
 export interface StoredAttachment {
-  source: 'project-file' | 'upload' | 'url' | 'text'
+  /** `terminal` is a live pane captured at save time — it restores as a
+   *  snapshot, not a live target, since the pane is long gone by then. */
+  source: 'project-file' | 'upload' | 'url' | 'text' | 'terminal'
   label: string
   text: string
   chars: number

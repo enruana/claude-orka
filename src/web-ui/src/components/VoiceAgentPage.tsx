@@ -4,8 +4,11 @@ import {
   ArrowLeft, Mic, Paperclip, Link as LinkIcon, X, Loader2,
   AlertTriangle, FileText, Globe, Square, Minus, Maximize2, GripHorizontal, Copy, Check,
   Languages, ClipboardPaste, Save, Trash2, Plus, MessageSquare, ChevronLeft, RefreshCw,
+  TerminalSquare, Cpu,
 } from 'lucide-react'
+import { api, type ActiveTerminal } from '../api/client'
 import { usePageTitle } from '../hooks/usePageTitle'
+import { useLocalVoiceHost } from '../hooks/useLocalVoiceHost'
 import { ParticleCloud } from './ParticleCloud'
 import '../styles/voice-agent.css'
 
@@ -54,7 +57,7 @@ type AgentState =
 
 interface Attachment {
   id: string
-  source: 'upload' | 'url' | 'project-file' | 'text'
+  source: 'upload' | 'url' | 'project-file' | 'text' | 'terminal'
   label: string
   chars: number
   addedAt: number
@@ -177,6 +180,14 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   const embedded = searchParams.get('embedded') === '1'
   const projectParam = searchParams.get('project')
   const pathParam = searchParams.get('path')
+  // Opened FROM a terminal: everything needed to bind to it travels in
+  // the URL, so the agent comes up already pointed at that pane instead
+  // of making the user find it again in the picker.
+  const terminalParam = searchParams.get('terminal')
+  const terminalLabelParam = searchParams.get('terminalLabel')
+  const terminalPortParam = searchParams.get('ttydPort')
+  const terminalSessionParam = searchParams.get('session')
+  const tmuxSessionParam = searchParams.get('tmuxSession')
 
   const [state, setState] = useState<AgentState>('connecting')
   const [error, setError] = useState<string | null>(null)
@@ -190,6 +201,10 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   const [textOpen, setTextOpen] = useState(false)
   const [textDraft, setTextDraft] = useState('')
   // Save-conversation modal + the name of the record we're bound to.
+  // Terminal picker: the list of live panes and which one we're on.
+  const [termPickerOpen, setTermPickerOpen] = useState(false)
+  const [activeTerminals, setActiveTerminals] = useState<ActiveTerminal[] | null>(null)
+  const [selectedTerminal, setSelectedTerminal] = useState<{ paneId: string; label: string; state?: string } | null>(null)
   const [saveOpen, setSaveOpen] = useState(false)
   const [saveDraft, setSaveDraft] = useState('')
   const [convName, setConvName] = useState<string | null>(null)
@@ -259,6 +274,14 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
 
   // The WS init effect runs once; keep the language reachable from it
   // (and from the send helper) without re-opening the socket.
+  // Speech models borrowed from the machine the browser runs on, when
+  // one is available and the user opted in.
+  const localVoice = useLocalVoiceHost()
+  const localVoiceRef = useRef(localVoice)
+  useEffect(() => { localVoiceRef.current = localVoice }, [localVoice])
+  const [localVoiceOpen, setLocalVoiceOpen] = useState(false)
+
+  const speakLocalRef = useRef<(t: string) => Promise<void>>(async () => {})
   const languageRef = useRef<VoiceLanguage>(language)
   // Which saved conversation this session writes to. Starts as the one
   // being resumed (if any) and gets set on the first save, so later
@@ -473,6 +496,9 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
           : ''
         const url = `${proto}//${window.location.host}/api/voice/live?project=${projectQs}${pathQs}`
           + `&language=${encodeURIComponent(languageRef.current)}${convQs}`
+          // Ask the server to send captions only — this browser is
+          // synthesizing on its own machine.
+          + (localVoiceRef.current?.enabled ? '&clientTts=1' : '')
         const ws = new WebSocket(url)
         ws.binaryType = 'arraybuffer'
         wsRef.current = ws
@@ -521,6 +547,7 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                 })))
               }
               setState('idle')
+              autoAttachRef.current()
               break
             case 'conversation-saved':
               conversationIdRef.current = msg.id
@@ -545,6 +572,7 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
             case 'assistant-text': {
               const chunk = String(msg.text || '')
               if (!chunk) break
+              if (localVoiceRef.current?.enabled) void speakLocalRef.current(chunk)
               currentAssistantRef.current += (currentAssistantRef.current ? ' ' : '') + chunk
               const full = currentAssistantRef.current
               if (assistantTurnIdRef.current == null) {
@@ -632,12 +660,25 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
               setPreviewVersion((v) => v + 1)
               break
             }
+            case 'terminal-selected':
+              setSelectedTerminal({ paneId: msg.paneId, label: msg.label, state: msg.state?.label })
+              break
             case 'attachment-updated': {
               setAttachments((prev) => prev.map((a) =>
                 a.id === msg.id ? { ...a, label: msg.label ?? a.label, chars: msg.chars ?? a.chars } : a))
               setTotalChars(msg.totalChars || 0)
               setRefreshing((prev) => { const n = new Set(prev); n.delete(msg.id); return n })
-              setRefreshNonce((prev) => ({ ...prev, [msg.id]: (prev[msg.id] || 0) + 1 }))
+              // Bump the nonce so the viewer repaints — EXCEPT for a live
+              // terminal, whose iframe is already showing the present.
+              // Remounting it would tear down the ttyd websocket and
+              // flicker the screen to refresh something that never went
+              // stale; on a terminal, sync is for the model's text copy.
+              setAttachments((cur) => {
+                if (cur.find((a) => a.id === msg.id)?.source !== 'terminal') {
+                  setRefreshNonce((prev) => ({ ...prev, [msg.id]: (prev[msg.id] || 0) + 1 }))
+                }
+                return cur
+              })
               // A stored-text preview is now out of date. Drop it so the
               // next open pulls the refreshed text; URL previews point at
               // the live page and are handled by the nonce remount.
@@ -653,6 +694,10 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
               break
             }
             case 'attachment-removed': {
+              setAttachments((prev) => {
+                if (prev.find((a) => a.id === msg.id)?.source === 'terminal') setSelectedTerminal(null)
+                return prev
+              })
               const removedPrev = previewMapRef.current.get(msg.id)
               if (removedPrev?.kind === 'blob') URL.revokeObjectURL(removedPrev.src)
               previewMapRef.current.delete(msg.id)
@@ -995,6 +1040,74 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
     sendCtrl({ type: 'attachment-refresh', id })
   }, [sendCtrl])
 
+  const openTerminalPicker = useCallback(async () => {
+    setTermPickerOpen(true)
+    setActiveTerminals(null)
+    try {
+      setActiveTerminals(await api.listActiveTerminals())
+    } catch {
+      setActiveTerminals([])
+    }
+  }, [])
+
+  /** Point the agent at one terminal. The server binds its tools to
+   *  this pane, so everything said afterwards targets it. */
+  const selectTerminal = useCallback((t: ActiveTerminal) => {
+    const label = `${t.projectName} · ${t.sessionName}${t.branch === 'main' ? '' : ` · ${t.branchLabel}`}`
+    // The viewer gets the LIVE terminal, not the capture. The text
+    // snapshot still goes to the model — it needs something readable and
+    // re-readable — but a human looking at a terminal wants the terminal,
+    // scrolling and updating, not a frozen dump of it.
+    if (t.ttydPort) {
+      const qs = `?desktop=1&project=${encodeURIComponent(btoa(t.projectPath))}&session=${encodeURIComponent(t.sessionId)}`
+      pendingPreviewsRef.current.push({
+        kind: 'url',
+        src: `/terminal/${t.ttydPort}${qs}`,
+        label,
+      })
+    }
+    sendCtrl({
+      type: 'attach-terminal',
+      paneId: t.paneId,
+      label,
+      projectPath: t.projectPath,
+      sessionId: t.sessionId,
+    })
+    setSelectedTerminal({ paneId: t.paneId, label, state: t.state.label })
+    setTermPickerOpen(false)
+  }, [sendCtrl])
+
+  /**
+   * Bind the terminal named in the URL, once.
+   *
+   * Runs on `ready` rather than on mount: `attach-terminal` is a control
+   * message, and sending it before the socket is open would be dropped
+   * silently by sendCtrl.
+   */
+  const autoAttachedRef = useRef(false)
+  const autoAttachTerminal = useCallback(() => {
+    if (autoAttachedRef.current || (!terminalParam && !tmuxSessionParam)) return
+    autoAttachedRef.current = true
+    const label = terminalLabelParam || terminalParam || tmuxSessionParam || 'terminal'
+    const port = parseInt(terminalPortParam || '', 10)
+    if (Number.isFinite(port) && projectParam) {
+      const qs = `?desktop=1&project=${encodeURIComponent(projectParam)}`
+        + (terminalSessionParam ? `&session=${encodeURIComponent(terminalSessionParam)}` : '')
+      pendingPreviewsRef.current.push({ kind: 'url', src: `/terminal/${port}${qs}`, label })
+    }
+    sendCtrl({
+      type: 'attach-terminal',
+      paneId: terminalParam || undefined,
+      tmuxSession: tmuxSessionParam || undefined,
+      label,
+      sessionId: terminalSessionParam || '',
+    })
+    setSelectedTerminal({ paneId: terminalParam || tmuxSessionParam || '', label })
+  }, [terminalParam, tmuxSessionParam, terminalLabelParam, terminalPortParam, terminalSessionParam, projectParam, sendCtrl])
+
+  const autoAttachRef = useRef(autoAttachTerminal)
+  useEffect(() => { autoAttachRef.current = autoAttachTerminal }, [autoAttachTerminal])
+
   const handleRemove = useCallback((id: string) => {
     sendCtrl({ type: 'attachment-remove', id })
   }, [sendCtrl])
@@ -1039,6 +1152,66 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   // concatenates, downsamples to 16 kHz PCM16, ships it as a single
   // binary frame followed by `utterance-end` (same shape the server
   // was already handling), and transitions to `thinking`.
+  /** Wrap PCM16 @16k in a WAV header — the transcribe endpoint decodes
+   *  a conforming WAV without shelling out to ffmpeg. */
+  const wavFromPcm16 = useCallback((pcm: Int16Array, rate = 16000): Blob => {
+    const header = new ArrayBuffer(44)
+    const v = new DataView(header)
+    const w = (off: number, str: string) => { for (let i = 0; i < str.length; i++) v.setUint8(off + i, str.charCodeAt(i)) }
+    const bytes = pcm.length * 2
+    w(0, 'RIFF'); v.setUint32(4, 36 + bytes, true); w(8, 'WAVE')
+    w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true)
+    w(36, 'data'); v.setUint32(40, bytes, true)
+    return new Blob([header, pcm.buffer], { type: 'audio/wav' })
+  }, [])
+
+  const transcribeLocally = useCallback(async (pcm16: Int16Array) => {
+    const host = localVoiceRef.current
+    if (!host) return
+    setState('thinking')
+    try {
+      const res = await fetch(
+        `${host.url}/api/transcribe/direct?language=${encodeURIComponent(languageRef.current)}`,
+        { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wavFromPcm16(pcm16) }
+      )
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const text = String(data.text || '').trim()
+      if (!text) { setState('idle'); return }
+      sendCtrl({ type: 'user-text', text })
+    } catch (err: any) {
+      setError(`Local transcription failed: ${err?.message || err}. Turn local processing off to use the server.`)
+      setTimeout(() => setError(null), 6000)
+      setState('idle')
+    }
+  }, [wavFromPcm16, sendCtrl])
+
+  /** Synthesize one caption on the local machine and queue it. */
+  const speakLocally = useCallback(async (text: string) => {
+    const host = localVoiceRef.current
+    if (!host) return
+    try {
+      const res = await fetch(`${host.url}/api/voice/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, language: languageRef.current }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const rate = parseInt(res.headers.get('X-Sample-Rate') || '24000', 10)
+      const buf = await res.arrayBuffer()
+      setState('speaking')
+      enqueuePcm(new Int16Array(buf), Number.isFinite(rate) ? rate : 24000)
+    } catch (err: any) {
+      // Losing one sentence of audio should not kill the conversation —
+      // the caption is already on screen either way.
+      // eslint-disable-next-line no-console
+      console.warn('[voice-agent] local TTS failed', err)
+    }
+  }, [enqueuePcm])
+
+  useEffect(() => { speakLocalRef.current = speakLocally }, [speakLocally])
+
   const stopRecordingAndSend = useCallback(() => {
     setRecording(false)
     recordingRef.current = false
@@ -1062,6 +1235,14 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
       return
     }
     try {
+      if (localVoiceRef.current?.enabled) {
+        // Transcribe on the local machine and hand over the words. The
+        // audio never leaves this network hop; the remote session only
+        // ever sees text, which is identical to what its own whisper
+        // would have produced.
+        void transcribeLocally(pcm16)
+        return
+      }
       ws.send(pcm16)
       ws.send(JSON.stringify({ type: 'utterance-end' }))
       // eslint-disable-next-line no-console
@@ -1256,6 +1437,7 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                   <div className="va-attachment-icon">
                     {a.source === 'url' ? <Globe size={16} />
                       : a.source === 'text' ? <ClipboardPaste size={16} />
+                      : a.source === 'terminal' ? <TerminalSquare size={16} />
                       : <FileText size={16} />}
                   </div>
                   <div className="va-attachment-info">
@@ -1443,6 +1625,27 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                     {justSaved ? <Check size={18} /> : <Save size={18} />}
                   </button>
                 )}
+                {(localVoice.available || localVoiceOpen) && (
+                  <button
+                    className={`va-attach-btn va-attach-btn-icon${localVoice.enabled ? ' va-attach-btn-armed' : ''}`}
+                    onClick={() => setLocalVoiceOpen(true)}
+                    title={localVoice.enabled
+                      ? `Speech running on ${localVoice.url}`
+                      : 'Speech runs on the server — switch to this machine'}
+                    aria-label="Where speech runs"
+                  >
+                    <Cpu size={18} />
+                  </button>
+                )}
+                <button
+                  className={`va-attach-btn va-attach-btn-icon${selectedTerminal ? ' va-attach-btn-armed' : ''}`}
+                  onClick={() => void openTerminalPicker()}
+                  disabled={attaching}
+                  title={selectedTerminal ? `Talking about ${selectedTerminal.label}` : 'Pick a terminal to talk about'}
+                  aria-label="Select a terminal"
+                >
+                  <TerminalSquare size={18} />
+                </button>
                 <button
                   className="va-attach-btn va-attach-btn-icon"
                   onClick={() => setTextOpen(true)}
@@ -1483,6 +1686,106 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                   }}
                 />
               </div>
+
+              {localVoiceOpen && (
+                <div className="va-modal-backdrop" onClick={() => setLocalVoiceOpen(false)}>
+                  <div
+                    className="va-modal va-modal-sm"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Where speech runs"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="va-modal-header">
+                      <Cpu size={16} />
+                      <span>Where speech runs</span>
+                      <button className="va-modal-close" onClick={() => setLocalVoiceOpen(false)} aria-label="Close">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="va-modal-body">
+                      <label className="va-local-toggle">
+                        <input
+                          type="checkbox"
+                          checked={localVoice.enabled}
+                          disabled={!localVoice.available}
+                          onChange={(e) => localVoice.setEnabled(e.target.checked)}
+                        />
+                        <span>Use this machine for speech</span>
+                      </label>
+                      <p className="va-modal-hint">
+                        Transcription and the voice run on the machine you&apos;re sitting at.
+                        The conversation, your sessions and their terminals stay on the server.
+                      </p>
+                      <input
+                        type="url"
+                        className="va-url-input"
+                        value={localVoice.url}
+                        onChange={(e) => localVoice.setUrl(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void localVoice.probe() }}
+                        placeholder="https://my-laptop.tailnet.ts.net:3456"
+                      />
+                      <p className="va-modal-hint">
+                        {localVoice.probing
+                          ? 'Checking…'
+                          : localVoice.available
+                            ? 'Reachable, with speech models installed.'
+                            : localVoice.error || 'Not reachable.'}
+                      </p>
+                    </div>
+                    <div className="va-modal-footer">
+                      <button className="va-url-submit" onClick={() => void localVoice.probe()}>
+                        Check again
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {termPickerOpen && (
+                <div className="va-modal-backdrop" onClick={() => setTermPickerOpen(false)}>
+                  <div
+                    className="va-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Select a terminal"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="va-modal-header">
+                      <TerminalSquare size={16} />
+                      <span>Talk about a terminal</span>
+                      <button className="va-modal-close" onClick={() => setTermPickerOpen(false)} aria-label="Close">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="va-term-list">
+                      {activeTerminals === null && <div className="va-term-empty">Looking for live terminals…</div>}
+                      {activeTerminals?.length === 0 && (
+                        <div className="va-term-empty">
+                          No running sessions right now. Start one from the dashboard and it&apos;ll show up here.
+                        </div>
+                      )}
+                      {activeTerminals?.map((t) => (
+                        <button
+                          key={t.paneId}
+                          className={`va-term-row${selectedTerminal?.paneId === t.paneId ? ' active' : ''}`}
+                          onClick={() => selectTerminal(t)}
+                        >
+                          <span className={`va-term-dot va-term-${t.state.label}`} />
+                          <span className="va-term-info">
+                            <span className="va-term-name">
+                              {t.sessionName}
+                              {t.branch !== 'main' && <span className="va-term-branch"> · {t.branchLabel}</span>}
+                            </span>
+                            <span className="va-term-meta">{t.projectName} · {t.state.label}</span>
+                            {t.state.detail && <span className="va-term-detail">{t.state.detail.slice(-90)}</span>}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {saveOpen && (
                 <div className="va-modal-backdrop" onClick={() => setSaveOpen(false)}>
@@ -1769,13 +2072,17 @@ export function VoiceAgentPage() {
   const embedded = searchParams.get('embedded') === '1'
   const pathParam = searchParams.get('path')
   const conversationParam = searchParams.get('conversation')
+  // Arriving from a terminal is a scoped entry, same as arriving from a
+  // document: the caller already decided what this conversation is
+  // about, so asking which saved conversation to open would be noise.
+  const terminalParam = searchParams.get('terminal') || searchParams.get('tmuxSession')
 
   // `null` = show the picker. A started session is identified by
   // `{ key }`, which doubles as the remount key for VoiceAgentSession.
   const [session, setSession] = useState<{ key: string; conversationId: string | null } | null>(
     // A document-scoped or deep-linked entry skips the picker entirely.
-    pathParam || conversationParam
-      ? { key: conversationParam || 'doc', conversationId: conversationParam }
+    pathParam || conversationParam || terminalParam
+      ? { key: conversationParam || terminalParam || 'doc', conversationId: conversationParam }
       : null
   )
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null)
