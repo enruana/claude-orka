@@ -37,3 +37,6 @@ coverage/
 # Scratchpad for local dev — voice widget builds, generated reports,
 # smoke-test artifacts. Machine-specific, not portable.
 .temp/
+
+# Lockfile: not tracked by choice.
+package-lock.json
