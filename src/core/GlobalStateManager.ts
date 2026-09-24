@@ -604,6 +604,7 @@ function getBuiltinBoardTemplates(): BoardPromptTemplate[] {
       body: [
         'Wrap up task {{taskKey}} — the PR is expected to be already merged.',
         'Load the `board-task-close` skill and follow its post-merge cleanup steps.',
+        'Include Step 5b: review 04-knowledge/ and update the durable system knowledge if the task taught something that outlives the ticket.',
         'Target Jira status: {{nextStatus}} (skip transition if it\'s already there).',
         'Remove the worktree at the end (moxikit worktree remove). If Step 1 finds the PR still open, STOP and warn — do not proceed.',
       ].join('\n'),
@@ -618,6 +619,7 @@ function getBuiltinBoardTemplates(): BoardPromptTemplate[] {
       body: [
         'Wrap up task {{taskKey}} — the PR is expected to be already merged.',
         'Load the `board-task-close` skill.',
+        'Include Step 5b: review 04-knowledge/ and update the durable system knowledge if the task taught something that outlives the ticket.',
         'Target Jira status: {{nextStatus}}.',
         'DO NOT remove the worktree — the user wants to keep it for a follow-up task.',
       ].join('\n'),

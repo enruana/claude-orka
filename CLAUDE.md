@@ -169,6 +169,7 @@ The KB stores typed entities (`decision`, `task`, `spike`, `bug`, `project`, `me
 - HTTP API at `/api/kb/*`
 - Web UI at `/projects/:path/kb`
 - Skills for Claude in `.claude/skills/kb-*.md` (auto-installed by `orka kb init`)
+- Durable system knowledge lives in the project's `04-knowledge/systems/<area>/` as HTML, updated at task close via the `knowledge-capture` skill
 
 Human-facing overview: [docs/knowledge-base.md](docs/knowledge-base.md).
 

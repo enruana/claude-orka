@@ -1,6 +1,6 @@
 ---
 name: board-task-close
-description: Wrap-up ritual for a board task-terminal. Two flavors — Jira-origin tasks: the ticket work is DONE (PR merged / feature in prod); enumerates every artifact produced (PR, code files, docs, spin-off KB entities, infra changes, feature flags, tests, repro commands), enriches overview.html with a "Wrap-up" section + a "Reproduction & validation" section, closes the KB entity, comments + transitions Jira, cleans worktree + terminal. Local-origin tasks (research / doc / design / spike; keys start with LOCAL-): skips PR gate + Jira steps and focuses on wrapping the deliverable — the overview.html + KB entity IS the artifact. Load when the user hits Wrap up in the task modal.
+description: Wrap-up ritual for a board task-terminal. Two flavors — Jira-origin tasks: the ticket work is DONE (PR merged / feature in prod); enumerates every artifact produced (PR, code files, docs, spin-off KB entities, infra changes, feature flags, tests, repro commands), enriches overview.html with a "Wrap-up" section + a "Reproduction & validation" section, closes the KB entity, updates the durable system knowledge in 04-knowledge/ via knowledge-capture, comments + transitions Jira, cleans worktree + terminal. Local-origin tasks (research / doc / design / spike; keys start with LOCAL-): skips PR gate + Jira steps and focuses on wrapping the deliverable — the overview.html + KB entity IS the artifact. Load when the user hits Wrap up in the task modal.
 ---
 
 # Board Task — Wrap Up (post-merge cleanup)
@@ -508,6 +508,42 @@ Skip this step entirely if nothing warrants capture — most tasks won't.
 **If you create spin-offs here (not in Step 2.b), also go back and add
 them to the "Related KB entities" section of overview.html so the
 close doc stays complete.** Just an Edit on that one `<ul>`.
+
+---
+
+## Step 5b — Update the durable system knowledge
+
+**Local: applies in full.** A research or design task is often the one
+that produces the most durable knowledge.
+
+Steps 3 and 4 recorded what THIS task did. This step asks a different
+question: **did the task teach us something about how the system works
+that outlives the ticket?** If so, it belongs in `04-knowledge/`, which
+is the living wiki — not in the task doc, which freezes.
+
+Load the `knowledge-capture` skill and follow it. In short:
+
+- Search `04-knowledge/systems/` for the concepts involved before
+  writing anything — improving an existing doc beats adding a new one.
+- File under `systems/<area>/<topic>.html`, by system area, never by
+  project or ticket key. Areas outlive projects; a folder named after a
+  finished project stops being read while its contents are still true.
+- Bump the version and prepend a revision-log entry naming `<taskKey>`
+  and what changed. That log is what lets someone later ask "how did we
+  understand this in June?" and get a real answer.
+- Register the doc as a KB `artifact` linked back to `<kbEntityId>`.
+
+**Skip it — and say so out loud — when the task taught nothing durable.**
+Most small tasks don't. A doc that restates the ticket makes the folder
+worse: every entry not worth reading trains people to stop opening it.
+
+If you do write or update something, add it to the "Related KB entities"
+section of `overview.html` and print the preview URL in the recap so the
+user can open it with comments and voice:
+
+```
+/api/files/preview/<projectB64>/04-knowledge/systems/<area>/<topic>.html?comments=1&voice=1
+```
 
 ---
 
