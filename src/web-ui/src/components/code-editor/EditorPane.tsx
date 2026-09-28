@@ -3,7 +3,10 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import type { editor, IRange } from 'monaco-editor'
 import type { ProjectComment } from '../../api/client'
 import { api } from '../../api/client'
-import { MessageSquarePlus, Sparkles, Loader2, Check, Undo2, X as XIcon } from 'lucide-react'
+import { MessageSquarePlus, Sparkles, Loader2, Check, Undo2, X as XIcon, Zap, ZapOff } from 'lucide-react'
+import { createInlineCompletionProvider } from './inlineCompletionProvider'
+
+const AUTOCOMPLETE_STORAGE_KEY = 'orka-autocomplete-enabled'
 
 /** Lines of untouched code sent around the selection so the rewrite
  *  matches the file's names and style. Enough to be useful, small
@@ -157,6 +160,20 @@ export function EditorPane({ content, filePath, onChange, readOnly = false, goTo
   const capturedSelRef = useRef<{ range: IRange; text: string } | null>(null)
   const aiDecorationsRef = useRef<string[]>([])
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null)
+
+  const [autocompleteOn, setAutocompleteOn] = useState<boolean>(() => {
+    try { return localStorage.getItem(AUTOCOMPLETE_STORAGE_KEY) !== '0' } catch { return true }
+  })
+  // Provider closes over the enabled flag through this ref so toggling
+  // takes effect without needing to unregister/re-register the provider.
+  const autocompleteOnRef = useRef(autocompleteOn)
+  useEffect(() => {
+    autocompleteOnRef.current = autocompleteOn
+    try { localStorage.setItem(AUTOCOMPLETE_STORAGE_KEY, autocompleteOn ? '1' : '0') } catch { /* private mode */ }
+  }, [autocompleteOn])
+  const filePathRef = useRef(filePath)
+  useEffect(() => { filePathRef.current = filePath }, [filePath])
+  const inlineProviderDisposeRef = useRef<{ dispose: () => void } | null>(null)
 
   // Keep ref in sync to avoid stale closures in addAction
   useEffect(() => {
@@ -396,11 +413,33 @@ export function EditorPane({ content, filePath, onChange, readOnly = false, goTo
       setSelectionBtnPos(null)
     })
 
-    // Focus editor when mounted (only on desktop)
+    // Register the ghost-text (inline) completion provider. Use the
+    // string '*' selector, not `{ pattern: '**' }` — the DocumentFilter
+    // pattern form requires the model to have a file:// URI, which
+    // @monaco-editor/react does not always assign. '*' matches every
+    // language regardless of URI, matching Copilot's registration.
+    if (!inlineProviderDisposeRef.current) {
+      inlineProviderDisposeRef.current = monaco.languages.registerInlineCompletionsProvider(
+        '*',
+        createInlineCompletionProvider({
+          enabled: () => autocompleteOnRef.current && !readOnly,
+          filePath: () => filePathRef.current,
+        }),
+      )
+    }
+    ed.updateOptions({ inlineSuggest: { enabled: true, mode: 'subword' } })
+
     if (!isMobile) {
       ed.focus()
     }
-  }, [isMobile, triggerAddComment, updateSelectionButton])
+  }, [isMobile, readOnly, triggerAddComment, updateSelectionButton])
+
+  useEffect(() => {
+    return () => {
+      inlineProviderDisposeRef.current?.dispose()
+      inlineProviderDisposeRef.current = null
+    }
+  }, [])
 
   // addAction closes over its callback once, so route through a ref.
   const openAiPromptRef = useRef(openAiPrompt)
@@ -558,6 +597,19 @@ export function EditorPane({ content, filePath, onChange, readOnly = false, goTo
 
   return (
     <div className="editor-pane">
+      <button
+        type="button"
+        className={`editor-autocomplete-toggle ${autocompleteOn ? 'on' : 'off'}`}
+        onClick={() => setAutocompleteOn((v) => !v)}
+        title={
+          autocompleteOn
+            ? 'Autocompletar activado (Tab acepta). Click para desactivar.'
+            : 'Autocompletar desactivado. Click para activar.'
+        }
+      >
+        {autocompleteOn ? <Zap size={12} /> : <ZapOff size={12} />}
+        <span>{autocompleteOn ? 'AI' : 'AI off'}</span>
+      </button>
       <Editor
         height="100%"
         language={language}

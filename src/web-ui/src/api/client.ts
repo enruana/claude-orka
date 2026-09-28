@@ -1107,6 +1107,37 @@ export const api = {
     return res.json()
   },
 
+  /**
+   * Ghost-text autocomplete for the code editor. Powered by Haiku.
+   *
+   * Takes an AbortSignal because the caller cancels stale requests on
+   * every keystroke — without it, an old completion arrives late and
+   * paints over the current cursor position, which looks worse than
+   * having no completion at all.
+   */
+  async aiInlineComplete(
+    args: {
+      contextBefore: string
+      contextAfter: string
+      languageId?: string
+      filePath?: string
+      maxLines?: number
+    },
+    signal?: AbortSignal,
+  ): Promise<{ completion: string }> {
+    const res = await fetch(`${API_BASE}/ai/inline-complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+      signal,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'inline-complete failed' }))
+      throw new Error(data.error || 'inline-complete failed')
+    }
+    return res.json()
+  },
+
   /** Ask Claude to generate a natural-language summary of a KB entity in
    *  the requested language. Uses the entity's properties + 1-hop
    *  neighborhood as context. Returns plain prose (no markdown fences). */

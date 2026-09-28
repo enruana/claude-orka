@@ -369,6 +369,45 @@
   overflow: hidden;
 }
 
+.editor-autocomplete-toggle {
+  position: absolute;
+  top: 8px;
+  right: 22px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(17, 18, 42, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #a6adc8;
+  font: inherit;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+.editor-autocomplete-toggle:hover { opacity: 1; }
+.editor-autocomplete-toggle.on {
+  color: #89b4fa;
+  border-color: rgba(137, 180, 250, 0.4);
+  background: rgba(137, 180, 250, 0.14);
+}
+.editor-autocomplete-toggle.on:hover {
+  background: rgba(137, 180, 250, 0.22);
+  border-color: rgba(137, 180, 250, 0.6);
+}
+.editor-autocomplete-toggle.off {
+  color: #6c7086;
+  border-style: dashed;
+}
+
 .editor-placeholder {
   display: flex;
   flex-direction: column;

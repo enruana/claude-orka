@@ -27,6 +27,17 @@ interface AskDocumentBody {
 
 const ASK_DOC_MAX_CONTEXT = 120_000
 
+interface InlineCompleteBody {
+  contextBefore: string
+  contextAfter: string
+  languageId?: string
+  filePath?: string
+  maxLines?: number
+}
+
+const INLINE_COMPLETE_MAX_CTX_BEFORE = 12_000
+const INLINE_COMPLETE_MAX_CTX_AFTER = 4_000
+
 /**
  * POST /api/ai/query
  * Ask AI a question with optional context from terminal or code editor
@@ -172,6 +183,139 @@ aiRouter.post('/ask-document', async (req, res) => {
       return
     }
     res.status(500).json({ error: error.message || 'Failed to process ask-document' })
+  }
+})
+
+/**
+ * POST /api/ai/inline-complete
+ *
+ * Ghost-text completion for the code editor — Cursor/Copilot style.
+ * Fill-in-the-middle: contextBefore + <CURSOR> + contextAfter. Model
+ * returns only the text that goes at the cursor; the client renders it
+ * as an inline suggestion (Tab to accept). Haiku, tight budget, hard
+ * limits on output because the caller trims to `maxLines` anyway.
+ *
+ * Model must never wrap output in fences or prose. If it does, we
+ * strip both defensively — the frontend won't paste markdown into
+ * code.
+ */
+aiRouter.post('/inline-complete', async (req, res) => {
+  try {
+    const {
+      contextBefore = '',
+      contextAfter = '',
+      languageId = 'plaintext',
+      filePath,
+      maxLines = 5,
+    } = req.body as InlineCompleteBody
+
+    if (!contextBefore.trim() && !contextAfter.trim()) {
+      res.json({ completion: '' })
+      return
+    }
+
+    const before = contextBefore.length > INLINE_COMPLETE_MAX_CTX_BEFORE
+      ? contextBefore.slice(-INLINE_COMPLETE_MAX_CTX_BEFORE)
+      : contextBefore
+    const after = contextAfter.length > INLINE_COMPLETE_MAX_CTX_AFTER
+      ? contextAfter.slice(0, INLINE_COMPLETE_MAX_CTX_AFTER)
+      : contextAfter
+
+    const filePathLine = filePath ? `File: ${filePath}\n` : ''
+    const systemPrompt = [
+      `You are a code autocomplete engine for ${languageId}.`,
+      'Output ONLY the exact characters to insert at <CURSOR>.',
+      'No explanations, no markdown, no code fences, no leading language tag.',
+      `Stop at a natural boundary. Never exceed ${maxLines} lines.`,
+      'If the cursor is mid-token, complete the token first, then continue.',
+      'If nothing sensible fits (context is a finished statement, cursor is at EOF, etc.), output an empty string.',
+    ].join(' ')
+    const userMessage = [
+      filePathLine + '<PREFIX>',
+      before,
+      '<CURSOR>',
+      after,
+      '</PREFIX>',
+      '',
+      'Insertion at <CURSOR>:',
+    ].join('\n')
+
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    let out = ''
+
+    if (apiKey) {
+      // Fast path: hit the Anthropic HTTP API directly. Sub-second on
+      // Haiku vs. the ~7-8 s the `claude` CLI spawn takes end-to-end.
+      // Only skipped when there is no key on the server env, which is
+      // rare because Claude Code sets it.
+      const controller = new AbortController()
+      const to = setTimeout(() => controller.abort(), 8000)
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'anthropic-version': '2023-06-01',
+            'x-api-key': apiKey,
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 220,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: userMessage }],
+          }),
+          signal: controller.signal,
+        })
+        clearTimeout(to)
+        if (!r.ok) {
+          const errBody = await r.text().catch(() => '')
+          console.warn('[inline-complete] anthropic api error:', r.status, errBody.slice(0, 200))
+        } else {
+          const j: any = await r.json()
+          const block = Array.isArray(j?.content) ? j.content.find((b: any) => b?.type === 'text') : null
+          out = String(block?.text ?? '')
+        }
+      } catch (err: any) {
+        clearTimeout(to)
+        if (err?.name !== 'AbortError') {
+          console.warn('[inline-complete] anthropic fetch failed:', err?.message || err)
+        }
+      }
+    }
+
+    if (!out) {
+      // Fallback: shell out to the local `claude` CLI. Slower (~7 s
+      // because of process spawn + stdin wait) but works without an
+      // API key on the server env.
+      const args = ['-p', systemPrompt + '\n\n' + userMessage, '--model', 'haiku', '--no-session-persistence']
+      const execaOptions: any = {
+        timeout: 20000,
+        env: { ...process.env, CLAUDECODE: '' },
+        extendEnv: false,
+        input: '',
+      }
+      try {
+        const { stdout } = await execa('claude', args, execaOptions)
+        out = stdout
+      } catch (err: any) {
+        if (err?.code === 'ENOENT') {
+          res.status(500).json({ error: 'Claude CLI not found and no ANTHROPIC_API_KEY set.' })
+          return
+        }
+        if (err?.timedOut) { res.json({ completion: '' }); return }
+        throw err
+      }
+    }
+
+    const fenceMatch = out.match(/```[\w-]*\n([\s\S]*?)\n?```/)
+    if (fenceMatch) out = fenceMatch[1]
+    const lines = out.split('\n')
+    if (lines.length > maxLines + 4) out = lines.slice(0, maxLines + 4).join('\n')
+
+    res.json({ completion: out })
+  } catch (error: any) {
+    console.error('Error in AI inline-complete:', error)
+    res.status(500).json({ error: error.message || 'Failed to process inline-complete' })
   }
 })
 
