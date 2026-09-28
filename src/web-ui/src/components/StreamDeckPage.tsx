@@ -57,7 +57,32 @@ export function StreamDeckPage() {
 
   const deck = useDeck()
   const selfId = deck.clientId
-  const roster = deck.roster
+  const [restRoster, setRestRoster] = useState<DeckClientPublic[] | null>(null)
+  // Merge WS + REST — WS is source of truth when we have it, REST fills
+  // in the gap right after mount and covers cross-tab broadcasts that
+  // arrived before this tab's WS connected.
+  const roster = useMemo(() => {
+    const wsList = deck.roster
+    const restList = restRoster || []
+    if (wsList.length >= restList.length) return wsList
+    const merged = new Map<string, DeckClientPublic>()
+    for (const c of restList) merged.set(c.clientId, c)
+    for (const c of wsList) merged.set(c.clientId, c)
+    return [...merged.values()]
+  }, [deck.roster, restRoster])
+
+  useEffect(() => {
+    let stopped = false
+    const pull = async () => {
+      try {
+        const res = await api.getDeckClients()
+        if (!stopped) setRestRoster(res.clients)
+      } catch { /* drop */ }
+    }
+    void pull()
+    const iv = window.setInterval(pull, 4000)
+    return () => { stopped = true; window.clearInterval(iv) }
+  }, [])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [projects, setProjects] = useState<RegisteredProject[]>([])
   const [projectDetail, setProjectDetail] = useState<

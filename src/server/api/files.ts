@@ -691,8 +691,10 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     border-left: 3px solid rgba(137, 180, 250, 0.6);
     border-radius: 8px;
     padding: 10px 12px;
-    max-height: 96px; overflow: auto;
+    max-height: 220px; overflow: auto;
     white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
     font-family: ui-monospace, monospace;
     line-height: 1.5;
   }
@@ -1086,10 +1088,45 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     toolbar.style.left = Math.max(8, left) + 'px';
   }
 
+  var BLOCK_TAGS = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE|PRE|SECTION|ARTICLE|HEADER|FOOTER|MAIN|ASIDE|NAV|FIGURE|FIGCAPTION|TR|UL|OL|TABLE|HR|DL|DT|DD|ADDRESS|DETAILS|SUMMARY)$/;
+
+  // sel.toString() drops newlines between block siblings in some engines,
+  // so a multi-line paragraph selection ended up glued together in the
+  // Ask modal excerpt. Serialize the range ourselves and insert \n
+  // between block boundaries.
+  function getRangePlainText(range) {
+    if (!range) return '';
+    try {
+      var frag = range.cloneContents();
+      var out = [];
+      function walk(node) {
+        if (!node) return;
+        if (node.nodeType === 3) { out.push(node.nodeValue || ''); return; }
+        if (node.nodeType !== 1) return;
+        var tag = node.nodeName;
+        if (tag === 'BR') { out.push('\\n'); return; }
+        var block = BLOCK_TAGS.test(tag);
+        if (block && out.length && out[out.length - 1].slice(-1) !== '\\n') out.push('\\n');
+        for (var i = 0; i < node.childNodes.length; i++) walk(node.childNodes[i]);
+        if (block) out.push('\\n');
+      }
+      for (var i = 0; i < frag.childNodes.length; i++) walk(frag.childNodes[i]);
+      var plain = out.join('')
+        .replace(/[ \\t]+\\n/g, '\\n')
+        .replace(/\\n{3,}/g, '\\n\\n')
+        .trim();
+      return plain || String(range).trim();
+    } catch (err) {
+      try { return String(range).trim(); } catch (_) { return ''; }
+    }
+  }
+
   function checkSelection() {
     var sel = window.getSelection();
     if (!sel || sel.isCollapsed) { hideToolbar(); return; }
-    var text = sel.toString().trim();
+    var range;
+    try { range = sel.getRangeAt(0); } catch (_) { hideToolbar(); return; }
+    var text = getRangePlainText(range) || sel.toString().trim();
     if (!text) { hideToolbar(); return; }
     var anchorEl = sel.anchorNode && sel.anchorNode.nodeType === 3
       ? sel.anchorNode.parentElement : sel.anchorNode;
