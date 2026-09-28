@@ -18,6 +18,15 @@ interface AIQueryBody {
   }
 }
 
+interface AskDocumentBody {
+  question: string
+  selectedText: string
+  documentText: string
+  filePath?: string
+}
+
+const ASK_DOC_MAX_CONTEXT = 120_000
+
 /**
  * POST /api/ai/query
  * Ask AI a question with optional context from terminal or code editor
@@ -89,6 +98,80 @@ aiRouter.post('/query', async (req, res) => {
     }
 
     res.status(500).json({ error: error.message || 'Failed to process AI query' })
+  }
+})
+
+/**
+ * POST /api/ai/ask-document
+ *
+ * Answers a user question grounded in a document + a highlighted
+ * excerpt. Powers the "Ask" action next to the "Comment" action in
+ * the review overlay (see buildCommentsOverlay in files.ts).
+ *
+ * The full doc goes on stdin (up to ASK_DOC_MAX_CONTEXT chars, then
+ * head+tail truncation); the excerpt sits in the prompt so the model
+ * knows what the user was pointing at when they asked.
+ */
+aiRouter.post('/ask-document', async (req, res) => {
+  try {
+    const { question, selectedText, documentText, filePath } = req.body as AskDocumentBody
+
+    if (!question?.trim()) { res.status(400).json({ error: 'question is required' }); return }
+    if (!selectedText?.trim()) { res.status(400).json({ error: 'selectedText is required' }); return }
+    if (!documentText?.trim()) { res.status(400).json({ error: 'documentText is required' }); return }
+
+    let docForStdin = documentText
+    let truncated = false
+    if (docForStdin.length > ASK_DOC_MAX_CONTEXT) {
+      const half = Math.floor(ASK_DOC_MAX_CONTEXT / 2)
+      docForStdin =
+        docForStdin.slice(0, half)
+        + `\n\n[… ~${docForStdin.length - ASK_DOC_MAX_CONTEXT} chars omitted …]\n\n`
+        + docForStdin.slice(-half)
+      truncated = true
+    }
+
+    const excerpt = selectedText.slice(0, 4000)
+    const filePathLine = filePath ? `\nDocument path: ${filePath}` : ''
+    const truncationLine = truncated
+      ? '\nNote: the full document was long; a middle chunk was elided. Say so if the answer would need what was cut.'
+      : ''
+
+    const prompt = [
+      'You are answering a reader\'s question about a document. The full document is on stdin.',
+      'The reader highlighted a specific excerpt and asked about it. Answer the question directly; use the rest of the document to ground your answer when relevant.',
+      'Be concise. Reply in the same language as the question. If the answer is not in the document, say so plainly.',
+      filePathLine,
+      truncationLine,
+      '',
+      'Highlighted excerpt:',
+      '"""',
+      excerpt,
+      '"""',
+      '',
+      `Question: ${question.trim()}`,
+    ].join('\n')
+
+    const args = ['-p', prompt, '--model', 'haiku', '--no-session-persistence']
+    const execaOptions: any = {
+      timeout: 90000,
+      env: { ...process.env, CLAUDECODE: '' },
+      extendEnv: false,
+      input: docForStdin,
+    }
+    const { stdout } = await execa('claude', args, execaOptions)
+    res.json({ answer: stdout.trim() })
+  } catch (error: any) {
+    console.error('Error in AI ask-document:', error)
+    if (error.code === 'ENOENT') {
+      res.status(500).json({ error: 'Claude CLI not found. Make sure claude is installed and in PATH.' })
+      return
+    }
+    if (error.timedOut) {
+      res.status(500).json({ error: 'Request timed out. Try a shorter question or smaller document.' })
+      return
+    }
+    res.status(500).json({ error: error.message || 'Failed to process ask-document' })
   }
 })
 

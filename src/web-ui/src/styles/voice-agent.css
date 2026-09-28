@@ -1517,3 +1517,28 @@
 .va-host-remove:hover { background: rgba(243, 139, 168, 0.18); color: #f38ba8; }
 
 .va-modal-body .va-url-input { margin-top: 6px; }
+
+.particle-cloud-fallback {
+  background:
+    radial-gradient(ellipse at 30% 40%, rgba(137, 180, 250, 0.18), transparent 55%),
+    radial-gradient(ellipse at 70% 60%, rgba(203, 166, 247, 0.15), transparent 55%),
+    radial-gradient(ellipse at 50% 50%, rgba(148, 226, 213, 0.10), transparent 65%);
+  filter: blur(28px);
+  opacity: 0.55;
+  animation: particle-cloud-fallback-drift 22s ease-in-out infinite alternate;
+}
+.particle-cloud-fallback.state-listening { opacity: 0.65; animation-duration: 14s; }
+.particle-cloud-fallback.state-thinking  { opacity: 0.75; animation-duration: 9s; }
+.particle-cloud-fallback.state-speaking  { opacity: 0.7;  animation-duration: 11s; }
+.particle-cloud-fallback.state-connecting { opacity: 0.5; animation-duration: 18s; }
+.particle-cloud-fallback.state-error      { opacity: 0.35; filter: blur(38px); }
+
+@keyframes particle-cloud-fallback-drift {
+  0%   { transform: translate3d(-2%, -1%, 0) scale(1.02); }
+  50%  { transform: translate3d(2%,  1%, 0) scale(1.06); }
+  100% { transform: translate3d(-1%, 2%, 0) scale(1.00); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .particle-cloud-fallback { animation: none; }
+}

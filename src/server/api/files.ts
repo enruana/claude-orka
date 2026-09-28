@@ -510,25 +510,183 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     outline-offset: 0;
   }
 
-  /* ---- Floating "add" button on selection ---- */
-  .orka-add-comment-btn {
+  /* ---- Floating selection toolbar (Comment + Ask) ---- */
+  .orka-selection-toolbar {
     position: absolute;
     z-index: 2147483646;
     display: none;
-    padding: 6px 10px;
+    gap: 4px;
+    padding: 3px;
     border-radius: 999px;
-    border: 1px solid rgba(0,0,0,0.15);
-    background: #ea580c;
+    background: rgba(20, 20, 22, 0.94);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.28);
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    user-select: none;
+  }
+  .orka-selection-toolbar-btn {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 0;
     color: white;
     font-size: 12px;
     font-weight: 600;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     line-height: 1;
+    background: transparent;
+    transition: background 0.12s;
+  }
+  .orka-selection-toolbar-btn:hover { background: rgba(255,255,255,0.1); }
+  .orka-selection-toolbar-btn.comment { background: #ea580c; }
+  .orka-selection-toolbar-btn.comment:hover { filter: brightness(1.08); background: #ea580c; }
+  .orka-selection-toolbar-btn.ask { background: #3b82f6; }
+  .orka-selection-toolbar-btn.ask:hover { filter: brightness(1.08); background: #3b82f6; }
+
+  /* ---- Ask input (mini prompt anchored to selection) ---- */
+  .orka-ask-inline {
+    position: absolute;
+    z-index: 2147483646;
+    display: none;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 12px;
+    background: white;
+    color: #1a1a1a;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    align-items: flex-start;
+    width: min(380px, 90vw);
+    box-sizing: border-box;
+  }
+  .orka-ask-inline textarea {
+    flex: 1;
+    min-height: 44px; max-height: 140px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 13px;
+    resize: none;
+    outline: none;
+    color: #1a1a1a; background: white;
+    box-sizing: border-box;
+  }
+  .orka-ask-inline textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.18); }
+  .orka-ask-inline button {
+    padding: 8px 12px;
+    border-radius: 8px; border: 0;
+    background: #3b82f6; color: white;
+    font: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer;
+    align-self: stretch;
+  }
+  .orka-ask-inline button:hover { filter: brightness(1.08); }
+  .orka-ask-inline button:disabled { opacity: 0.5; cursor: default; }
+
+  /* ---- Ask answer modal (draggable + minimizable) ---- */
+  .orka-ask-modal {
+    position: fixed;
+    z-index: 2147483645;
+    width: min(460px, 92vw);
+    max-height: 70vh;
+    background: white;
+    color: #1a1a1a;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.28);
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .orka-ask-modal-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 10px;
+    background: #f4f4f5;
+    border-bottom: 1px solid #e4e4e7;
+    cursor: move;
     user-select: none;
   }
-  .orka-add-comment-btn:hover { filter: brightness(1.08); }
+  .orka-ask-modal-title {
+    flex: 1; font-size: 12px; font-weight: 600; color: #52525b;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .orka-ask-modal-icon-btn {
+    width: 22px; height: 22px;
+    border: 0; background: transparent;
+    color: #52525b; cursor: pointer; border-radius: 4px;
+    font-size: 14px; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .orka-ask-modal-icon-btn:hover { background: #e4e4e7; color: #18181b; }
+  .orka-ask-modal-body {
+    padding: 14px 16px;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 12px;
+    font-size: 14px; line-height: 1.55;
+  }
+  .orka-ask-question {
+    font-size: 13px; font-weight: 600; color: #1a1a1a;
+  }
+  .orka-ask-excerpt {
+    font-size: 12px; color: #444;
+    background: #f0f9ff;
+    border-left: 3px solid #3b82f6;
+    border-radius: 6px;
+    padding: 8px 10px;
+    max-height: 90px; overflow: auto;
+    white-space: pre-wrap;
+    font-family: ui-monospace, monospace;
+  }
+  .orka-ask-excerpt-toggle {
+    display: inline-block; margin-top: 4px;
+    font-size: 11px; color: #3b82f6; cursor: pointer; user-select: none;
+  }
+  .orka-ask-answer { white-space: pre-wrap; color: #18181b; }
+  .orka-ask-loading {
+    display: inline-flex; align-items: center; gap: 8px;
+    color: #52525b; font-size: 13px;
+  }
+  .orka-ask-loading::before {
+    content: ''; width: 12px; height: 12px;
+    border: 2px solid #3b82f6; border-top-color: transparent;
+    border-radius: 50%;
+    animation: orka-ask-spin 0.8s linear infinite;
+  }
+  @keyframes orka-ask-spin { to { transform: rotate(360deg); } }
+  .orka-ask-error {
+    padding: 8px 10px; border-radius: 6px;
+    background: #fef2f2; color: #b91c1c;
+    border-left: 3px solid #dc2626;
+    font-size: 13px;
+  }
+
+  /* ---- Minimized-modal tray (bottom-right stack of pills) ---- */
+  .orka-ask-tray {
+    position: fixed;
+    bottom: 20px; right: 20px;
+    z-index: 2147483646;
+    display: flex; flex-direction: column; gap: 6px;
+    max-width: 240px;
+  }
+  .orka-ask-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #3b82f6; color: white;
+    font: inherit; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px; font-weight: 600;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+    border: 0; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 240px;
+  }
+  .orka-ask-pill:hover { filter: brightness(1.08); }
+  .orka-ask-pill-close {
+    background: rgba(255,255,255,0.25); border: 0; color: white;
+    width: 18px; height: 18px; border-radius: 50%;
+    cursor: pointer; font-size: 12px; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0;
+  }
+  .orka-ask-pill-close:hover { background: rgba(255,255,255,0.4); }
 
   /* ---- Write dialog (modal for typing) ---- */
   .orka-comment-dialog-overlay {
@@ -733,53 +891,291 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     if (document.body.classList.contains('orka-rail-open')) closeRail();
   });
 
-  // -------- Selection → floating "+" button --------------------------
+  // -------- Selection → floating toolbar (Comment + Ask) ------------
 
-  var addBtn = document.createElement('button');
-  addBtn.className = 'orka-add-comment-btn';
-  addBtn.type = 'button';
-  addBtn.textContent = '💬 Comentar';
-  document.body.appendChild(addBtn);
+  var toolbar = document.createElement('div');
+  toolbar.className = 'orka-selection-toolbar';
+  var commentBtn = document.createElement('button');
+  commentBtn.type = 'button';
+  commentBtn.className = 'orka-selection-toolbar-btn comment';
+  commentBtn.textContent = '💬 Comentar';
+  var askBtn = document.createElement('button');
+  askBtn.type = 'button';
+  askBtn.className = 'orka-selection-toolbar-btn ask';
+  askBtn.textContent = '❓ Preguntar';
+  toolbar.appendChild(commentBtn);
+  toolbar.appendChild(askBtn);
+  document.body.appendChild(toolbar);
 
   var currentSelectedText = '';
+  var lastSelectionRange = null;
 
-  function hideAddBtn() { addBtn.style.display = 'none'; }
+  function hideToolbar() { toolbar.style.display = 'none'; }
 
-  function positionAddBtn(range) {
+  function positionToolbar(range) {
     var rect = range.getBoundingClientRect();
     var top = window.scrollY + rect.bottom + 6;
-    var left = Math.min(window.scrollX + rect.right, window.scrollX + window.innerWidth - 140);
-    addBtn.style.top = top + 'px';
-    addBtn.style.left = left + 'px';
-    addBtn.style.display = 'block';
+    // Show first, measure, then clamp — width depends on font metrics.
+    toolbar.style.display = 'inline-flex';
+    var tbWidth = toolbar.offsetWidth || 200;
+    var left = Math.min(window.scrollX + rect.right, window.scrollX + window.innerWidth - tbWidth - 8);
+    toolbar.style.top = top + 'px';
+    toolbar.style.left = Math.max(8, left) + 'px';
   }
 
   function checkSelection() {
     var sel = window.getSelection();
-    if (!sel || sel.isCollapsed) { hideAddBtn(); return; }
+    if (!sel || sel.isCollapsed) { hideToolbar(); return; }
     var text = sel.toString().trim();
-    if (!text) { hideAddBtn(); return; }
-    // Only accept selections inside the doc content (not in the rail).
+    if (!text) { hideToolbar(); return; }
     var anchorEl = sel.anchorNode && sel.anchorNode.nodeType === 3
       ? sel.anchorNode.parentElement : sel.anchorNode;
-    if (!anchorEl || !reviewContent.contains(anchorEl)) { hideAddBtn(); return; }
-    var range = sel.getRangeAt(0);
+    if (!anchorEl || !reviewContent.contains(anchorEl)) { hideToolbar(); return; }
+    // Selections inside overlay-owned UI (rail, modals, inline ask input)
+    // must not re-trigger the toolbar — that traps the user in a loop.
+    if (anchorEl.closest && (
+      anchorEl.closest('#orka-review-rail')
+      || anchorEl.closest('.orka-ask-modal')
+      || anchorEl.closest('.orka-ask-inline')
+      || anchorEl.closest('.orka-ask-tray')
+    )) { hideToolbar(); return; }
+    lastSelectionRange = sel.getRangeAt(0);
     currentSelectedText = text;
-    positionAddBtn(range);
+    positionToolbar(lastSelectionRange);
   }
 
   document.addEventListener('mouseup', function() { setTimeout(checkSelection, 10); });
   document.addEventListener('touchend', function() { setTimeout(checkSelection, 150); });
   document.addEventListener('selectionchange', function() {
     var sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.toString().trim()) hideAddBtn();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) hideToolbar();
   });
 
-  addBtn.addEventListener('mousedown', function(e) { e.preventDefault(); });
-  addBtn.addEventListener('click', function() {
+  toolbar.addEventListener('mousedown', function(e) { e.preventDefault(); });
+  commentBtn.addEventListener('click', function() {
     if (!currentSelectedText) return;
     openDialog(currentSelectedText);
+    hideToolbar();
   });
+  askBtn.addEventListener('click', function() {
+    if (!currentSelectedText) return;
+    openAskInline(currentSelectedText, lastSelectionRange);
+    hideToolbar();
+  });
+
+  // -------- Ask flow: inline prompt → modal answer ------------------
+
+  var askInline = null;
+
+  function closeAskInline() {
+    if (askInline && askInline.parentElement) askInline.parentElement.removeChild(askInline);
+    askInline = null;
+  }
+
+  function openAskInline(selectedText, range) {
+    closeAskInline();
+    askInline = document.createElement('div');
+    askInline.className = 'orka-ask-inline';
+    var ta = document.createElement('textarea');
+    ta.placeholder = 'Ask a question about this excerpt…';
+    ta.rows = 2;
+    var send = document.createElement('button');
+    send.type = 'button';
+    send.textContent = 'Ask';
+    send.disabled = true;
+    askInline.appendChild(ta);
+    askInline.appendChild(send);
+    document.body.appendChild(askInline);
+
+    // Position near the selection (below the range, clamped to viewport).
+    var rect = (range || (function() { var r = document.createRange(); r.selectNodeContents(document.body); return r; })()).getBoundingClientRect();
+    askInline.style.display = 'inline-flex';
+    var w = askInline.offsetWidth || 380;
+    var left = Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - w - 8);
+    var top = window.scrollY + rect.bottom + 8;
+    askInline.style.left = Math.max(8, left) + 'px';
+    askInline.style.top = top + 'px';
+
+    ta.focus();
+    ta.addEventListener('input', function() { send.disabled = !ta.value.trim(); });
+    ta.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { closeAskInline(); }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!send.disabled) send.click(); }
+    });
+    send.addEventListener('click', function() {
+      var question = ta.value.trim();
+      if (!question) return;
+      closeAskInline();
+      launchAskModal(question, selectedText);
+    });
+
+    // Clicking outside cancels — but skip when the click lands on the
+    // toolbar (already hidden) or the modal (opened by send).
+    setTimeout(function() {
+      var onDocDown = function(e) {
+        if (!askInline) { document.removeEventListener('mousedown', onDocDown); return; }
+        if (!askInline.contains(e.target)) { closeAskInline(); document.removeEventListener('mousedown', onDocDown); }
+      };
+      document.addEventListener('mousedown', onDocDown);
+    }, 0);
+  }
+
+  // Cache the full document text once for Ask calls — the entire
+  // rendered body (innerText) is used as the model's grounding context.
+  var docTextCache = null;
+  function getDocText() {
+    if (docTextCache != null) return docTextCache;
+    docTextCache = (document.body && document.body.innerText || '').slice(0);
+    return docTextCache;
+  }
+  // Invalidate on any DOM mutation that touches the body (rare during
+  // preview, but keeps the cache honest when marks / rails get added).
+  var docTextInvalidator = new MutationObserver(function() { docTextCache = null; });
+  try { docTextInvalidator.observe(document.body, { childList: true, subtree: true, characterData: true }); } catch (_) {}
+
+  // ---- Ask modal management (draggable, minimizable, stackable) ----
+
+  var askTray = null;
+  function ensureAskTray() {
+    if (askTray) return askTray;
+    askTray = document.createElement('div');
+    askTray.className = 'orka-ask-tray';
+    document.body.appendChild(askTray);
+    return askTray;
+  }
+
+  var _askCounter = 0;
+  // Offset each new modal so a stack of asks is visually distinguishable
+  // and clicking through them is possible.
+  function nextModalOffset() {
+    var i = (_askCounter++) % 6;
+    return { top: 80 + i * 26, right: 24 + i * 18 };
+  }
+
+  function launchAskModal(question, selectedText) {
+    var modal = document.createElement('div');
+    modal.className = 'orka-ask-modal';
+
+    var header = document.createElement('div');
+    header.className = 'orka-ask-modal-header';
+    var title = document.createElement('div');
+    title.className = 'orka-ask-modal-title';
+    title.textContent = question.length > 60 ? question.slice(0, 57) + '…' : question;
+    var minBtn = document.createElement('button');
+    minBtn.type = 'button'; minBtn.className = 'orka-ask-modal-icon-btn';
+    minBtn.title = 'Minimize'; minBtn.textContent = '—';
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button'; closeBtn.className = 'orka-ask-modal-icon-btn';
+    closeBtn.title = 'Close'; closeBtn.textContent = '×';
+    header.appendChild(title); header.appendChild(minBtn); header.appendChild(closeBtn);
+
+    var body = document.createElement('div');
+    body.className = 'orka-ask-modal-body';
+    var qEl = document.createElement('div');
+    qEl.className = 'orka-ask-question';
+    qEl.textContent = question;
+
+    var exEl = document.createElement('div');
+    exEl.className = 'orka-ask-excerpt';
+    exEl.textContent = selectedText;
+
+    var toggle = document.createElement('span');
+    toggle.className = 'orka-ask-excerpt-toggle';
+    toggle.textContent = 'Hide excerpt';
+    toggle.addEventListener('click', function() {
+      var hidden = exEl.style.display === 'none';
+      exEl.style.display = hidden ? 'block' : 'none';
+      toggle.textContent = hidden ? 'Hide excerpt' : 'Show excerpt';
+    });
+
+    var content = document.createElement('div');
+    var loading = document.createElement('div');
+    loading.className = 'orka-ask-loading';
+    loading.textContent = 'Thinking…';
+    content.appendChild(loading);
+
+    body.appendChild(qEl); body.appendChild(exEl); body.appendChild(toggle); body.appendChild(content);
+    modal.appendChild(header); modal.appendChild(body);
+    document.body.appendChild(modal);
+
+    var off = nextModalOffset();
+    modal.style.top = off.top + 'px';
+    modal.style.right = off.right + 'px';
+
+    // Drag from the header.
+    (function() {
+      var drag = null;
+      header.addEventListener('mousedown', function(e) {
+        if (e.target === minBtn || e.target === closeBtn) return;
+        var r = modal.getBoundingClientRect();
+        drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+        modal.style.right = 'auto';
+        modal.style.left = r.left + 'px';
+        e.preventDefault();
+      });
+      window.addEventListener('mousemove', function(e) {
+        if (!drag) return;
+        var w = modal.offsetWidth, h = modal.offsetHeight;
+        var left = Math.min(Math.max(0, e.clientX - drag.dx), window.innerWidth - w);
+        var top = Math.min(Math.max(0, e.clientY - drag.dy), window.innerHeight - h);
+        modal.style.left = left + 'px';
+        modal.style.top = top + 'px';
+      });
+      window.addEventListener('mouseup', function() { drag = null; });
+    })();
+
+    closeBtn.addEventListener('click', function() { modal.remove(); });
+    minBtn.addEventListener('click', function() {
+      modal.style.display = 'none';
+      var tray = ensureAskTray();
+      var pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'orka-ask-pill';
+      var label = document.createElement('span');
+      label.textContent = question.length > 26 ? question.slice(0, 24) + '…' : question;
+      var x = document.createElement('span');
+      x.className = 'orka-ask-pill-close'; x.textContent = '×';
+      pill.appendChild(label); pill.appendChild(x);
+      pill.addEventListener('click', function(e) {
+        if (e.target === x) { modal.remove(); pill.remove(); return; }
+        modal.style.display = 'flex'; pill.remove();
+      });
+      tray.appendChild(pill);
+    });
+
+    // Fire the request.
+    fetch(API_BASE + '/ai/ask-document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: question,
+        selectedText: selectedText,
+        documentText: getDocText(),
+        filePath: FILE_PATH,
+      }),
+    }).then(function(r) {
+      return r.json().then(function(d) { return { ok: r.ok, data: d }; });
+    }).then(function(result) {
+      content.innerHTML = '';
+      if (!result.ok || result.data && result.data.error) {
+        var err = document.createElement('div');
+        err.className = 'orka-ask-error';
+        err.textContent = (result.data && result.data.error) || 'Request failed.';
+        content.appendChild(err);
+        return;
+      }
+      var ans = document.createElement('div');
+      ans.className = 'orka-ask-answer';
+      ans.textContent = (result.data && result.data.answer) || '(empty response)';
+      content.appendChild(ans);
+    }).catch(function(e) {
+      content.innerHTML = '';
+      var err = document.createElement('div');
+      err.className = 'orka-ask-error';
+      err.textContent = 'Network error: ' + (e && e.message || 'unknown');
+      content.appendChild(err);
+    });
+  }
 
   // -------- Helpers --------------------------------------------------
 

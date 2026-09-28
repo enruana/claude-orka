@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from 'react'
+import { Component, type ErrorInfo, type ReactNode, useEffect, useRef, useMemo, useState } from 'react'
 import * as THREE from 'three'
 
 interface ParticleCloudProps {
@@ -83,7 +83,25 @@ const FRAGMENT_SHADER = `
   }
 `
 
-export function ParticleCloud({ state, intensity: baseIntensity = 1.0 }: ParticleCloudProps) {
+// Probe first: WebGLRenderer's constructor has side effects before it
+// discovers the context request failed, so try/catch there leaves it
+// half-initialized.
+function isWebGLAvailable(): boolean {
+  if (typeof window === 'undefined') return false
+  if (!window.WebGLRenderingContext) return false
+  try {
+    const canvas = document.createElement('canvas')
+    const gl =
+      canvas.getContext('webgl2')
+      || canvas.getContext('webgl')
+      || canvas.getContext('experimental-webgl')
+    return !!gl
+  } catch {
+    return false
+  }
+}
+
+function ParticleCloudInner({ state, intensity: baseIntensity = 1.0 }: ParticleCloudProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
@@ -91,8 +109,8 @@ export function ParticleCloud({ state, intensity: baseIntensity = 1.0 }: Particl
   const particlesRef = useRef<THREE.Points | null>(null)
   const intensityRef = useRef(baseIntensity)
   const animationFrameRef = useRef<number | null>(null)
+  const [webglFailed, setWebglFailed] = useState(false)
 
-  // State-driven intensity mapping
   const getIntensityForState = (st: typeof state): number => {
     switch (st) {
       case 'idle': return 0.3
@@ -107,8 +125,11 @@ export function ParticleCloud({ state, intensity: baseIntensity = 1.0 }: Particl
 
   useEffect(() => {
     if (!containerRef.current) return
+    if (!isWebGLAvailable()) {
+      setWebglFailed(true)
+      return
+    }
 
-    // Scene setup
     const scene = new THREE.Scene()
     sceneRef.current = scene
 
@@ -119,19 +140,24 @@ export function ParticleCloud({ state, intensity: baseIntensity = 1.0 }: Particl
     camera.position.z = 3
     cameraRef.current = camera
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    let renderer: THREE.WebGLRenderer
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    } catch (err) {
+      console.warn('[ParticleCloud] WebGL renderer construction failed, falling back to CSS:', err)
+      setWebglFailed(true)
+      return
+    }
     renderer.setSize(width, height)
     renderer.setClearColor(0x000000, 0)
     renderer.setPixelRatio(window.devicePixelRatio)
     containerRef.current.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Create particle cloud geometry
     const particleCount = 2000
     const geometry = new THREE.BufferGeometry()
     const positions = new Float32Array(particleCount * 3)
 
-    // Distribute particles in a sphere-like cloud
     for (let i = 0; i < particleCount; i++) {
       const i3 = i * 3
       const theta = Math.random() * Math.PI * 2
@@ -145,7 +171,6 @@ export function ParticleCloud({ state, intensity: baseIntensity = 1.0 }: Particl
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
 
-    // Create material with custom shaders
     const material = new THREE.ShaderMaterial({
       uniforms: {
         uTime: { value: 0 },
@@ -202,16 +227,15 @@ export function ParticleCloud({ state, intensity: baseIntensity = 1.0 }: Particl
     }
   }, [])
 
-  // Update intensity based on state
   useEffect(() => {
     const targetIntensity = getIntensityForState(state)
-    // Smooth transition
     intensityRef.current += (targetIntensity - intensityRef.current) * 0.1
   }, [state])
 
   return (
     <div
       ref={containerRef}
+      className={webglFailed ? `particle-cloud-fallback state-${state}` : undefined}
       style={{
         position: 'absolute',
         top: 0,
@@ -221,5 +245,37 @@ export function ParticleCloud({ state, intensity: baseIntensity = 1.0 }: Particl
         zIndex: 0,
       }}
     />
+  )
+}
+
+class ParticleCloudBoundary extends Component<
+  { state: ParticleCloudProps['state']; children: ReactNode },
+  { crashed: boolean }
+> {
+  state = { crashed: false }
+  static getDerivedStateFromError(): { crashed: boolean } {
+    return { crashed: true }
+  }
+  componentDidCatch(err: Error, info: ErrorInfo) {
+    console.warn('[ParticleCloud] runtime error caught by boundary:', err, info)
+  }
+  render() {
+    if (this.state.crashed) {
+      return (
+        <div
+          className={`particle-cloud-fallback state-${this.props.state}`}
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0 }}
+        />
+      )
+    }
+    return this.props.children
+  }
+}
+
+export function ParticleCloud(props: ParticleCloudProps) {
+  return (
+    <ParticleCloudBoundary state={props.state}>
+      <ParticleCloudInner {...props} />
+    </ParticleCloudBoundary>
   )
 }
