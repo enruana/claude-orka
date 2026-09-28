@@ -15,7 +15,9 @@ import {
   RotateCw,
   Tag,
   Trash2,
+  Radio,
 } from 'lucide-react'
+import { useDeckActive } from '../../utils/deckClient'
 import { api, type RegisteredProject, type Session, type BoardIndexEntry } from '../../api/client'
 import { SessionView } from '../SessionView'
 import { TaskWidget } from '../TaskWidget'
@@ -684,6 +686,8 @@ export function IPhoneLauncher() {
                 <SystemTerminalAppIcon onOpen={handleOpenSystemTerminal} />
               )}
               <VoiceAgentAppIcon onOpen={handleOpenVoiceAgent} />
+              <StreamDeckAppIcon onOpen={() => navigate('/stream-deck')} />
+              <RegisterDeviceAppIcon />
             </div>
           </section>
         )}
@@ -1314,6 +1318,45 @@ function VoiceAgentAppIcon({ onOpen }: { onOpen: () => void }) {
         <Mic size={28} strokeWidth={2.2} />
       </div>
       <span className="iphone-app-label">Voice</span>
+    </button>
+  )
+}
+
+function StreamDeckAppIcon({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      className="iphone-app"
+      onClick={onOpen}
+      aria-label="Open Stream Deck"
+    >
+      <div className="iphone-icon iphone-app-icon iphone-deck-icon">
+        <LayoutGrid size={28} strokeWidth={2.2} />
+      </div>
+      <span className="iphone-app-label">Deck</span>
+    </button>
+  )
+}
+
+/**
+ * Toggle whether THIS tab shows up on the Stream Deck as a
+ * controllable device. The state lives in sessionStorage so it never
+ * leaks to other tabs — you have to activate each tab you want to
+ * control from another device.
+ */
+function RegisterDeviceAppIcon() {
+  const [active, setActive] = useDeckActive()
+  return (
+    <button
+      className="iphone-app"
+      onClick={() => setActive(!active)}
+      aria-label={active ? 'Unregister this tab' : 'Register this tab'}
+      aria-pressed={active}
+    >
+      <div className={`iphone-icon iphone-app-icon iphone-register-icon ${active ? 'active' : ''}`}>
+        <Radio size={28} strokeWidth={2.2} />
+        {active && <span className="iphone-register-dot" />}
+      </div>
+      <span className="iphone-app-label">{active ? 'Live' : 'Register'}</span>
     </button>
   )
 }

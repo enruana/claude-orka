@@ -1607,6 +1607,51 @@ export const api = {
     })
     if (!res.ok) throw new Error(await res.text())
   },
+
+  async getDeckClients(): Promise<{ clients: DeckClientPublic[] }> {
+    const res = await fetch(`${API_BASE}/deck/clients`)
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async renameDeckClient(clientId: string, name: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/deck/clients/${clientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  async sendDeckCommand(
+    clientId: string,
+    command:
+      | { type: 'navigate'; path: string }
+      | { type: 'sendText'; sessionId: string; projectPath: string; text: string; pressEnter?: boolean }
+      | { type: 'flash' },
+  ): Promise<{ commandId: string }> {
+    const res = await fetch(`${API_BASE}/deck/clients/${clientId}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(command),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+}
+
+export type DeckDevice =
+  | 'ipad' | 'iphone' | 'mac' | 'linux' | 'windows' | 'android' | 'unknown'
+
+export interface DeckClientPublic {
+  clientId: string
+  name: string
+  device: DeckDevice
+  userAgent: string
+  currentRoute: string
+  connectedAt: number
+  lastSeen: number
+  self?: boolean
 }
 
 // ---------- Board types (client-side mirror) ----------

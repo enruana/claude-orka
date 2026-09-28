@@ -622,6 +622,54 @@
     0 6px 14px rgba(124, 58, 237, 0.45);
 }
 
+.iphone-deck-icon {
+  background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 55%, #a855f7 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 6px 14px rgba(14, 165, 233, 0.45);
+}
+
+.iphone-register-icon {
+  position: relative;
+  background: linear-gradient(135deg, #4b5563 0%, #6b7280 55%, #9ca3af 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 6px 14px rgba(75, 85, 99, 0.4);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.iphone-register-icon.active {
+  background: linear-gradient(135deg, #10b981 0%, #22c55e 55%, #4ade80 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 6px 14px rgba(16, 185, 129, 0.5),
+    0 0 0 3px rgba(34, 197, 94, 0.18);
+}
+.iphone-register-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+  animation: iphone-register-pulse 1.6s ease-in-out infinite;
+}
+@keyframes iphone-register-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 .iphone-app-letter {
   font-size: 26px;
   font-weight: 700;

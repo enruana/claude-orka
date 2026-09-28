@@ -14,6 +14,7 @@ import { gitRouter } from './api/git'
 import { transcribeRouter } from './api/transcribe'
 import { attachLiveTranscribeWS } from './api/transcribe-live'
 import { attachVoiceLiveWS, voiceRouter } from './api/voice-live'
+import { attachDeckWS, deckRouter } from './api/deck'
 import { voiceConversationsRouter } from './api/voice-conversations'
 import { voiceTerminalsRouter } from './api/voice-terminals'
 import { agentsRouter } from './api/agents'
@@ -93,6 +94,7 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/voice/conversations', voiceConversationsRouter)
   app.use('/api/voice/terminals', voiceTerminalsRouter)
   app.use('/api/voice', voiceRouter)
+  app.use('/api/deck', deckRouter)
 
   // Health check
   app.get('/api/health', (_req, res) => {
@@ -318,6 +320,8 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
     // its own path in the upgrade handler; coexists with the transcribe
     // + ttyd listeners on the same server.
     attachVoiceLiveWS(server)
+
+    attachDeckWS(server)
 
     // WebSocket proxy for ttyd - each connection gets its own independent pipe
     server.on('upgrade', (req, socket, head) => {

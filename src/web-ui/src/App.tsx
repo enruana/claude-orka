@@ -25,6 +25,8 @@ import { VoiceAgentPage } from './components/VoiceAgentPage'
 import { TaskWidget } from './components/TaskWidget'
 import { QuickAIDialog } from './components/QuickAIDialog'
 import { api, AIQueryContext } from './api/client'
+import { DeckProvider } from './utils/deckClient'
+import { StreamDeckPage } from './components/StreamDeckPage'
 
 /**
  * Error page shown when a route throws during render.
@@ -80,10 +82,12 @@ function RouteErrorPage() {
  */
 function RootLayout() {
   return (
-    <div className="app">
-      <Outlet />
-      <GlobalProjectWidgets />
-    </div>
+    <DeckProvider>
+      <div className="app">
+        <Outlet />
+        <GlobalProjectWidgets />
+      </div>
+    </DeckProvider>
   )
 }
 
@@ -273,6 +277,7 @@ const router = createBrowserRouter(
       <Route path="/dashboard" element={<ProjectDashboard />} />
       <Route path="/launcher" element={<IPhoneLauncher />} />
       <Route path="/status" element={<StatusPage />} />
+      <Route path="/stream-deck" element={<StreamDeckPage />} />
       <Route path="/voice-agent" element={<VoiceAgentPage />} />
       <Route path="/agents" element={<AgentCanvasPage />} />
       <Route path="/projects/:encodedPath" element={<Navigate to="/launcher" replace />} />

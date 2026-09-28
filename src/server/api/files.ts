@@ -1724,7 +1724,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
         close();
         var sel = window.getSelection();
         if (sel) sel.removeAllRanges();
-        hideAddBtn();
+        hideToolbar();
         addCommentLocal(saved, { focus: true });
         showToast('Comentario guardado');
       }).catch(function(err) {

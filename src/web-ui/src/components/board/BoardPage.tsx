@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   RefreshCw,
   Settings,
@@ -66,6 +66,7 @@ export function BoardPage() {
   const navigate = useNavigate()
   const { encodedPath = '', boardId = '' } = useParams()
   const projectPath = useMemo(() => decodeProjectPath(encodedPath), [encodedPath])
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [board, setBoard] = useState<BoardConfig | null>(null)
   const [tasks, setTasks] = useState<BoardTask[]>([])
@@ -74,7 +75,17 @@ export function BoardPage() {
   const [error, setError] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [masterPort, setMasterPort] = useState<number | null>(null)
-  const [openTaskKey, setOpenTaskKey] = useState<string | null>(null)
+  const openTaskKey = searchParams.get('task')
+  const setOpenTaskKey = useCallback((next: string | null | ((prev: string | null) => string | null)) => {
+    setSearchParams((prev) => {
+      const current = prev.get('task')
+      const resolved = typeof next === 'function' ? next(current) : next
+      const params = new URLSearchParams(prev)
+      if (resolved) params.set('task', resolved)
+      else params.delete('task')
+      return params
+    }, { replace: false })
+  }, [setSearchParams])
   // Toggle for the "New internal task" dialog (Add Local Task feature).
   // Local tasks live only on this board and never sync to Jira; sync
   // ignores them and the init/close skills run their non-Jira branch.
@@ -726,7 +737,7 @@ export function BoardPage() {
         )}
       </div>
 
-      {openTaskKey && (
+      {openTaskKey && tasks.find((t) => t.key === openTaskKey) && (
         <BoardTaskModal
           projectPath={projectPath}
           boardId={boardId}
