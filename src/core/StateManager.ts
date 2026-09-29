@@ -794,6 +794,23 @@ export class StateManager {
     logger.info(`Comment deleted: ${commentId}`)
   }
 
+  async clearComments(filter?: { filePath?: string; resolvedOnly?: boolean }): Promise<ProjectComment[]> {
+    const removed: ProjectComment[] = []
+    await this.mutate((state) => {
+      if (!state.comments) state.comments = []
+      const keep: ProjectComment[] = []
+      for (const c of state.comments) {
+        const fileMatch = !filter?.filePath || c.filePath === filter.filePath
+        const resolvedMatch = !filter?.resolvedOnly || c.resolved
+        if (fileMatch && resolvedMatch) removed.push(c)
+        else keep.push(c)
+      }
+      state.comments = keep
+    })
+    logger.info(`Comments cleared: ${removed.length}${filter?.filePath ? ' (file: ' + filter.filePath + ')' : ''}`)
+    return removed
+  }
+
   // --- OPERACIONES DE PINS ---
 
   async listPins(): Promise<ProjectPin[]> {

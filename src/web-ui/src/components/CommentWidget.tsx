@@ -240,11 +240,23 @@ export function CommentWidget({ projectPath, onClose, popoverStyle, sessionId }:
         ? '2. Read the `<section class="changelog">` at the bottom to see prior versions and what each addressed — keep decisions consistent across regens.'
         : '2. Read the comments log at `.claude-orka/comments/log.md` and grep it for prior entries referencing this file.',
       `3. For each comment below, treat it as scoped feedback. **QUESTION**-type comments must be investigated (read code, related tickets, or do a deep-research pass) before being reflected in the rewrite.`,
-      '4. Rewrite the document from scratch, preserving its intent and structure but resolving every comment.',
-      `5. Save the new content with the \`Write\` tool (full-file replacement, not patch). Path: \`${filePath}\`.`,
-      isHtml
-        ? '6. Bump the version (major bump for a regen: `v1.x → v2.0`, chain further regens as `v3.0`, `v4.0`, etc.). Prepend a new `<li>` to the changelog with the version, ISO date, and a one-paragraph summary of what changed AND which comments it resolved (reference them inline). Update the `.meta` line to show the new "Versión actual".'
-        : '6. Append a **REGENERATE** entry to `.claude-orka/comments/log.md` with the version, timestamp, and what changed.',
+      `4. **Clean previous highlights first**: strip every existing \`<mark class="orka-diff-new">…</mark>\` wrapper from the current version, keeping the text inside. Only *this* regen's changes should stay highlighted.`,
+      '5. Rewrite the document from scratch, preserving its intent and structure but resolving every comment.',
+      `6. **Mark what changed in this regen**: wrap ONLY the new, rewritten, or materially changed sentences / phrases / list items in \`<mark class="orka-diff-new">…</mark>\`. Keep it fine-grained — sentence-level ideally, never whole sections just because one line moved. Untouched paragraphs stay bare.`,
+      ...(isHtml
+        ? [
+          '7. Ensure the document\'s `<style>` block defines the highlight rule so the reviewer sees the marks. If not present, add:\n   ```css\n   mark.orka-diff-new { background: #fff3bf; color: inherit; padding: 1px 3px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(240, 200, 90, 0.4); }\n   ```',
+          `8. Save the new content with the \`Write\` tool (full-file replacement, not patch). Path: \`${filePath}\`.`,
+          '9. Bump the version (major bump for a regen: `v1.x → v2.0`, chain further regens as `v3.0`, `v4.0`, etc.). Prepend a new `<li>` to the changelog with the version, ISO date, and a one-paragraph summary of what changed AND which comments it resolved (reference them inline). Update the `.meta` line to show the new "Versión actual".',
+        ]
+        : [
+          `7. Save the new content with the \`Write\` tool (full-file replacement, not patch). Path: \`${filePath}\`.`,
+          '8. Append a **REGENERATE** entry to `.claude-orka/comments/log.md` with the version, timestamp, and what changed.',
+        ]),
+      `${isHtml ? 10 : 9}. **Delete the applied comments with the Orka CLI** — every comment listed below was baked into this regen, so it should no longer show up in the review rail. Run \`orka comment\` from the project root (\`${projectPath}\`). Two equivalent options:`,
+      `   - Bulk (recommended when all listed comments were applied): \`orka comment clear --file "${filePath}" --yes\` — wipes every comment on this file, including any that surfaced after this prompt was copied. Use with care.`,
+      '   - Surgical (drop only the comments this regen resolved): run `orka comment delete <id>` for each id in the "Comments to incorporate" list below. IDs are shown next to each comment header. Skip any comment that turned out to require follow-up work — leave those unresolved.',
+      '   Either path removes the anchors from the rail on the next reload, so the reviewer\'s next pass only sees fresh feedback.',
       '',
       '## Comments to incorporate',
       '',
@@ -252,7 +264,7 @@ export function CommentWidget({ projectPath, onClose, popoverStyle, sessionId }:
     let prompt = parts.join('\n')
     for (const c of fileComments) {
       const lineRange = c.startLine === c.endLine ? `L${c.startLine}` : `L${c.startLine}-${c.endLine}`
-      prompt += `\n**${lineRange}**`
+      prompt += `\n**${lineRange}** — id \`${c.id}\``
       if (c.selectedText) {
         const snippet = c.selectedText.length > 240 ? c.selectedText.slice(0, 240) + '…' : c.selectedText
         prompt += ` — selected:\n\n\`\`\`\n${snippet}\n\`\`\`\n\n`

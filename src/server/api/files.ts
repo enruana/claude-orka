@@ -376,6 +376,22 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   }
   .orka-rail-apply:hover { background: rgba(250, 179, 135, 0.3); border-color: rgba(250, 179, 135, 0.55); }
   .orka-rail-apply:disabled { opacity: 0.4; cursor: not-allowed; }
+  .orka-rail-clear {
+    background: rgba(243, 139, 168, 0.16);
+    color: #f38ba8;
+    border: 1px solid rgba(243, 139, 168, 0.35);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .orka-rail-clear:hover { background: rgba(243, 139, 168, 0.28); border-color: rgba(243, 139, 168, 0.55); }
+  .orka-rail-clear:disabled { opacity: 0.35; cursor: not-allowed; }
   .orka-rail-apply.flash-ok {
     background: rgba(166, 227, 161, 0.25);
     border-color: rgba(166, 227, 161, 0.55);
@@ -1019,6 +1035,9 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
         '<button type="button" class="orka-rail-apply" id="orka-rail-apply" disabled title="Copies a Claude prompt that regenerates this document from scratch, weaving every unresolved comment into a fresh version + a changelog entry. Paste it into any Claude Code terminal.">' +
           '<span>✨ Regenerate with Claude</span>' +
         '</button>' +
+        '<button type="button" class="orka-rail-clear" id="orka-rail-clear" disabled title="Borra todos los comentarios de este archivo. No se puede deshacer.">' +
+          '<span>🧹 Limpiar</span>' +
+        '</button>' +
         '<button type="button" class="orka-rail-toggle" id="orka-rail-toggle-btn" title="Cerrar panel">×</button>' +
       '</div>' +
     '</div>' +
@@ -1034,6 +1053,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   var railEmpty = rail.querySelector('#orka-rail-empty');
   var railCount = rail.querySelector('#orka-rail-count');
   var applyBtn = rail.querySelector('#orka-rail-apply');
+  var clearBtn = rail.querySelector('#orka-rail-clear');
   var toggleBtn = rail.querySelector('#orka-rail-toggle-btn');
   var handleBadge = document.getElementById('orka-rail-handle-badge');
 
@@ -1606,6 +1626,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     handleBadge.textContent = n > 99 ? '99+' : String(n);
     handleBadge.dataset.count = String(n);
     applyBtn.disabled = n === 0;
+    clearBtn.disabled = n === 0;
     railEmpty.style.display = n === 0 ? '' : 'none';
   }
 
@@ -1790,6 +1811,8 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   function composeApplyPrompt() {
     var active = comments.filter(function(c) { return !c.resolved; });
     var isHtml = /\\.html?$/i.test(FILE_PATH);
+    var projectPath;
+    try { projectPath = atob(PROJECT_B64); } catch (_) { projectPath = '<project root>'; }
     var lines = [];
     lines.push('Regenerate the document \`' + FILE_PATH + '\` from scratch, incorporating the review comments below and any prior resolutions.');
     lines.push('');
@@ -1802,20 +1825,31 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
       lines.push('2. Read the comments log at \`.claude-orka/comments/log.md\` and grep it for prior entries referencing this file.');
     }
     lines.push('3. For each comment below, treat it as scoped feedback. **QUESTION**-type comments must be investigated (read code, related tickets, or do a deep-research pass) before being reflected in the rewrite.');
-    lines.push('4. Rewrite the document from scratch, preserving its intent and structure but resolving every comment.');
-    lines.push('5. Save the new content with the \`Write\` tool (full-file replacement, not patch). Path: \`' + FILE_PATH + '\`.');
+    lines.push('4. **Clean previous highlights first**: strip every existing \`<mark class="orka-diff-new">…</mark>\` wrapper from the current version, keeping the text inside. Only *this* regen\\\'s changes should stay highlighted.');
+    lines.push('5. Rewrite the document from scratch, preserving its intent and structure but resolving every comment.');
+    lines.push('6. **Mark what changed in this regen**: wrap ONLY the new, rewritten, or materially changed sentences / phrases / list items in \`<mark class="orka-diff-new">…</mark>\`. Keep it fine-grained — sentence-level ideally, never whole sections just because one line moved. Untouched paragraphs stay bare.');
+    var lastStep;
     if (isHtml) {
-      lines.push('6. Bump the version (major bump for a regen: \`v1.x → v2.0\`, chain further regens as \`v3.0\`, \`v4.0\`, etc.). Prepend a new \`<li>\` to the changelog with the version, ISO date, and a one-paragraph summary of what changed AND which comments it resolved (reference them inline). Update the \`.meta\` line to show the new "Current version" (or "Versión actual" if the file uses Spanish labels).');
+      lines.push('7. Ensure the document\\\'s \`<style>\` block defines the highlight rule so the reviewer sees the marks. If not present, add:\\n   \`\`\`css\\n   mark.orka-diff-new { background: #fff3bf; color: inherit; padding: 1px 3px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(240, 200, 90, 0.4); }\\n   \`\`\`');
+      lines.push('8. Save the new content with the \`Write\` tool (full-file replacement, not patch). Path: \`' + FILE_PATH + '\`.');
+      lines.push('9. Bump the version (major bump for a regen: \`v1.x → v2.0\`, chain further regens as \`v3.0\`, \`v4.0\`, etc.). Prepend a new \`<li>\` to the changelog with the version, ISO date, and a one-paragraph summary of what changed AND which comments it resolved (reference them inline). Update the \`.meta\` line to show the new "Current version" (or "Versión actual" if the file uses Spanish labels).');
+      lastStep = 10;
     } else {
-      lines.push('6. Append a **REGENERATE** entry to \`.claude-orka/comments/log.md\` with the version, timestamp, and what changed.');
+      lines.push('7. Save the new content with the \`Write\` tool (full-file replacement, not patch). Path: \`' + FILE_PATH + '\`.');
+      lines.push('8. Append a **REGENERATE** entry to \`.claude-orka/comments/log.md\` with the version, timestamp, and what changed.');
+      lastStep = 9;
     }
+    lines.push(lastStep + '. **Delete the applied comments with the Orka CLI** — every comment listed below was baked into this regen, so it should no longer show up in the review rail. Run \`orka comment\` from the project root (\`' + projectPath + '\`). Two equivalent options:');
+    lines.push('   - Bulk (recommended when all listed comments were applied): \`orka comment clear --file "' + FILE_PATH + '" --yes\` — wipes every comment on this file, including any that surfaced after this prompt was copied. Use with care.');
+    lines.push('   - Surgical (drop only the comments this regen resolved): run \`orka comment delete <id>\` for each id in the "Comments to incorporate" list below. IDs are shown next to each comment header. Skip any comment that turned out to require follow-up work — leave those unresolved.');
+    lines.push('   Either path removes the anchors from the rail on the next reload, so the reviewer\\\'s next pass only sees fresh feedback.');
     lines.push('');
     lines.push('## Comments to incorporate');
     lines.push('');
     for (var i = 0; i < active.length; i++) {
       var c = active[i];
       var lineRange = 'L' + c.startLine + (c.endLine > c.startLine ? '-' + c.endLine : '');
-      lines.push('**' + lineRange + '**');
+      lines.push('**' + lineRange + '** — id \`' + c.id + '\`');
       if (c.selectedText) {
         var snippet = c.selectedText.length > 240 ? c.selectedText.slice(0, 240) + '…' : c.selectedText;
         lines.push(' — selected:');
@@ -1868,6 +1902,31 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
       showToast('Prompt copied — paste it into any Claude Code terminal');
     }).catch(function(err) {
       showToast('Falló copia: ' + err.message, true);
+    });
+  });
+
+  clearBtn.addEventListener('click', function() {
+    var n = comments.length;
+    if (n === 0) return;
+    var msg = 'Vas a borrar ' + n + ' comentario' + (n === 1 ? '' : 's') + ' de este archivo. Esta acción no se puede deshacer. ¿Continuar?';
+    if (!window.confirm(msg)) return;
+    clearBtn.disabled = true;
+    var origHtml = clearBtn.innerHTML;
+    clearBtn.innerHTML = '<span>Borrando…</span>';
+    fetch(API_BASE + '/projects/comments?project=' + encodeURIComponent(PROJECT_B64) + '&file=' + encodeURIComponent(FILE_PATH), {
+      method: 'DELETE',
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(res) {
+      var ids = comments.map(function(c) { return c.id; });
+      for (var i = 0; i < ids.length; i++) removeCommentLocal(ids[i]);
+      showToast('Se borraron ' + (res.deleted || 0) + ' comentario' + ((res.deleted || 0) === 1 ? '' : 's'));
+      clearBtn.innerHTML = origHtml;
+    }).catch(function(err) {
+      clearBtn.disabled = false;
+      clearBtn.innerHTML = origHtml;
+      showToast('Falló limpieza: ' + err.message, true);
     });
   });
 })();

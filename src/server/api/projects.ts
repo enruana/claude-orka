@@ -623,6 +623,33 @@ projectsRouter.patch('/comments/:commentId', async (req, res) => {
 })
 
 /**
+ * DELETE /api/projects/comments?project=ENCODED&file=RELATIVE_PATH&resolvedOnly=1
+ * Bulk-delete comments. `file` scopes to one document; `resolvedOnly` limits to
+ * already-resolved ones. Refuses to run without at least one scope so an
+ * accidental hit never wipes the whole project.
+ */
+projectsRouter.delete('/comments', async (req, res) => {
+  try {
+    const projectPath = getProjectPath(req, res)
+    if (!projectPath) return
+
+    const filePath = typeof req.query.file === 'string' ? req.query.file : undefined
+    const resolvedOnly = req.query.resolvedOnly === '1' || req.query.resolvedOnly === 'true'
+    if (!filePath && !resolvedOnly) {
+      res.status(400).json({ error: 'Pass file=<path> or resolvedOnly=1 to scope the clear' })
+      return
+    }
+
+    const stateManager = new StateManager(projectPath)
+    const removed = await stateManager.clearComments({ filePath, resolvedOnly })
+    res.json({ deleted: removed.length })
+  } catch (error: any) {
+    logger.error('Failed to clear comments:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * DELETE /api/projects/comments/:commentId?project=ENCODED
  * Delete a comment
  */
