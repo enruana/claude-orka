@@ -29,7 +29,16 @@ import { logger } from '../utils'
  *  these from agent hooks (which point to `/api/hooks/<agentId>`). */
 export const SESSION_WATCHER_PATH = '/api/sessions/hook'
 
-const WATCHED_EVENTS = ['Notification', 'UserPromptSubmit', 'PreToolUse', 'SessionStart'] as const
+const WATCHED_EVENTS = [
+  'Notification',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'Stop',
+  'SubagentStop',
+  'SessionStart',
+  'SessionEnd',
+] as const
 
 interface HookEntry {
   matcher?: string

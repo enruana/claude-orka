@@ -1851,3 +1851,17 @@ button.iphone-cta {
   min-width: 14px;
   text-align: center;
 }
+
+/* Realtime agent-activity dot positioned in the corner of an iphone-icon. */
+.iphone-activity-slot {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  z-index: 3;
+  pointer-events: none;
+  display: inline-flex;
+}
+.iphone-folder-activity {
+  bottom: 6px;
+  right: 6px;
+}

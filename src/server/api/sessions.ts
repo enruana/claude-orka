@@ -2,7 +2,26 @@ import { Router } from 'express'
 import { ClaudeOrka } from '../../core/ClaudeOrka'
 import { getGlobalStateManager } from '../../core/GlobalStateManager'
 import { StateManager } from '../../core/StateManager'
+import { BoardManager } from '../../core/BoardManager'
+import type { BoardTask } from '../../models/Board'
 import { logger } from '../../utils'
+
+type AgentActivity = 'working' | 'waiting' | 'idle'
+
+/** Deltas the hook receiver builds and then applies to either a
+ *  session branch or a board task record — same shape for both so the
+ *  routing code stays trivial. */
+interface ActivityPatch {
+  agentActivity?: AgentActivity
+  agentActivityAt?: string
+  lastToolName?: string
+  lastToolAt?: string
+  lastStopAt?: string
+  waitingForInput?: boolean
+  waitingSince?: string | undefined
+  waitingMessage?: string | undefined
+  waitingBranch?: string | undefined
+}
 
 export const sessionsRouter = Router()
 
@@ -62,8 +81,7 @@ sessionsRouter.post('/hook', async (req, res) => {
     const claudeSessionId = typeof payload.session_id === 'string' ? payload.session_id : ''
     const cwd = typeof payload.cwd === 'string' ? payload.cwd : ''
     const message = typeof payload.message === 'string' ? payload.message : undefined
-    // Tmux pane id — set by the hook curl command via `-H "X-Tmux-Pane: $TMUX_PANE"`.
-    // Empty string when Claude is invoked outside tmux.
+    const toolName = typeof (payload as any).tool_name === 'string' ? (payload as any).tool_name : undefined
     const tmuxPaneId = String(req.headers['x-tmux-pane'] || '').trim()
 
     if (!event || !claudeSessionId) {
@@ -72,11 +90,6 @@ sessionsRouter.post('/hook', async (req, res) => {
       return
     }
 
-    // SessionStart with source clear|compact rotates the branch's stored
-    // claudeSessionId — this is the ONLY reliable rotation signal.
-    // Handled independently of the (sessionId → orka branch) lookup that
-    // the other events use, because after rotation the payload's session_id
-    // is the NEW id which is not yet in Orka state.
     if (event === 'SessionStart') {
       const source = String(payload.source || 'startup')
       await handleSessionStart({ tmuxPaneId, cwd, claudeSessionId, source })
@@ -84,54 +97,103 @@ sessionsRouter.post('/hook', async (req, res) => {
       return
     }
 
-    const target = await findSessionByClaudeId(claudeSessionId, cwd)
+    const now = new Date().toISOString()
+
+    // Locate the target — first try classic sessions (by claude id, then
+    // pane id), then board tasks. All events beyond SessionStart route
+    // through this same lookup so activity flows to whichever record
+    // owns the terminal Claude is running in.
+    const target =
+      await findSessionByClaudeId(claudeSessionId, cwd)
+      ?? (tmuxPaneId ? await findSessionByTmuxPane(tmuxPaneId) : null)
+      ?? await findBoardTaskByClaudeId(claudeSessionId)
+      ?? (tmuxPaneId ? await findBoardTaskByTmuxPane(tmuxPaneId) : null)
+
     if (!target) {
-      // Not every Claude session belongs to an Orka session — silently ignore.
-      logger.debug(`hook: ${event} for ${claudeSessionId.slice(0, 8)}… (no matching Orka session)`)
-      res.json({ ok: true, skipped: 'no matching session' })
+      logger.debug(`hook: ${event} for ${claudeSessionId.slice(0, 8)}… (no matching Orka record)`)
+      res.json({ ok: true, skipped: 'no matching record' })
       return
     }
 
-    logger.info(`hook: ${event} for session ${target.sessionId.slice(0, 8)}… (${target.branch})${message ? ` — "${message.slice(0, 80)}"` : ''}`)
+    const targetLabel = target.kind === 'session'
+      ? `session ${target.sessionId.slice(0, 8)}… (${target.branch})`
+      : `board task ${target.boardId}/${target.taskKey}`
+    logger.info(`hook: ${event} for ${targetLabel}${message ? ` — "${message.slice(0, 80)}"` : ''}${toolName ? ` [${toolName}]` : ''}`)
 
-    const { sm, sessionId, branch } = target
+    let patch: ActivityPatch | null = null
+
     if (event === 'Notification') {
       if (isUserBlockingMessage(message)) {
-        // Grace period: if the user just acknowledged this session
-        // (opened it in the UI or hit the manual /acknowledge endpoint),
-        // ignore a Notification that arrives in the next few seconds —
-        // it was almost certainly already in flight when they clicked
-        // Open, so re-flagging would leave the badge stuck. The user
-        // is looking at the terminal now; if the block is still real
-        // Claude will emit another Notification after the grace window
-        // and we'll pick that one up.
-        const session = await sm.getSession(sessionId)
-        const ackedAt = session?.waitingAckAt ? Date.parse(session.waitingAckAt) : 0
+        const current = await loadCurrent(target)
+        const ackedAt = current?.waitingAckAt ? Date.parse(current.waitingAckAt) : 0
         if (ackedAt && Date.now() - ackedAt < WAITING_ACK_GRACE_MS) {
-          logger.debug(`hook: Notification for ${sessionId.slice(0, 8)}… suppressed (within ${WAITING_ACK_GRACE_MS}ms of ack)`)
+          logger.debug(`hook: Notification suppressed (within ${WAITING_ACK_GRACE_MS}ms of ack)`)
         } else {
-          await sm.updateSession(sessionId, {
+          patch = {
+            agentActivity: 'waiting',
+            agentActivityAt: now,
             waitingForInput: true,
-            waitingSince: new Date().toISOString(),
+            waitingSince: now,
             waitingMessage: message,
-            waitingBranch: branch,
-          })
+            waitingBranch: target.kind === 'session' ? target.branch : undefined,
+          }
         }
+      } else {
+        // The 60s idle reminder — proof Claude is alive but literally
+        // waiting on the next prompt. Treat as idle without touching
+        // the blocking `waitingForInput` flag.
+        patch = { agentActivity: 'idle', agentActivityAt: now }
       }
-      // Non-blocking notifications (idle 60s reminders) are intentionally
-      // ignored to avoid false positives.
-    } else if (event === 'UserPromptSubmit' || event === 'PreToolUse') {
-      await sm.updateSession(sessionId, {
+    } else if (event === 'PreToolUse') {
+      patch = {
+        agentActivity: 'working',
+        agentActivityAt: now,
         waitingForInput: false,
         waitingSince: undefined,
         waitingMessage: undefined,
         waitingBranch: undefined,
-      })
+      }
+    } else if (event === 'PostToolUse') {
+      patch = {
+        agentActivity: 'working',
+        agentActivityAt: now,
+        lastToolName: toolName,
+        lastToolAt: now,
+      }
+    } else if (event === 'UserPromptSubmit') {
+      patch = {
+        agentActivity: 'working',
+        agentActivityAt: now,
+        waitingForInput: false,
+        waitingSince: undefined,
+        waitingMessage: undefined,
+        waitingBranch: undefined,
+      }
+    } else if (event === 'Stop' || event === 'SubagentStop') {
+      patch = {
+        agentActivity: 'idle',
+        agentActivityAt: now,
+        lastStopAt: now,
+        waitingForInput: false,
+        waitingSince: undefined,
+        waitingMessage: undefined,
+        waitingBranch: undefined,
+      }
+    } else if (event === 'SessionEnd') {
+      patch = {
+        agentActivity: 'idle',
+        agentActivityAt: now,
+        waitingForInput: false,
+        waitingSince: undefined,
+        waitingMessage: undefined,
+        waitingBranch: undefined,
+      }
     }
+
+    if (patch) await applyPatch(target, patch)
 
     res.json({ ok: true })
   } catch (error: any) {
-    // Never propagate to Claude — log and ack.
     logger.warn(`session-watcher hook: ${error?.message || error}`)
     res.json({ ok: true, error: error?.message || String(error) })
   }
@@ -170,7 +232,7 @@ async function handleSessionStart(opts: {
   // sessions — Orka spawns Claude inside `orka-<uuid>` tmux sessions).
   const target = tmuxPaneId ? await findSessionByTmuxPane(tmuxPaneId) : null
 
-  if (!target) {
+  if (!target || target.kind !== 'session') {
     if (isRotation) {
       logger.warn(
         `hook: SessionStart[${source}] for ${claudeSessionId.slice(0, 8)}… but ` +
@@ -226,12 +288,19 @@ async function handleSessionStart(opts: {
   )
 }
 
+/** Union of the two record types the hook receiver can act on. Both
+ *  carry enough context to load their current state and apply a patch
+ *  without re-scanning every project. */
+type HookTarget =
+  | { kind: 'session'; sm: StateManager; sessionId: string; branch: string }
+  | { kind: 'board-task'; bm: BoardManager; boardId: string; taskKey: string; projectPath: string }
+
 /** Find the Orka session + branch owning a given tmux pane id.
  *  Scans all registered projects; pane ids are globally unique within
  *  a single tmux server, so no cwd disambiguation is needed. */
 async function findSessionByTmuxPane(
   tmuxPaneId: string
-): Promise<{ sm: StateManager; sessionId: string; branch: string } | null> {
+): Promise<HookTarget | null> {
   if (!tmuxPaneId) return null
   const global = await getGlobalStateManager()
   const projects = global.getProjects()
@@ -242,11 +311,11 @@ async function findSessionByTmuxPane(
       const sessions = await sm.getAllSessions()
       for (const session of sessions) {
         if (session.main.tmuxPaneId === tmuxPaneId) {
-          return { sm, sessionId: session.id, branch: 'main' }
+          return { kind: 'session', sm, sessionId: session.id, branch: 'main' }
         }
         const fork = session.forks.find((f) => f.tmuxPaneId === tmuxPaneId)
         if (fork) {
-          return { sm, sessionId: session.id, branch: fork.id }
+          return { kind: 'session', sm, sessionId: session.id, branch: fork.id }
         }
       }
     } catch {
@@ -254,6 +323,63 @@ async function findSessionByTmuxPane(
     }
   }
   return null
+}
+
+async function findBoardTaskByClaudeId(claudeSessionId: string): Promise<HookTarget | null> {
+  if (!claudeSessionId) return null
+  const global = await getGlobalStateManager()
+  const projects = global.getProjects()
+  for (const project of projects) {
+    try {
+      const bm = new BoardManager(project.path)
+      const boards = await bm.listBoards()
+      for (const boardIdx of boards) {
+        const tasks = await bm.listTasks(boardIdx.id)
+        const match = tasks.find((t: BoardTask) => t.claudeSessionId === claudeSessionId)
+        if (match) return { kind: 'board-task', bm, boardId: boardIdx.id, taskKey: match.key, projectPath: project.path }
+      }
+    } catch {
+      // Board state may be unreadable mid-init — skip and continue.
+    }
+  }
+  return null
+}
+
+async function findBoardTaskByTmuxPane(tmuxPaneId: string): Promise<HookTarget | null> {
+  if (!tmuxPaneId) return null
+  const global = await getGlobalStateManager()
+  const projects = global.getProjects()
+  for (const project of projects) {
+    try {
+      const bm = new BoardManager(project.path)
+      const boards = await bm.listBoards()
+      for (const boardIdx of boards) {
+        const tasks = await bm.listTasks(boardIdx.id)
+        const match = tasks.find((t: BoardTask) => t.terminalPaneId === tmuxPaneId)
+        if (match) return { kind: 'board-task', bm, boardId: boardIdx.id, taskKey: match.key, projectPath: project.path }
+      }
+    } catch {
+      // Board state may be unreadable mid-init — skip and continue.
+    }
+  }
+  return null
+}
+
+async function loadCurrent(target: HookTarget): Promise<{ waitingAckAt?: string } | null> {
+  if (target.kind === 'session') {
+    const s = await target.sm.getSession(target.sessionId)
+    return s ? { waitingAckAt: s.waitingAckAt } : null
+  }
+  const t = await target.bm.getTask(target.boardId, target.taskKey)
+  return t ? { waitingAckAt: (t as any).waitingAckAt } : null
+}
+
+async function applyPatch(target: HookTarget, patch: ActivityPatch): Promise<void> {
+  if (target.kind === 'session') {
+    await target.sm.updateSession(target.sessionId, patch as any)
+    return
+  }
+  await target.bm.updateTask(target.boardId, target.taskKey, patch as Partial<BoardTask>)
 }
 
 /** Grace window after a user acknowledgment during which any incoming
@@ -325,11 +451,10 @@ function isUserBlockingMessage(message?: string): boolean {
 async function findSessionByClaudeId(
   claudeSessionId: string,
   cwd: string
-): Promise<{ sm: StateManager; sessionId: string; branch: string } | null> {
+): Promise<HookTarget | null> {
   const global = await getGlobalStateManager()
   const projects = global.getProjects()
 
-  // Prioritize the project whose path is an ancestor of cwd (cheap & precise).
   const ordered = [...projects].sort((a, b) => {
     const ac = cwd && cwd.startsWith(a.path) ? 1 : 0
     const bc = cwd && cwd.startsWith(b.path) ? 1 : 0
@@ -342,11 +467,11 @@ async function findSessionByClaudeId(
       const sessions = await sm.getAllSessions()
       for (const session of sessions) {
         if (session.main.claudeSessionId === claudeSessionId) {
-          return { sm, sessionId: session.id, branch: 'main' }
+          return { kind: 'session', sm, sessionId: session.id, branch: 'main' }
         }
         const fork = session.forks.find((f) => f.claudeSessionId === claudeSessionId)
         if (fork) {
-          return { sm, sessionId: session.id, branch: fork.id }
+          return { kind: 'session', sm, sessionId: session.id, branch: fork.id }
         }
       }
     } catch {

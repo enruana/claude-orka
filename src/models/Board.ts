@@ -139,6 +139,15 @@ export interface BoardTask {
    */
   archivedAt?: string
 
+  /** See Session.agentActivity — same semantics, populated by the same
+   *  hook receiver when the payload's session id / tmux pane matches a
+   *  board task's terminal. */
+  agentActivity?: 'working' | 'waiting' | 'idle'
+  agentActivityAt?: string
+  lastToolName?: string
+  lastToolAt?: string
+  lastStopAt?: string
+
   /** ISO timestamp of first local creation. */
   createdAt: string
 

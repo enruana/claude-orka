@@ -2501,3 +2501,11 @@
 
 /* The row becomes a column once a detail panel is inside it. */
 .board-archive-item { flex-wrap: wrap; }
+
+.board-card-activity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+}

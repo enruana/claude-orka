@@ -4839,3 +4839,8 @@ body {
   color: rgba(255, 255, 255, 0.7);
   padding-bottom: 8px;
 }
+
+@keyframes orka-activity-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.25); opacity: 0.55; }
+}

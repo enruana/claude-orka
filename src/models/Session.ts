@@ -112,6 +112,36 @@ export interface Session {
    *  user hits Open would re-flag the session and the badge would
    *  never clear. */
   waitingAckAt?: string
+
+  /** Real-time agent lifecycle state, driven by Claude Code hooks.
+   *   - `working` — mid-turn: PreToolUse / PostToolUse / UserPromptSubmit
+   *   - `waiting` — Notification classified as user-blocking (permission,
+   *     decision). Same signal as `waitingForInput=true`; the boolean is
+   *     kept for the launcher-badge back-compat.
+   *   - `idle`    — Stop / SubagentStop / SessionEnd / non-blocking
+   *     Notification (the 60s idle reminder Claude emits after a turn).
+   *
+   *  The UI derives a visual state from `agentActivity` + `lastStopAt`
+   *  so a 'idle' that just fired within the grace window still renders
+   *  as 'working' — active conversations don't flicker. */
+  agentActivity?: 'working' | 'waiting' | 'idle'
+
+  /** ISO timestamp of the last hook event that set `agentActivity`.
+   *  Age > 90s + `working` means the CLI crashed without a Stop and the
+   *  UI should not trust the working state anymore. */
+  agentActivityAt?: string
+
+  /** Last tool Claude ran (PostToolUse `tool_name`). Tooltip fodder. */
+  lastToolName?: string
+
+  /** ISO timestamp of the last tool completion (PostToolUse). */
+  lastToolAt?: string
+
+  /** ISO timestamp of the most recent Stop / SubagentStop. Used for the
+   *  post-Stop grace window: a fresh Stop with a PreToolUse within
+   *  ~15s means a conversation is active and the UI should hold on
+   *  `working` rather than flash to idle between turns. */
+  lastStopAt?: string
 }
 
 /** A tmux pane the user created manually (not a Claude fork) */

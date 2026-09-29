@@ -13,6 +13,7 @@ import {
   type RegisteredProject, type Session, type BoardIndexEntry, type BoardTask,
 } from '../api/client'
 import { useDeck, setPersistentClientName } from '../utils/deckClient'
+import { AgentActivityDot, type AgentActivitySignals } from './AgentActivityDot'
 import { encodeProjectPath } from './ProjectDashboard'
 import '../styles/stream-deck.css'
 
@@ -235,6 +236,7 @@ export function StreamDeckPage() {
         icon: <Terminal />,
         tint: s.waitingForInput ? 'amber' : 'green',
         badge: s.waitingForInput ? '!' : undefined,
+        activitySignals: s as AgentActivitySignals,
         onTap: () => nav({
           id: `session:${s.id}`,
           label: `${projShort(project)} · ${label}`,
@@ -308,6 +310,7 @@ export function StreamDeckPage() {
         icon: live ? <Terminal /> : hasHistory ? <History /> : <Play />,
         tint,
         statusBadge: shortStatus(t.status),
+        activitySignals: t as AgentActivitySignals,
         onTap: () => nav({
           id: `task:${project.path}:${board.id}:${t.key}`,
           label: t.key,
@@ -617,6 +620,11 @@ export function StreamDeckPage() {
                 {t.statusBadge}
               </span>
             )}
+            {t.activitySignals && (
+              <span className="stream-deck-tile-activity">
+                <AgentActivityDot signals={t.activitySignals} size={9} />
+              </span>
+            )}
           </button>
         ))}
       </section>
@@ -682,6 +690,7 @@ interface DeckTile {
   tint: string
   badge?: string
   statusBadge?: string
+  activitySignals?: AgentActivitySignals
   onTap: () => void | Promise<void>
 }
 

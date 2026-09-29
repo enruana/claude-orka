@@ -18,6 +18,7 @@ import {
   Radio,
 } from 'lucide-react'
 import { useDeckActive } from '../../utils/deckClient'
+import { AgentActivityDot } from '../AgentActivityDot'
 import { api, type RegisteredProject, type Session, type BoardIndexEntry } from '../../api/client'
 import { SessionView } from '../SessionView'
 import { TaskWidget } from '../TaskWidget'
@@ -925,6 +926,27 @@ function ProjectFolderIcon({
 }) {
   const waitingCount = project.sessions.filter((s) => s.waitingForInput).length
   const outdated = project.versionInfo?.isOutdated
+  // Aggregate signal for the whole folder: waiting wins if any session
+  // is blocked; otherwise 'working' if any is mid-turn (or freshly
+  // stopped inside the grace window).
+  const folderSignal = ((): { agentActivity?: 'working' | 'waiting' | 'idle'; agentActivityAt?: string; lastStopAt?: string; waitingForInput?: boolean } => {
+    if (project.sessions.some((s) => s.waitingForInput)) {
+      return { agentActivity: 'waiting', waitingForInput: true }
+    }
+    const now = Date.now()
+    const working = project.sessions.some((s) => {
+      if (s.agentActivity === 'working') {
+        const at = s.agentActivityAt ? Date.parse(s.agentActivityAt) : 0
+        return !at || now - at < 90_000
+      }
+      if (s.lastStopAt) {
+        return now - Date.parse(s.lastStopAt) < 15_000
+      }
+      return false
+    })
+    if (working) return { agentActivity: 'working', agentActivityAt: new Date().toISOString() }
+    return {}
+  })()
 
   // Preview thumbnails — iOS folders show up to 9 small icons in a 3×3
   // grid. Boards get slotted in first (they're first-class citizens in
@@ -980,6 +1002,9 @@ function ProjectFolderIcon({
             <span className="iphone-folder-empty">empty</span>
           )}
         </div>
+        <span className="iphone-activity-slot iphone-folder-activity">
+          <AgentActivityDot signals={folderSignal} size={10} />
+        </span>
         {waitingCount > 0 && (
           <span className="iphone-badge" title={`${waitingCount} session(s) waiting for input`}>
             {waitingCount > 99 ? '99+' : waitingCount}
@@ -1188,12 +1213,9 @@ function SessionAppIcon({
             <GitBranch size={10} /> {forks}
           </span>
         )}
-        {session.waitingForInput && (
-          <span
-            className="iphone-badge dot"
-            title={session.waitingMessage || 'Waiting for input'}
-          />
-        )}
+        <span className="iphone-activity-slot">
+          <AgentActivityDot signals={session} size={9} />
+        </span>
       </div>
       <span className="iphone-app-label">{session.name || 'Unnamed'}</span>
     </button>

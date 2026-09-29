@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AlertTriangle, GitBranch, Terminal, Archive } from 'lucide-react'
+import { AgentActivityDot } from '../AgentActivityDot'
 import type { BoardTask, BoardDrift } from '../../api/client'
 
 /**
@@ -208,6 +209,9 @@ export function BoardKanban({
                     onClick={() => onOpenTask(t)}
                   >
                     <div className="board-card-top">
+                      <span className="board-card-activity">
+                        <AgentActivityDot signals={t} size={7} />
+                      </span>
                       <span className="board-card-key">{t.key}</span>
                       {isLocal && (
                         <span

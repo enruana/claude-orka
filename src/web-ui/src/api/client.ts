@@ -44,6 +44,13 @@ export interface Session {
   waitingSince?: string
   waitingMessage?: string
   waitingBranch?: string
+
+  /** Real-time agent state, driven by Claude Code hooks. */
+  agentActivity?: 'working' | 'waiting' | 'idle'
+  agentActivityAt?: string
+  lastToolName?: string
+  lastToolAt?: string
+  lastStopAt?: string
 }
 
 export interface Fork {
@@ -1699,6 +1706,7 @@ export interface BoardTask {
   /** Semantic tag for local-origin tasks; undefined for Jira tasks. */
   taskType?: BoardLocalTaskType
   kbEntityId?: string
+  claudeSessionId?: string
   terminalPaneId?: string
   terminalTmuxSessionId?: string
   ttydPort?: number
@@ -1707,6 +1715,14 @@ export interface BoardTask {
   branchName?: string
   /** Present = archived: hidden from the board, kept in the archive. */
   archivedAt?: string
+  /** Same activity signals as Session — populated by the hook receiver
+   *  when a hook payload matches this task's Claude / pane id. */
+  waitingForInput?: boolean
+  agentActivity?: 'working' | 'waiting' | 'idle'
+  agentActivityAt?: string
+  lastToolName?: string
+  lastToolAt?: string
+  lastStopAt?: string
   createdAt: string
   updatedAt: string
   raw?: unknown
