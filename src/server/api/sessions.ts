@@ -1244,6 +1244,33 @@ sessionsRouter.post('/:sessionId/layout', async (req, res) => {
 })
 
 /**
+ * POST /api/sessions/:sessionId/split
+ * Open a bare shell pane next to the session's existing panes.
+ * Body: { project: string (base64), vertical?: boolean }
+ */
+sessionsRouter.post('/:sessionId/split', async (req, res) => {
+  try {
+    const { sessionId } = req.params
+    const { project: encodedPath, vertical } = req.body || {}
+
+    if (!encodedPath) {
+      res.status(400).json({ error: 'project is required (base64 encoded path)' })
+      return
+    }
+
+    const projectPath = decodeProjectPath(encodedPath)
+    const orka = new ClaudeOrka(projectPath)
+    await orka.initialize()
+
+    const result = await orka.splitSessionTerminal(sessionId, vertical !== false)
+    res.json(result)
+  } catch (error: any) {
+    logger.error('Failed to split session terminal:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * GET /api/sessions/:sessionId/capture?project=<base64>&branch=<main|forkId>&lines=<n>
  * Capture the content of the tmux pane for a given branch (main or fork).
  * If branch omitted, captures whichever pane is currently active in tmux.

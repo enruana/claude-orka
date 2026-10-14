@@ -2303,3 +2303,36 @@
     font-size: 13px;
   }
 }
+
+.kb-detail-link-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+}
+.kb-detail-link-row .kb-detail-link-btn {
+  flex: 1;
+  min-width: 0;
+}
+.kb-detail-link-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(137, 180, 250, 0.12);
+  background: rgba(137, 180, 250, 0.06);
+  color: #89b4fa;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+}
+.kb-detail-link-copy:hover {
+  background: rgba(137, 180, 250, 0.14);
+  border-color: rgba(137, 180, 250, 0.25);
+}
+.kb-detail-link-copy.copied {
+  background: rgba(166, 227, 161, 0.14);
+  border-color: rgba(166, 227, 161, 0.35);
+  color: #a6e3a1;
+}

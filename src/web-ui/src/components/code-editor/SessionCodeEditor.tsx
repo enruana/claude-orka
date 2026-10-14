@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import type { SessionUiState } from '../../hooks/useSessionUiState'
 import { Save, GitBranch, RefreshCw, X, ExternalLink, Check, FolderOpen, Search, TerminalSquare } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { EditorPane } from './EditorPane'
@@ -25,10 +26,14 @@ import { useNavigate } from 'react-router-dom'
 import { api, FileTreeNode, GitStatus, GitDiff } from '../../api/client'
 import './code-editor.css'
 
+type EditorUiState = NonNullable<SessionUiState['editor']>
+
 interface SessionCodeEditorProps {
   projectPath: string
   encodedPath: string
   onOpenInNewTab?: () => void
+  uiState?: EditorUiState
+  onUiStateChange?: (patch: Partial<EditorUiState>) => void
 }
 
 interface OpenTab {
@@ -41,23 +46,29 @@ interface OpenTab {
 
 type ViewMode = 'editor' | 'diff'
 
-export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: SessionCodeEditorProps) {
+export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab, uiState, onUiStateChange }: SessionCodeEditorProps) {
   const navigate = useNavigate()
   const [fileTree, setFileTree] = useState<FileTreeNode[]>([])
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
-  const [showGitPanel, setShowGitPanel] = useState(false)
+  const [showGitPanel, setShowGitPanel] = useState(uiState?.showGitPanel ?? false)
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('editor')
   const [diffData, setDiffData] = useState<GitDiff | null>(null)
-  const [sidebarMode, setSidebarMode] = useState<'files' | 'search'>('files')
+  const [sidebarMode, setSidebarMode] = useState<'files' | 'search'>(uiState?.sidebarMode ?? 'files')
   const [goToLine, setGoToLine] = useState<{ line: number; column?: number } | null>(null)
 
-  // Sidebar visibility (toggled by Cmd/Ctrl+B)
-  const [showSidebar, setShowSidebar] = useState(true)
+  const [showSidebar, setShowSidebar] = useState(uiState?.showSidebar ?? true)
+
+  const onUiStateChangeRef = useRef(onUiStateChange)
+  useEffect(() => { onUiStateChangeRef.current = onUiStateChange }, [onUiStateChange])
+  // Snapshot of the sub-object we hydrated from — needed by the
+  // one-shot restore effect below without re-firing it when the parent
+  // supplies a fresh object identity on every render.
+  const initialUiRef = useRef(uiState)
 
   // Resizable sidebar
   const SIDEBAR_KEY = 'orka-code-sidebar-width'
@@ -235,8 +246,61 @@ export function SessionCodeEditor({ projectPath, encodedPath, onOpenInNewTab }: 
     }
   }
 
-  // Build context menu items for a path - must be before any early returns
-  const termCtl = useEditorTerminals(projectPath)
+  // One-shot rehydration of open editor tabs from persisted UI state.
+  // Fires once per SessionCodeEditor mount — restoreDoneRef guards
+  // against re-firing when the persisted state updates through us.
+  // Files that no longer exist on disk are dropped silently rather
+  // than surfaced as errors: a rename or delete between sessions is
+  // expected, not a failure to report.
+  const restoreDoneRef = useRef(false)
+  useEffect(() => {
+    if (restoreDoneRef.current) return
+    const initial = initialUiRef.current
+    const paths = initial?.openFilePaths ?? []
+    if (paths.length === 0) { restoreDoneRef.current = true; return }
+    restoreDoneRef.current = true
+    let cancelled = false
+    ;(async () => {
+      const results = await Promise.all(paths.map(async (p) => {
+        try {
+          const { content } = await api.getFileContent(encodedPath, p)
+          return { path: p, name: p.split('/').pop() || p, content, isDirty: false, originalContent: content }
+        } catch { return null }
+      }))
+      if (cancelled) return
+      const restored = results.filter((r): r is OpenTab => !!r)
+      if (restored.length === 0) return
+      setOpenTabs(restored)
+      const wanted = initial?.activeFilePath
+      const activeExists = wanted && restored.some((t) => t.path === wanted)
+      setActiveTab(activeExists ? wanted! : restored[restored.length - 1].path)
+      setViewMode('editor')
+    })()
+    return () => { cancelled = true }
+  }, [encodedPath])
+
+  useEffect(() => {
+    onUiStateChangeRef.current?.({
+      openFilePaths: openTabs.map((t) => t.path),
+      activeFilePath: activeTab,
+    })
+  }, [openTabs, activeTab])
+
+  useEffect(() => { onUiStateChangeRef.current?.({ showSidebar }) }, [showSidebar])
+  useEffect(() => { onUiStateChangeRef.current?.({ sidebarMode }) }, [sidebarMode])
+  useEffect(() => { onUiStateChangeRef.current?.({ showGitPanel }) }, [showGitPanel])
+
+  const initialTerminalPanel = useMemo(() => initialUiRef.current?.terminalPanel, [])
+  const termCtl = useEditorTerminals(projectPath, {
+    initialCwds: initialTerminalPanel?.cwds,
+    initialActive: initialTerminalPanel?.active ?? null,
+    initialOpen: initialTerminalPanel?.open ?? false,
+    onStateChange: useCallback((s) => {
+      onUiStateChangeRef.current?.({
+        terminalPanel: { open: s.open, cwds: s.cwds, active: s.active },
+      })
+    }, []),
+  })
   useTerminalShortcut(termCtl.toggle)
   // The menu builder is memoised on a narrow dep list; reach the opener
   // through a ref so it doesn't have to become a dependency.

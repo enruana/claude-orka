@@ -1217,6 +1217,39 @@
 .board-task-terminal-toolbar-actions {
   display: inline-flex;
   gap: 4px;
+  align-items: center;
+}
+
+/* Pane layout selector: segmented group of 4 icon buttons shared by the
+   board master toolbar and board task modal toolbar. Matches the shape
+   of `.layout-selector` in SessionView without inheriting its sizing. */
+.board-layout-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.board-layout-selector button {
+  background: none !important;
+  border: none;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 120ms ease, background 120ms ease;
+}
+.board-layout-selector button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+.board-layout-selector button.active {
+  background: var(--accent-blue, #89b4fa) !important;
+  color: #1e1e2e;
 }
 .board-task-iframe {
   flex: 1;

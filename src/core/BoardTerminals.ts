@@ -705,6 +705,42 @@ export async function splitBoardMasterTerminal(
 }
 
 /**
+ * Apply a tmux pane layout to the board master session. Transient: not
+ * persisted anywhere, so a restart drops it back to tmux defaults.
+ */
+export async function setBoardMasterLayout(
+  boardId: string,
+  layout: string,
+): Promise<void> {
+  const tmuxSessionId = masterTmuxName(boardId)
+  try {
+    await execa('tmux', ['has-session', '-t', tmuxSessionId])
+  } catch {
+    throw new Error(`Board master for ${boardId} is not running`)
+  }
+  await TmuxCommands.selectLayout(tmuxSessionId, layout)
+  logger.info(`Board master ${boardId} layout set to "${layout}"`)
+}
+
+/**
+ * Apply a tmux pane layout to a board task session. Transient: not
+ * persisted, so a terminal restart drops it back to tmux defaults.
+ */
+export async function setBoardTaskLayout(
+  taskKey: string,
+  layout: string,
+): Promise<void> {
+  const tmuxSessionId = taskTmuxName(taskKey)
+  try {
+    await execa('tmux', ['has-session', '-t', tmuxSessionId])
+  } catch {
+    throw new Error(`Task terminal for ${taskKey} is not running`)
+  }
+  await TmuxCommands.selectLayout(tmuxSessionId, layout)
+  logger.info(`Board task ${taskKey} layout set to "${layout}"`)
+}
+
+/**
  * Convenience: attach the freshly-spawned terminal handles back to the
  * BoardTask row so the UI can render "terminal is up" and the server can
  * later shut it down.

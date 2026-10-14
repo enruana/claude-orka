@@ -32,16 +32,30 @@ export interface EditorTerminalsControl {
   onResizeStart: (e: React.MouseEvent) => void
 }
 
-export function useEditorTerminals(projectPath: string): EditorTerminalsControl {
-  const [open, setOpen] = useState(false)
+export interface EditorTerminalsInit {
+  /** Restore the panel open/closed state as of last visit. */
+  initialOpen?: boolean
+  /** Restore which shell was focused. Ignored if it no longer exists. */
+  initialActive?: string | null
+  /** Explicit cwds to reopen. Rarely needed — listEditorTerminals adopts
+   *  every live shell — but present for symmetry with the persisted UI
+   *  state and for future server versions that scope adoption. */
+  initialCwds?: string[]
+  onStateChange?: (s: { open: boolean; cwds: string[]; active: string | null }) => void
+}
+
+export function useEditorTerminals(projectPath: string, init: EditorTerminalsInit = {}): EditorTerminalsControl {
+  const [open, setOpen] = useState<boolean>(init.initialOpen ?? false)
   const [terminals, setTerminals] = useState<EditorTerminal[]>([])
-  const [active, setActive] = useState<string | null>(null)
+  const [active, setActive] = useState<string | null>(init.initialActive ?? null)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [height, setHeight] = useState(() => {
     const n = parseInt(localStorage.getItem(HEIGHT_KEY) || '', 10)
     return Number.isFinite(n) ? Math.min(Math.max(n, 120), 700) : 280
   })
+  const onStateChangeRef = useRef(init.onStateChange)
+  useEffect(() => { onStateChangeRef.current = init.onStateChange }, [init.onStateChange])
 
   const openAt = useCallback(async (cwd?: string) => {
     setOpen(true)
@@ -83,18 +97,39 @@ export function useEditorTerminals(projectPath: string): EditorTerminalsControl 
   }, [])
 
   // Adopt shells that outlived a previous visit, so their tabs are there
-  // to resume — or to kill — instead of being orphaned.
+  // to resume — or to kill — instead of being orphaned. Persisted UI
+  // state supplies the desired `active` cwd; we honor it only if that
+  // shell still exists in the adopted list.
   useEffect(() => {
     let cancelled = false
     api.listEditorTerminals(projectPath)
       .then(list => {
         if (cancelled || list.length === 0) return
         setTerminals(list)
-        setActive(cur => cur ?? list[0].cwd)
+        setActive((cur) => {
+          if (cur && list.some((t) => t.cwd === cur)) return cur
+          const wanted = init.initialActive
+          if (wanted && list.some((t) => t.cwd === wanted)) return wanted
+          return list[0].cwd
+        })
       })
       .catch(() => { /* older server without the route; nothing to adopt */ })
     return () => { cancelled = true }
+    // init.initialActive is a one-shot restore value; the effect must
+    // not refire when the parent's persisted state churns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath])
+
+  // Notify the parent whenever the persistable shape changes. Empty on
+  // the very first render (no terminals adopted yet) is fine — parent
+  // filters redundant patches.
+  useEffect(() => {
+    onStateChangeRef.current?.({
+      open,
+      cwds: terminals.map((t) => t.cwd),
+      active,
+    })
+  }, [open, terminals, active])
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()

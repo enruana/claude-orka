@@ -74,8 +74,10 @@ const TYPE_COLORS: Record<string, string> = {
   activity: '#7f849c',
 }
 
-// Properties that are navigable file paths
-const PATH_PROPERTIES = new Set(['master_doc', 'path', 'notes_path', 'profile_path', 'filePath', 'source_path', 'repo_path'])
+// Properties that are navigable file paths. `notes` is a meeting-era
+// key that supersedes the older `notes_path`; kept both since old
+// entities in the wild still use the `_path` suffix.
+const PATH_PROPERTIES = new Set(['master_doc', 'path', 'notes', 'notes_path', 'profile_path', 'filePath', 'source_path', 'repo_path'])
 // Properties that are external URLs
 const URL_PROPERTIES = new Set(['linkedin', 'url', 'website', 'link'])
 // Source relation types
@@ -118,6 +120,16 @@ const PROMINENT_PROPERTIES = new Set([
   'skill', 'session_id',
 ])
 
+/** Everything before the last "/", or "" if the path itself is a bare file name. */
+function dirnameLike(p: string): string {
+  const idx = p.lastIndexOf('/')
+  return idx > 0 ? p.slice(0, idx) : ''
+}
+
+function isFilePath(p: string): boolean {
+  return /\.\w+$/.test(p)
+}
+
 function getNavigableProps(entity: KBEntity): {
   fileLinks: Array<{ key: string; path: string }>
   urlLinks: Array<{ key: string; url: string }>
@@ -141,12 +153,33 @@ function getNavigableProps(entity: KBEntity): {
     }
   }
 
-  // Sort file links: master_doc first
+  // For any entity whose only file link points at a document, hoist the
+  // containing folder as its own row. Meetings are the main driver
+  // (`notes` / `notes_path` → the folder next to it) but the same trick
+  // helps decisions, artifacts, persons, and anything else that carries
+  // one file with no sibling folder property.
+  const hasExplicitFolder = fileLinks.some((l) => !isFilePath(l.path))
+  if (!hasExplicitFolder) {
+    const preferredKeys = ['notes', 'notes_path', 'master_doc', 'source_path', 'filePath']
+    const anchor = preferredKeys
+      .map((k) => fileLinks.find((l) => l.key === k && isFilePath(l.path)))
+      .find(Boolean)
+      || fileLinks.find((l) => isFilePath(l.path))
+    if (anchor) {
+      const folder = dirnameLike(anchor.path)
+      if (folder) fileLinks.unshift({ key: 'folder', path: folder })
+    }
+  }
+
+  // Sort remaining file links: master_doc first (unless the synthetic
+  // `folder` is already at index 0, which we want to keep).
+  const synthetic = fileLinks[0]?.key === 'folder' ? fileLinks.shift() : null
   fileLinks.sort((a, b) => {
     if (a.key === 'master_doc') return -1
     if (b.key === 'master_doc') return 1
     return 0
   })
+  if (synthetic) fileLinks.unshift(synthetic)
 
   return { fileLinks, urlLinks, regularProps }
 }
@@ -164,6 +197,7 @@ export function KBDetailPanel({ entity, allEntities, encodedPath, projectPath, s
   const [summaryError, setSummaryError] = useState<string | null>(null)
   const [summaryLang, setSummaryLang] = useState<'es' | 'en'>('es')
   const [summaryCopied, setSummaryCopied] = useState(false)
+  const [copiedPath, setCopiedPath] = useState<string | null>(null)
 
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
@@ -380,21 +414,66 @@ After running the command, read each file listed in the "Source Files" section t
     }
   }
 
+  /** Resolve any stored path into `{ absolute, relative }`. Entities in
+   *  the wild store either — the older `notes_path` is project-relative,
+   *  the newer `notes` is absolute — so both need to work with the
+   *  finder / viewer routes (which expect a project-relative path). */
+  const resolvePath = (rawPath: string): { absolute: string; relative: string | null } => {
+    const projRoot = projectPath ? projectPath.replace(/\/+$/, '') : ''
+    if (rawPath.startsWith('/')) {
+      if (projRoot && rawPath === projRoot) return { absolute: rawPath, relative: '' }
+      if (projRoot && rawPath.startsWith(projRoot + '/')) {
+        return { absolute: rawPath, relative: rawPath.slice(projRoot.length + 1) }
+      }
+      // Outside the project — cannot render through the project routes.
+      return { absolute: rawPath, relative: null }
+    }
+    const clean = rawPath.replace(/^\/+/, '')
+    return {
+      absolute: projRoot ? `${projRoot}/${clean}` : clean,
+      relative: clean,
+    }
+  }
+
+  const handleCopyPath = async (filePath: string) => {
+    const { absolute } = resolvePath(filePath)
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(absolute)
+      else {
+        const ta = document.createElement('textarea')
+        ta.value = absolute
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setCopiedPath(filePath)
+      setTimeout(() => setCopiedPath((cur) => cur === filePath ? null : cur), 1400)
+    } catch (err) {
+      console.warn('Failed to copy path', err)
+    }
+  }
+
   const handleOpenFile = (filePath: string) => {
-    const clean = filePath.replace(/^\/+/, '')
-    const isFile = /\.\w+$/.test(clean)
-    // HTML files → direct `/api/files/preview/:enc/*path` so relative
-    // assets in the file resolve against its own URL (no app-chrome
-    // wrapper eating the layout). Everything else stays on the SPA
-    // FileViewer / Finder routes.
-    const isHtml = /\.html?$/i.test(clean)
+    const { relative } = resolvePath(filePath)
+    if (relative === null) {
+      // Absolute path outside the project — the SPA can't render it, so
+      // copy it to the clipboard as a fallback and warn.
+      void handleCopyPath(filePath)
+      console.warn(`kb: cannot open path outside project (${filePath}); copied to clipboard`)
+      return
+    }
+    const isFile = /\.\w+$/.test(relative)
+    const isHtml = /\.html?$/i.test(relative)
     if (isHtml) {
-      const pathSegments = clean.split('/').map((s) => encodeURIComponent(s)).join('/')
+      const pathSegments = relative.split('/').map((s) => encodeURIComponent(s)).join('/')
       window.open(`/api/files/preview/${encodedPath}/${pathSegments}?comments=1`, '_blank')
     } else if (isFile) {
-      window.open(`/projects/${encodedPath}/files/view?path=${encodeURIComponent(clean)}`, '_blank')
+      window.open(`/projects/${encodedPath}/files/view?path=${encodeURIComponent(relative)}`, '_blank')
     } else {
-      window.open(`/projects/${encodedPath}/files?path=${encodeURIComponent(clean)}`, '_blank')
+      window.open(`/projects/${encodedPath}/files?path=${encodeURIComponent(relative)}`, '_blank')
     }
   }
 
@@ -406,20 +485,25 @@ After running the command, read each file listed in the "Source Files" section t
    * its parent dir so the FAB always lands on a folder view.
    */
   function resolvePinFolderPath(e: KBEntity): string | null {
-    // Priority order — same one Quick Access uses.
-    const order = ['master_doc', 'path', 'notes_path', 'profile_path', 'source_path', 'repo_path', 'filePath']
+    const order = ['master_doc', 'path', 'notes', 'notes_path', 'profile_path', 'source_path', 'repo_path', 'filePath']
+    const projRoot = projectPath ? projectPath.replace(/\/+$/, '') : ''
     for (const key of order) {
       const raw = e.properties?.[key]
-      if (typeof raw === 'string' && raw.trim()) {
-        const v = raw.trim().replace(/^\/+/, '') // strip any leading /
-        // If it's a file (has extension), keep its parent dir.
-        const isFile = /\.\w+$/.test(v)
-        if (isFile) {
-          const idx = v.lastIndexOf('/')
-          return idx >= 0 ? v.slice(0, idx) : '.'
-        }
-        return v
+      if (typeof raw !== 'string' || !raw.trim()) continue
+      const trimmed = raw.trim()
+      let rel: string
+      if (trimmed.startsWith('/')) {
+        if (projRoot && trimmed.startsWith(projRoot + '/')) rel = trimmed.slice(projRoot.length + 1)
+        else continue // absolute + outside project → can't pin as a project-relative folder
+      } else {
+        rel = trimmed.replace(/^\/+/, '')
       }
+      const isFile = /\.\w+$/.test(rel)
+      if (isFile) {
+        const idx = rel.lastIndexOf('/')
+        return idx >= 0 ? rel.slice(0, idx) : '.'
+      }
+      return rel
     }
     return null
   }
@@ -646,20 +730,36 @@ After running the command, read each file listed in the "Source Files" section t
         <div className="kb-detail-section">
           <h4>Quick Access</h4>
           <div className="kb-detail-links">
-            {fileLinks.map(({ key, path }) => (
-              <button
-                key={key}
-                className="kb-detail-link-btn"
-                onClick={() => handleOpenFile(path)}
-              >
-                {/\.\w+$/.test(path) ? <FileText size={13} /> : <FolderOpen size={13} />}
-                <div className="kb-detail-link-info">
-                  <span className="kb-detail-link-label">{formatPropKey(key)}</span>
-                  <span className="kb-detail-link-path">{path}</span>
+            {fileLinks.map(({ key, path }) => {
+              const isFolder = !/\.\w+$/.test(path)
+              const label = key === 'folder' ? 'Folder' : formatPropKey(key)
+              const justCopied = copiedPath === path
+              return (
+                <div key={key} className="kb-detail-link-row">
+                  <button
+                    className="kb-detail-link-btn"
+                    onClick={() => handleOpenFile(path)}
+                    title={isFolder ? `Abrir carpeta ${path}` : `Abrir ${path}`}
+                  >
+                    {isFolder ? <FolderOpen size={13} /> : <FileText size={13} />}
+                    <div className="kb-detail-link-info">
+                      <span className="kb-detail-link-label">{label}</span>
+                      <span className="kb-detail-link-path">{path}</span>
+                    </div>
+                    <ExternalLink size={11} className="kb-detail-link-arrow" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`kb-detail-link-copy ${justCopied ? 'copied' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); void handleCopyPath(path) }}
+                    title={justCopied ? '¡Copiado!' : `Copiar path (${projectPath ? 'absoluto' : 'relativo'})`}
+                    aria-label="Copy path"
+                  >
+                    {justCopied ? <Check size={12} /> : <CopyIcon size={12} />}
+                  </button>
                 </div>
-                <ExternalLink size={11} className="kb-detail-link-arrow" />
-              </button>
-            ))}
+              )
+            })}
             {urlLinks.map(({ key, url }) => (
               <button
                 key={key}
@@ -1148,7 +1248,7 @@ function buildPromptForEntity(entity: KBEntity): string {
 
   // Path-like properties (see PATH_PROPERTIES) — surface them so Claude
   // knows which files to open before we discuss.
-  const pathKeys = ['master_doc', 'path', 'notes_path', 'profile_path', 'source_path', 'repo_path', 'filePath']
+  const pathKeys = ['master_doc', 'path', 'notes', 'notes_path', 'profile_path', 'source_path', 'repo_path', 'filePath']
   const paths: string[] = []
   for (const k of pathKeys) {
     const v = entity.properties?.[k]

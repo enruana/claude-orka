@@ -7,6 +7,9 @@ import {
   Terminal,
   X,
   LayoutGrid,
+  Columns3,
+  Rows3,
+  PanelLeft,
   Code,
   FolderOpen,
   Network,
@@ -24,6 +27,7 @@ import {
   type BoardTask,
   type BoardTaskTerminalState,
   type BoardDrift,
+  type SessionLayout,
 } from '../../api/client'
 import { decodeProjectPath } from '../ProjectDashboard'
 import { BoardKanban } from './BoardKanban'
@@ -75,6 +79,7 @@ export function BoardPage() {
   const [error, setError] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [masterPort, setMasterPort] = useState<number | null>(null)
+  const [masterLayout, setMasterLayout] = useState<SessionLayout | null>(null)
   const openTaskKey = searchParams.get('task')
   const setOpenTaskKey = useCallback((next: string | null | ((prev: string | null) => string | null)) => {
     setSearchParams((prev) => {
@@ -655,6 +660,33 @@ export function BoardPage() {
                   />
                 </span>
                 <div className="board-terminal-toolbar-actions">
+                  <div className="board-layout-selector" title="Pane arrangement">
+                    {([
+                      { id: 'tiled', icon: LayoutGrid, label: 'Grid' },
+                      { id: 'even-horizontal', icon: Columns3, label: 'Columns' },
+                      { id: 'even-vertical', icon: Rows3, label: 'Rows' },
+                      { id: 'main-vertical', icon: PanelLeft, label: 'Main' },
+                    ] as const).map(({ id, icon: Icon, label }) => (
+                      <button
+                        key={id}
+                        className={`board-terminal-toolbar-btn ${masterLayout === id ? 'active' : ''}`}
+                        onClick={async () => {
+                          const previous = masterLayout
+                          setMasterLayout(id)
+                          try {
+                            await api.setBoardMasterLayout(projectPath, boardId, id)
+                          } catch (err: any) {
+                            setMasterLayout(previous)
+                            setError(err?.message || 'Failed to set master layout')
+                          }
+                        }}
+                        title={`${label} layout`}
+                        aria-label={`${label} layout`}
+                      >
+                        <Icon size={12} />
+                      </button>
+                    ))}
+                  </div>
                   {/* Split — adds a bare shell pane to the same tmux
                       session. Shows up in the iframe automatically. */}
                   <button
@@ -666,7 +698,7 @@ export function BoardPage() {
                         setError(err?.message || 'Failed to split master terminal')
                       }
                     }}
-                    title="Split — new shell pane in this tmux (no Claude, just bash)"
+                    title="Split: new shell pane in this tmux (no Claude, just bash)"
                     aria-label="Split terminal"
                   >
                     <SplitSquareHorizontal size={12} />

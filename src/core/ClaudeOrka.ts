@@ -438,4 +438,15 @@ export class ClaudeOrka {
   ): Promise<{ paneId: string; zoomed: boolean }> {
     return await this.sessionManager.togglePaneZoom(sessionId, paneId)
   }
+
+  /**
+   * Open a bare shell pane in the session's tmux. `vertical=true` splits
+   * right, false splits below.
+   */
+  async splitSessionTerminal(
+    sessionId: string,
+    vertical: boolean = true,
+  ): Promise<{ paneId: string }> {
+    return await this.sessionManager.splitSessionTerminal(sessionId, vertical)
+  }
 }

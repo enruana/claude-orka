@@ -714,6 +714,23 @@ export const api = {
     return res.json()
   },
 
+  /** Open a bare shell pane in the session's tmux. `vertical=true` splits
+   *  right, false splits below. New pane is tracked under
+   *  `untrackedPanes` so `verify` doesn't flag it. */
+  async splitSessionTerminal(
+    projectPath: string,
+    sessionId: string,
+    vertical: boolean = true,
+  ): Promise<{ paneId: string }> {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/split`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: encodeProjectPath(projectPath), vertical }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   /** Rename a tmux pane's label (shown in the pane border). When `paneId`
    *  is omitted, the session's currently-active pane is relabeled. */
   async renamePaneLabel(
@@ -1517,6 +1534,22 @@ export const api = {
     return res.json()
   },
 
+  /** Apply a tmux layout to the board master session. Transient. */
+  async setBoardMasterLayout(
+    projectPath: string,
+    boardId: string,
+    layout: SessionLayout,
+  ): Promise<{ ok: boolean; layout: SessionLayout }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/master/layout?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ layout }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   /** Add a bare shell pane next to a board task's Claude pane. Starts in
    *  the task's worktree if set, else the project root. */
   async splitBoardTask(
@@ -1530,6 +1563,23 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ vertical }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Apply a tmux layout to a board task's session. Transient. */
+  async setBoardTaskLayout(
+    projectPath: string,
+    boardId: string,
+    key: string,
+    layout: SessionLayout,
+  ): Promise<{ ok: boolean; layout: SessionLayout }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/layout?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ layout }),
     })
     if (!res.ok) throw new Error(await res.text())
     return res.json()

@@ -27,6 +27,7 @@ import {
   Maximize2,
   Minimize2,
   Mic,
+  SplitSquareHorizontal,
 } from 'lucide-react'
 import { VoiceTerminalButton } from './VoiceTerminalButton'
 import { SessionCodeEditor } from './code-editor'
@@ -35,6 +36,7 @@ import { KBGraph } from './kb'
 import { ProjectDock } from './ProjectDock'
 import { encodeProjectPath } from './ProjectDashboard'
 import { usePageTitle } from '../hooks/usePageTitle'
+import { useSessionUiState } from '../hooks/useSessionUiState'
 
 type RightPanelTab = 'terminal' | 'code' | 'files' | 'kb'
 
@@ -90,10 +92,17 @@ export function SessionView({
   const terminalIframeRef = useRef<HTMLIFrameElement>(null)
   const threadsPopoverRef = useRef<HTMLDivElement>(null)
 
-  // Use controlled tab from props, or local state as fallback
-  const [localTab, setLocalTab] = useState<RightPanelTab>(currentTab)
+  // Persist per-session UI shape so switching sessions and coming back
+  // reopens the same tab / editor tabs / terminals rather than dumping
+  // the user on a fresh Terminal view every time.
+  const uiState = useSessionUiState(project.path, initialSession.id)
+  const [localTab, setLocalTab] = useState<RightPanelTab>(uiState.state.tab ?? currentTab)
   const rightPanelTab = onTabChange ? currentTab : localTab
-  const setRightPanelTab = onTabChange || setLocalTab
+  const setLocalTabPersisted = useCallback((t: RightPanelTab) => {
+    setLocalTab(t)
+    uiState.patch({ tab: t })
+  }, [uiState])
+  const setRightPanelTab = onTabChange ?? setLocalTabPersisted
 
   // Send input to terminal iframe via postMessage
   const sendInputToTerminal = useCallback((text: string) => {
@@ -275,7 +284,7 @@ export function SessionView({
     setActiveLayout(session.layout)
   }, [session.layout])
 
-  // Change the tmux pane arrangement. Optimistic — highlight updates
+  // Change the tmux pane arrangement. Optimistic: highlight updates
   // immediately; the server applies `tmux select-layout` and persists it.
   const handleLayoutChange = async (layout: SessionLayout) => {
     if (layout === activeLayout) return
@@ -284,6 +293,14 @@ export function SessionView({
       await api.setSessionLayout(project.path, session.id, layout)
     } catch (err: any) {
       console.error('Failed to set layout:', err)
+    }
+  }
+
+  const handleSplitTerminal = async () => {
+    try {
+      await api.splitSessionTerminal(project.path, session.id, true)
+    } catch (err: any) {
+      console.error('Failed to split terminal:', err)
     }
   }
 
@@ -688,6 +705,14 @@ export function SessionView({
               </button>
             ))}
           </div>
+          <button
+            className="icon-button"
+            onClick={handleSplitTerminal}
+            title="Split: new shell pane in this tmux (no Claude, just bash)"
+            aria-label="Split terminal"
+          >
+            <SplitSquareHorizontal size={16} />
+          </button>
           {/* Toggle zoom on the active pane (web counterpart of the
               mobile "Zoom Pane" quick action). tmux `resize-pane -Z` is a
               real toggle, so the same button serves both directions; the
@@ -974,6 +999,8 @@ export function SessionView({
                 projectPath={project.path}
                 encodedPath={encodedPath}
                 onOpenInNewTab={handleOpenCodeInNewTab}
+                uiState={uiState.state.editor}
+                onUiStateChange={uiState.patchEditor}
               />
             </div>
             <div className={`file-explorer-wrapper ${rightPanelTab === 'files' ? 'tab-visible' : 'tab-hidden'}`}>

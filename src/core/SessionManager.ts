@@ -1645,6 +1645,42 @@ Analyze the content and help me integrate the changes and learnings from the for
   }
 
   /**
+   * Add a bare shell pane to the session's tmux. `vertical=true` splits
+   * right, false splits below. Pane id is recorded in `untrackedPanes`
+   * so `verify` does not flag it as a cross-contaminated Claude branch.
+   */
+  async splitSessionTerminal(
+    sessionId: string,
+    vertical: boolean = true,
+  ): Promise<{ paneId: string }> {
+    const session = await this.getSession(sessionId)
+    if (!session) throw new Error(`Session ${sessionId} not found`)
+
+    if (!(await TmuxCommands.sessionExists(session.tmuxSessionId))) {
+      throw new Error(`Session ${sessionId} tmux is not running, resume it first`)
+    }
+
+    const paneId = await TmuxCommands.splitPaneWithCwd(
+      session.tmuxSessionId,
+      this.projectPath,
+      vertical,
+    )
+
+    if (!Array.isArray(session.untrackedPanes)) session.untrackedPanes = []
+    if (!session.untrackedPanes.some((p) => p.tmuxPaneId === paneId)) {
+      session.untrackedPanes.push({
+        tmuxPaneId: paneId,
+        currentPath: this.projectPath,
+        createdAt: new Date().toISOString(),
+      })
+      await this.stateManager.replaceSession(session)
+    }
+
+    logger.info(`Split shell pane added to session ${sessionId} (pane=${paneId})`)
+    return { paneId }
+  }
+
+  /**
    * Get the currently active branch in the tmux session
    * @param sessionId Session ID
    * @returns Branch ID ('main' or fork id) or null if not found

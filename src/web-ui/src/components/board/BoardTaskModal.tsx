@@ -20,9 +20,13 @@ import {
   Link as LinkIcon,
   SplitSquareHorizontal,
   Power,
+  LayoutGrid,
+  Columns3,
+  Rows3,
+  PanelLeft,
 } from 'lucide-react'
 import { VoiceTerminalButton } from '../VoiceTerminalButton'
-import { api, type AIQueryContext, type BoardTask } from '../../api/client'
+import { api, type AIQueryContext, type BoardTask, type SessionLayout } from '../../api/client'
 import { TaskWidget } from '../TaskWidget'
 import { QuickAIDialogWrapper } from '../../App'
 import { kbLinksFromEntity, labelForPathKey, openTaskPath } from './taskLinks'
@@ -90,6 +94,7 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
   const [starting, setStarting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [resumeState, setResumeState] = useState<ResumeState>('idle')
+  const [taskLayout, setTaskLayout] = useState<SessionLayout | null>(null)
   const [infoCollapsed, setInfoCollapsed] = useState<boolean>(() => {
     return localStorage.getItem('orka-board-task-info-collapsed') === '1'
   })
@@ -442,6 +447,33 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
           <div className="board-task-terminal-toolbar">
             <span><Terminal size={12} /> Terminal</span>
             <div className="board-task-terminal-toolbar-actions">
+              <div className="board-layout-selector" title="Pane arrangement">
+                {([
+                  { id: 'tiled', icon: LayoutGrid, label: 'Grid' },
+                  { id: 'even-horizontal', icon: Columns3, label: 'Columns' },
+                  { id: 'even-vertical', icon: Rows3, label: 'Rows' },
+                  { id: 'main-vertical', icon: PanelLeft, label: 'Main' },
+                ] as const).map(({ id, icon: Icon, label }) => (
+                  <button
+                    key={id}
+                    className={taskLayout === id ? 'active' : ''}
+                    onClick={async () => {
+                      const previous = taskLayout
+                      setTaskLayout(id)
+                      try {
+                        await api.setBoardTaskLayout(projectPath, boardId, task.key, id)
+                      } catch (err) {
+                        setTaskLayout(previous)
+                        console.error('Failed to set task layout:', err)
+                      }
+                    }}
+                    title={`${label} layout`}
+                    aria-label={`${label} layout`}
+                  >
+                    <Icon size={12} />
+                  </button>
+                ))}
+              </div>
               {/* Split — adds a bare shell pane to the task's tmux
                   session (cwd = worktree if set, else project root).
                   Shows up in the iframe automatically. */}
@@ -453,7 +485,7 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
                     console.error('Failed to split task terminal:', err)
                   }
                 }}
-                title="Split — new shell pane in this tmux (no Claude, just bash)"
+                title="Split: new shell pane in this tmux (no Claude, just bash)"
                 aria-label="Split terminal"
               >
                 <SplitSquareHorizontal size={12} />

@@ -30,6 +30,8 @@ import {
   resumeBoardTask,
   splitBoardTaskTerminal,
   splitBoardMasterTerminal,
+  setBoardMasterLayout,
+  setBoardTaskLayout,
 } from '../../core/BoardTerminals'
 import { logger } from '../../utils'
 
@@ -390,6 +392,26 @@ boardRouter.post('/:boardId/master/split', async (req, res) => {
   }
 })
 
+const VALID_BOARD_LAYOUTS = ['tiled', 'even-horizontal', 'even-vertical', 'main-vertical']
+
+/**
+ * `POST /:boardId/master/layout` — apply a tmux pane layout to the
+ * master session. Transient (not persisted). Body: `{ layout: string }`.
+ */
+boardRouter.post('/:boardId/master/layout', async (req, res) => {
+  try {
+    const layout = String(req.body?.layout || '')
+    if (!VALID_BOARD_LAYOUTS.includes(layout)) {
+      res.status(400).json({ error: `layout must be one of: ${VALID_BOARD_LAYOUTS.join(', ')}` })
+      return
+    }
+    await setBoardMasterLayout(req.params.boardId, layout)
+    res.json({ ok: true, layout })
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
 // ---------- Task lifecycle ----------
 
 boardRouter.post('/:boardId/tasks/:key/start', async (req, res) => {
@@ -619,6 +641,24 @@ boardRouter.post('/:boardId/tasks/:key/split', async (req, res) => {
     const vertical = !!req.body?.vertical
     const result = await splitBoardTaskTerminal(projectPath, req.params.boardId, req.params.key, vertical)
     res.json(result)
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
+ * `POST /:boardId/tasks/:key/layout` — apply a tmux pane layout to the
+ * task's session. Transient (not persisted). Body: `{ layout: string }`.
+ */
+boardRouter.post('/:boardId/tasks/:key/layout', async (req, res) => {
+  try {
+    const layout = String(req.body?.layout || '')
+    if (!VALID_BOARD_LAYOUTS.includes(layout)) {
+      res.status(400).json({ error: `layout must be one of: ${VALID_BOARD_LAYOUTS.join(', ')}` })
+      return
+    }
+    await setBoardTaskLayout(req.params.key, layout)
+    res.json({ ok: true, layout })
   } catch (err) {
     handle(res, err)
   }

@@ -26,15 +26,27 @@ function setServerUrl(url) {
  */
 const DEFAULT_KB_PROMPT = `Load the orka KB skills and register this meeting in the Orka Knowledge Base.
 
-Create only the entities that are relevant to me (Felipe Mantilla) — anything I need to track, follow up on, decide, or own. Skip items that don't involve me.
+## Notes file — preserve the full report
+
+BEFORE creating any entity, save the ENTIRE meeting report below (everything under the "---" line, verbatim, unmodified) to the meeting's notes file:
+
+- Path convention: \`01-journal/<yyyy>/<mm-month>/<yyyy-mm-dd>_<slug>/notes.md\` under the project root.
+- Write it with the \`Write\` tool. DO NOT summarize, condense, translate, or reformat the report — the file must contain the report as-is so future re-reads have the full context.
+- If you want to add commentary of your own (e.g. Felipe-specific follow-ups), append it AFTER the original report, under a clearly-labeled \`## Follow-up (Felipe)\` section. Never touch the report above it.
+
+Then set the meeting entity's \`notes\` property to that path (absolute path is fine; relative to project root also works). This is the file Quick Access will link to.
+
+## Entities to create
+
+Create only entities that are relevant to me (Felipe Mantilla) — anything I need to track, follow up on, decide, or own. Skip items that don't involve me. Search first: if we already have a related entity, update it instead of creating a duplicate.
 
 For each entity you create:
 - Pick the most appropriate type (task, decision, question, meeting, spike, ...)
 - Set an accurate status
-- Link related entities (owned-by me, addresses, part-of a project, ...)
+- Link related entities (owned-by me, addresses, part-of a project, sourced-from this meeting, ...)
 - Add short, useful tags
 
-At the end, summarize what you created (type, id, title, one-line why).
+At the end, print a compact summary of what you created (type, id, title, one-line why).
 
 Meeting report follows below.`
 
