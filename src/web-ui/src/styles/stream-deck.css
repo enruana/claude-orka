@@ -240,10 +240,52 @@
   flex: 0 0 88px;
   width: 88px;
   aspect-ratio: 1;
+  cursor: grab;
+  transition: transform 160ms ease, opacity 160ms ease, box-shadow 160ms ease;
+  touch-action: pan-y;
 }
+.stream-deck-recent-wrap:active { cursor: grabbing; }
 .stream-deck-recent-wrap .stream-deck-tile {
   width: 100%;
   height: 100%;
+}
+.stream-deck-recent-wrap.is-dragging {
+  opacity: 0.4;
+  transform: scale(0.94);
+}
+.stream-deck-recent-wrap.is-drop-target::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: -6px;
+  width: 3px;
+  background: #89b4fa;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(137, 180, 250, 0.6);
+}
+.stream-deck-recent-grip {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #1e1e2e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(205, 214, 244, 0.6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.7;
+  transition: opacity 0.12s;
+}
+.stream-deck-recent-wrap:hover .stream-deck-recent-grip,
+.stream-deck-recent-wrap.is-dragging .stream-deck-recent-grip {
+  opacity: 1;
 }
 .stream-deck-recent-remove {
   position: absolute;

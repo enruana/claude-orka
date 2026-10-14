@@ -5,7 +5,7 @@ import {
   Smartphone, Tablet, Monitor, HardDrive, HelpCircle,
   LayoutGrid, Terminal, Mic, Home, Activity, History,
   Send, Zap, Newspaper, RefreshCw, Play, X,
-  Kanban, Code, FolderOpen, Network, Pencil,
+  Kanban, Code, FolderOpen, Network, Pencil, GripVertical,
 } from 'lucide-react'
 import {
   api,
@@ -95,6 +95,18 @@ export function StreamDeckPage() {
   const [page, setPage] = useState(0)
   const [tilesPerPage, setTilesPerPage] = useState(TILES_PER_PAGE_FALLBACK)
   const [favorites, setFavorites] = useState<DeckFavorite[]>(() => loadFavorites())
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const draggingIdRef = useRef<string | null>(null)
+  const touchDragRef = useRef<{
+    id: string
+    pointerId: number
+    startX: number
+    startY: number
+    startTime: number
+    dragging: boolean
+    wasDragging: boolean
+  } | null>(null)
   const [quickText, setQuickText] = useState('')
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [renamingClient, setRenamingClient] = useState<string | null>(null)
@@ -144,9 +156,15 @@ export function StreamDeckPage() {
     setFavorites((prev) => {
       const now = Date.now()
       const hit = prev.find((f) => f.id === fav.id)
-      const next = hit
-        ? prev.map((f) => f.id === fav.id ? { ...f, ...fav, count: f.count + 1, lastUsedAt: now } : f)
-        : [...prev, { ...fav, count: 1, lastUsedAt: now }]
+      let next: DeckFavorite[]
+      if (hit) {
+        next = prev.map((f) => f.id === fav.id
+          ? { ...f, ...fav, count: f.count + 1, lastUsedAt: now }
+          : f)
+      } else {
+        next = [...prev, { ...fav, count: 1, lastUsedAt: now }]
+        if (next.length > RECENTS_MAX) next = next.slice(next.length - RECENTS_MAX)
+      }
       saveFavorites(next)
       return next
     })
@@ -160,7 +178,111 @@ export function StreamDeckPage() {
     })
   }
 
+  const reorderFavorite = (fromId: string, toId: string) => {
+    setFavorites((prev) => {
+      const from = prev.findIndex((f) => f.id === fromId)
+      const to = prev.findIndex((f) => f.id === toId)
+      if (from < 0 || to < 0 || from === to) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      saveFavorites(next)
+      return next
+    })
+  }
+
   const clearFavorites = () => { setFavorites([]); saveFavorites([]) }
+
+  const handleRecentDragStart = (e: React.DragEvent, id: string) => {
+    draggingIdRef.current = id
+    setDraggingId(id)
+    e.dataTransfer.effectAllowed = 'move'
+    try { e.dataTransfer.setData('application/x-orka-recent', id) } catch { /* drop */ }
+    try { e.dataTransfer.setData('text/plain', id) } catch { /* drop */ }
+  }
+
+  const handleRecentDragOver = (e: React.DragEvent, overId: string) => {
+    const dragId = draggingIdRef.current
+    if (!dragId || dragId === overId) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverId !== overId) setDragOverId(overId)
+  }
+
+  const handleRecentDrop = (e: React.DragEvent, overId: string) => {
+    e.preventDefault()
+    const dragId = draggingIdRef.current || e.dataTransfer.getData('application/x-orka-recent')
+    if (dragId && dragId !== overId) reorderFavorite(dragId, overId)
+    draggingIdRef.current = null
+    setDraggingId(null)
+    setDragOverId(null)
+  }
+
+  const handleRecentDragEnd = () => {
+    draggingIdRef.current = null
+    setDraggingId(null)
+    setDragOverId(null)
+  }
+
+  const TOUCH_HOLD_MS = 320
+  const TOUCH_MOVE_CANCEL = 10
+  const handleRecentPointerDown = (e: React.PointerEvent, id: string) => {
+    if (e.pointerType !== 'touch') return
+    touchDragRef.current = {
+      id,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: performance.now(),
+      dragging: false,
+      wasDragging: false,
+    }
+  }
+
+  const handleRecentPointerMove = (e: React.PointerEvent) => {
+    const s = touchDragRef.current
+    if (!s || s.pointerId !== e.pointerId) return
+    const dx = e.clientX - s.startX
+    const dy = e.clientY - s.startY
+    const dist = Math.hypot(dx, dy)
+    const elapsed = performance.now() - s.startTime
+    if (!s.dragging) {
+      if (elapsed >= TOUCH_HOLD_MS && dist > 4) {
+        s.dragging = true
+        s.wasDragging = true
+        setDraggingId(s.id)
+        try { (e.currentTarget as Element).setPointerCapture(e.pointerId) } catch { /* drop */ }
+      } else if (dist > TOUCH_MOVE_CANCEL && elapsed < TOUCH_HOLD_MS) {
+        touchDragRef.current = null
+      }
+      return
+    }
+    e.preventDefault()
+    const hit = document.elementFromPoint(e.clientX, e.clientY)
+    const wrap = hit?.closest('[data-recent-id]') as HTMLElement | null
+    const overId = wrap?.dataset.recentId || null
+    if (overId && overId !== s.id) {
+      if (dragOverId !== overId) setDragOverId(overId)
+    } else {
+      if (dragOverId !== null) setDragOverId(null)
+    }
+  }
+
+  const handleRecentPointerUp = (e: React.PointerEvent) => {
+    const s = touchDragRef.current
+    if (!s || s.pointerId !== e.pointerId) return
+    if (s.dragging && dragOverId && dragOverId !== s.id) {
+      reorderFavorite(s.id, dragOverId)
+    }
+    const wasDragging = s.wasDragging
+    touchDragRef.current = null
+    setDraggingId(null)
+    setDragOverId(null)
+    if (wasDragging) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+  }
 
   const nav = (fav: Omit<DeckFavorite, 'count' | 'lastUsedAt'>, label: string) => {
     recordFavorite(fav)
@@ -324,19 +446,10 @@ export function StreamDeckPage() {
     return [home, openBoard, sync, standup, ...taskTiles]
   }, [boardDetail, selected])
 
-  const recents = useMemo(() => {
-    if (favorites.length === 0) return []
-    const now = Date.now()
-    return [...favorites]
-      .sort((a, b) => {
-        const dayAgoA = (now - a.lastUsedAt) / (1000 * 60 * 60 * 24)
-        const dayAgoB = (now - b.lastUsedAt) / (1000 * 60 * 60 * 24)
-        const scoreA = a.count * 3 - dayAgoA
-        const scoreB = b.count * 3 - dayAgoB
-        return scoreB - scoreA
-      })
-      .slice(0, RECENTS_MAX)
-  }, [favorites])
+  const recents = useMemo(
+    () => favorites.slice(-RECENTS_MAX),
+    [favorites],
+  )
 
   const showRecents = !projectDetail && !boardDetail && recents.length > 0
 
@@ -553,34 +666,58 @@ export function StreamDeckPage() {
             </button>
           </div>
           <div className="stream-deck-recents-row">
-            {recents.map((f) => (
-              <div key={`r-${f.id}`} className="stream-deck-recent-wrap">
-                <button
-                  className={`stream-deck-tile stream-deck-tint-${f.tint}`}
-                  onClick={() => void relay({ type: 'navigate', path: f.path }, `recent ${f.label}`)
-                    .then(() => recordFavorite({
-                      id: f.id, label: f.label, subtitle: f.subtitle,
-                      tint: f.tint, iconName: f.iconName, path: f.path,
-                    }))}
-                  disabled={!selected || busyAction !== null}
-                  title={f.subtitle || f.label}
+            {recents.map((f) => {
+              const isDragging = draggingId === f.id
+              const isOver = dragOverId === f.id && draggingId !== f.id
+              return (
+                <div
+                  key={`r-${f.id}`}
+                  className={`stream-deck-recent-wrap ${isDragging ? 'is-dragging' : ''} ${isOver ? 'is-drop-target' : ''}`}
+                  data-recent-id={f.id}
+                  draggable
+                  onDragStart={(e) => handleRecentDragStart(e, f.id)}
+                  onDragOver={(e) => handleRecentDragOver(e, f.id)}
+                  onDragLeave={() => { if (dragOverId === f.id) setDragOverId(null) }}
+                  onDrop={(e) => handleRecentDrop(e, f.id)}
+                  onDragEnd={handleRecentDragEnd}
+                  onPointerDown={(e) => handleRecentPointerDown(e, f.id)}
+                  onPointerMove={handleRecentPointerMove}
+                  onPointerUp={handleRecentPointerUp}
+                  onPointerCancel={handleRecentPointerUp}
                 >
-                  <span className="stream-deck-tile-icon">{iconFromName(f.iconName)}</span>
-                  <span className="stream-deck-tile-label">{f.label}</span>
-                  {f.subtitle && (
-                    <span className="stream-deck-tile-subtitle">{f.subtitle}</span>
-                  )}
-                </button>
-                <button
-                  className="stream-deck-recent-remove"
-                  onClick={() => removeFavorite(f.id)}
-                  title={`Remove ${f.label} from recents`}
-                  aria-label="Remove from recents"
-                >
-                  <X size={10} />
-                </button>
-              </div>
-            ))}
+                  <span className="stream-deck-recent-grip" title="Drag to reorder" aria-hidden="true">
+                    <GripVertical size={10} />
+                  </span>
+                  <button
+                    className={`stream-deck-tile stream-deck-tint-${f.tint}`}
+                    onClick={() => {
+                      if (touchDragRef.current?.wasDragging) return
+                      void relay({ type: 'navigate', path: f.path }, `recent ${f.label}`)
+                        .then(() => recordFavorite({
+                          id: f.id, label: f.label, subtitle: f.subtitle,
+                          tint: f.tint, iconName: f.iconName, path: f.path,
+                        }))
+                    }}
+                    disabled={!selected || busyAction !== null}
+                    title={f.subtitle || f.label}
+                  >
+                    <span className="stream-deck-tile-icon">{iconFromName(f.iconName)}</span>
+                    <span className="stream-deck-tile-label">{f.label}</span>
+                    {f.subtitle && (
+                      <span className="stream-deck-tile-subtitle">{f.subtitle}</span>
+                    )}
+                  </button>
+                  <button
+                    className="stream-deck-recent-remove"
+                    onClick={() => removeFavorite(f.id)}
+                    title={`Remove ${f.label} from recents`}
+                    aria-label="Remove from recents"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         </section>
       )}
