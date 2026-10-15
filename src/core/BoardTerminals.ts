@@ -8,7 +8,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 import { getGlobalStateManager } from './GlobalStateManager'
 import { BoardManager } from './BoardManager'
 import type { BoardPromptTemplate } from './GlobalStateManager'
-import type { BoardTask } from '../models/Board'
+import type { BoardTask, BoardThread } from '../models/Board'
+import { findLatestSessionFromIndex } from '../utils/claude-history'
 
 /**
  * Standalone spawner for Board master / task tmux+ttyd+claude terminals.
@@ -219,8 +220,10 @@ export async function startBoardMaster(
   // 4. Boot claude with a pre-generated session id + master prompt (only
   //    on the first creation — otherwise we'd interrupt an in-flight
   //    Claude session).
-  const claudeSessionId = uuidv4()
+  const mgr = new BoardManager(opts.projectPath)
+  let claudeSessionId: string
   if (created) {
+    claudeSessionId = uuidv4()
     const rendered = renderTemplate(opts.masterTemplate.body, {
       boardId: opts.boardId,
       boardName: opts.boardName,
@@ -234,8 +237,15 @@ export async function startBoardMaster(
     await TmuxCommands.sendKeys(paneId, command)
     await TmuxCommands.sendEnter(paneId)
     await sleep(1500)
+    try {
+      await mgr.updateBoard(opts.boardId, { masterClaudeSessionId: claudeSessionId })
+    } catch (err) {
+      logger.warn(`Could not persist master claudeSessionId for ${opts.boardId}: ${(err as Error).message}`)
+    }
     logger.info(`Board master started for ${opts.boardId} on tmux ${tmuxSessionId}, ttyd :${port}`)
   } else {
+    const cfg = await mgr.getBoard(opts.boardId)
+    claudeSessionId = cfg?.masterClaudeSessionId ?? ''
     logger.info(`Board master reattached for ${opts.boardId} on tmux ${tmuxSessionId}, ttyd :${port}`)
   }
 
@@ -738,6 +748,178 @@ export async function setBoardTaskLayout(
   }
   await TmuxCommands.selectLayout(tmuxSessionId, layout)
   logger.info(`Board task ${taskKey} layout set to "${layout}"`)
+}
+
+/**
+ * Fork a Claude thread off the board master's main pane. Creates a new
+ * tmux pane in the master's tmux session, runs
+ * `claude --resume <masterClaudeSessionId> --fork-session`, records
+ * the thread in BoardConfig.masterThreads, and returns it.
+ *
+ * `parentId='main'` forks off the master itself; passing another
+ * thread id forks off that thread's conversation.
+ */
+export async function createBoardMasterThread(
+  projectPath: string,
+  boardId: string,
+  opts: { name?: string; parentId?: string; vertical?: boolean } = {},
+): Promise<BoardThread> {
+  const tmuxSessionId = masterTmuxName(boardId)
+  try {
+    await execa('tmux', ['has-session', '-t', tmuxSessionId])
+  } catch {
+    throw new Error(`Board master for ${boardId} is not running`)
+  }
+
+  const mgr = new BoardManager(projectPath)
+  const cfg = await mgr.getBoard(boardId)
+  if (!cfg) throw new Error(`Board not found: ${boardId}`)
+
+  const parentId = opts.parentId || 'main'
+  const existingThreads = cfg.masterThreads || []
+  let parentClaudeSessionId: string
+  if (parentId === 'main') {
+    let masterId = cfg.masterClaudeSessionId
+    if (!masterId) {
+      const latest = await findLatestSessionFromIndex(projectPath)
+      if (!latest) {
+        throw new Error(
+          `Master claudeSessionId missing for ${boardId} and no Claude session found under ${projectPath}. Restart the master terminal.`,
+        )
+      }
+      masterId = latest.sessionId
+      try {
+        await mgr.updateBoard(boardId, { masterClaudeSessionId: masterId })
+      } catch { /* best-effort cache */ }
+    }
+    parentClaudeSessionId = masterId
+  } else {
+    const parentThread = existingThreads.find((t) => t.id === parentId)
+    if (!parentThread) throw new Error(`Parent thread ${parentId} not found`)
+    parentClaudeSessionId = parentThread.claudeSessionId
+  }
+
+  const threadId = uuidv4()
+  const threadClaudeSessionId = uuidv4()
+  const threadName = opts.name || `Thread-${existingThreads.length + 1}`
+  const vertical = opts.vertical ?? false
+  const paneId = await spawnThreadPane(
+    tmuxSessionId,
+    projectPath,
+    parentClaudeSessionId,
+    threadClaudeSessionId,
+    threadName,
+    vertical,
+  )
+
+  const thread: BoardThread = {
+    id: threadId,
+    name: threadName,
+    parentId,
+    claudeSessionId: threadClaudeSessionId,
+    tmuxPaneId: paneId,
+    createdAt: new Date().toISOString(),
+  }
+  await mgr.updateBoard(boardId, {
+    masterThreads: [...existingThreads, thread],
+  })
+  logger.info(`Board master thread ${threadName} created for ${boardId} (pane=${paneId})`)
+  return thread
+}
+
+/**
+ * Fork a Claude thread off a board task's main pane. Shape mirrors
+ * `createBoardMasterThread` so the UI treats both uniformly.
+ */
+export async function createBoardTaskThread(
+  projectPath: string,
+  boardId: string,
+  taskKey: string,
+  opts: { name?: string; parentId?: string; vertical?: boolean } = {},
+): Promise<BoardThread> {
+  const tmuxSessionId = taskTmuxName(taskKey)
+  try {
+    await execa('tmux', ['has-session', '-t', tmuxSessionId])
+  } catch {
+    throw new Error(`Task terminal for ${taskKey} is not running — start it first`)
+  }
+
+  const mgr = new BoardManager(projectPath)
+  const task = await mgr.getTask(boardId, taskKey)
+  if (!task) throw new Error(`Task ${taskKey} not found on board ${boardId}`)
+
+  const cwd = task.worktreePath || projectPath
+  const parentId = opts.parentId || 'main'
+  const existingThreads = task.threads || []
+  let parentClaudeSessionId: string
+  if (parentId === 'main') {
+    let taskId = task.claudeSessionId
+    if (!taskId) {
+      const latest = await findLatestSessionFromIndex(cwd)
+      if (!latest) {
+        throw new Error(
+          `Task claudeSessionId missing for ${taskKey} and no Claude session found under ${cwd}. Start / resume the task terminal first.`,
+        )
+      }
+      taskId = latest.sessionId
+      try {
+        await mgr.updateTask(boardId, taskKey, { claudeSessionId: taskId })
+      } catch { /* best-effort cache */ }
+    }
+    parentClaudeSessionId = taskId
+  } else {
+    const parentThread = existingThreads.find((t) => t.id === parentId)
+    if (!parentThread) throw new Error(`Parent thread ${parentId} not found`)
+    parentClaudeSessionId = parentThread.claudeSessionId
+  }
+  const threadId = uuidv4()
+  const threadClaudeSessionId = uuidv4()
+  const threadName = opts.name || `Thread-${existingThreads.length + 1}`
+  const vertical = opts.vertical ?? false
+  const paneId = await spawnThreadPane(
+    tmuxSessionId,
+    cwd,
+    parentClaudeSessionId,
+    threadClaudeSessionId,
+    threadName,
+    vertical,
+  )
+
+  const thread: BoardThread = {
+    id: threadId,
+    name: threadName,
+    parentId,
+    claudeSessionId: threadClaudeSessionId,
+    tmuxPaneId: paneId,
+    createdAt: new Date().toISOString(),
+  }
+  await mgr.updateTask(boardId, taskKey, {
+    threads: [...existingThreads, thread],
+  })
+  logger.info(`Board task thread ${threadName} created for ${taskKey} (pane=${paneId})`)
+  return thread
+}
+
+async function spawnThreadPane(
+  tmuxSessionId: string,
+  cwd: string,
+  parentClaudeSessionId: string,
+  threadClaudeSessionId: string,
+  threadName: string,
+  vertical: boolean,
+): Promise<string> {
+  const paneId = await TmuxCommands.splitPaneWithCwd(tmuxSessionId, cwd, vertical)
+  try {
+    await TmuxCommands.setPaneLabel(paneId, threadName)
+  } catch {
+    // Cosmetic. Label failure never blocks the fork.
+  }
+  const prompt = `This is a thread called "${escapeQuotes(threadName)}". Keep in mind we are exploring an alternative to the main conversation.`
+  const command = `claude --resume ${parentClaudeSessionId} --fork-session --session-id ${threadClaudeSessionId} "${prompt}"`
+  await TmuxCommands.sendKeys(paneId, command)
+  await TmuxCommands.sendEnter(paneId)
+  await sleep(1500)
+  return paneId
 }
 
 /**

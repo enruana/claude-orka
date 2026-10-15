@@ -18,7 +18,15 @@ For the full v2 model, see `/kb-guide`.
 orka kb context
 ```
 
-3. **Create the source entity FIRST** — every entity you extract will link back to it via `sourced-from`:
+3. **Preserve the full source in the vault BEFORE creating anything.**
+   When the user pasted a transcript, report, meeting recap, RFC or spec inline (i.e. the source is not already a committed file), write the ENTIRE content verbatim to a canonical path in the vault first. Do not summarize, condense, translate, drop sections, or reformat the body — extracted entities are a lens over the source, not a replacement for it, and the file is what future re-reads (and the KB detail panel's Quick Access folder link) will surface.
+   - Meetings → `01-journal/<yyyy>/<mm-month>/<yyyy-mm-dd>_<slug>/notes.md`. If the user's paste already includes markdown headings (`## Summary`, `## Attendees`, `## Decisions Made`, …), keep them exactly. Any commentary of your own goes at the end under `## Follow-up`.
+   - Specs / PRDs → `03-projects/<slug>/<name>.md` (or wherever the project's convention lives).
+   - Other long-form → mirror the pattern above; when in doubt, ask the user for the path.
+   Use the `Write` tool for a full-file replacement. Skip this step ONLY when the source already lives on disk and the user is pointing you at it — in that case use its existing path as `notes_path`.
+   The path you just wrote is what you'll pass as `notes_path` (or `notes` / `path` / `master_doc`) in step 4.
+
+4. **Create the source entity FIRST** — every entity you extract will link back to it via `sourced-from`:
 
 ```bash
 # For a meeting transcript:
@@ -40,7 +48,7 @@ orka kb add artifact "PRD #2 - Chat & RAG Integration" \
   --tag prd
 ```
 
-4. Extract and create entities for each pattern in the doc. Always include `description` and link to the source via `sourced-from`:
+5. Extract and create entities for each pattern in the doc. Always include `description` and link to the source via `sourced-from`:
 
    **Decisions** ("we decided...", "going with..."):
    ```bash
@@ -108,19 +116,19 @@ orka kb add artifact "PRD #2 - Chat & RAG Integration" \
      --link sourced-from:<meeting-id>
    ```
 
-5. **Always add `sourced-from` to the source you created in step 3.** This is the chain that lets `/kb-project-context` find related docs later.
+6. **Always add `sourced-from` to the source you created in step 4.** This is the chain that lets `/kb-project-context` find related docs later.
 
-6. **Regenerate the project INDEX.md** for any project that was touched:
+7. **Regenerate the project INDEX.md** for any project that was touched:
 ```bash
 orka kb project-doc <project-id>
 ```
 
-7. **Run lint** at the end to verify everything is clean:
+8. **Run lint** at the end to verify everything is clean:
 ```bash
 orka kb lint
 ```
 
-8. Show the user a summary: which source was ingested, which entities were created, and which projects had their INDEX.md regenerated.
+9. Show the user a summary: which source was ingested (path + first ~15 lines so they can confirm the full body is intact), which entities were created, and which projects had their INDEX.md regenerated.
 
 ## Validation rules
 

@@ -148,6 +148,12 @@ export interface BoardTask {
   lastToolAt?: string
   lastStopAt?: string
 
+  /** Conversation threads forked off the task's main Claude session.
+   *  Each thread is a separate tmux pane in the same tmux session,
+   *  running `claude --resume <parent> --fork-session`. Mirrors
+   *  `Session.forks` for classic sessions. */
+  threads?: BoardThread[]
+
   /** ISO timestamp of first local creation. */
   createdAt: string
 
@@ -200,6 +206,40 @@ export interface BoardConfig {
 
   /** Schema version this board file was written under. */
   schemaVersion: string
+
+  /** Claude session id that the master pane is running. Captured on
+   *  first boot of the master and reused on reattach, so forking the
+   *  master knows which parent conversation to `--resume`. */
+  masterClaudeSessionId?: string
+
+  /** Conversation threads forked off the master. Same shape as
+   *  `BoardTask.threads` so the UI can treat them uniformly. */
+  masterThreads?: BoardThread[]
+}
+
+/**
+ * A conversation thread forked off a board master or board task.
+ *
+ * Lives as an extra tmux pane in the same tmux session as its parent,
+ * running `claude --resume <parentClaudeSessionId> --fork-session
+ * --session-id <claudeSessionId>`. The pane and the Claude session
+ * are persisted so a reattach can locate the thread.
+ */
+export interface BoardThread {
+  /** Local thread id (uuid). Used as React key and target for close. */
+  id: string
+  /** Human-readable name shown in the pane border and the UI. */
+  name: string
+  /** Parent thread id, or 'main' when forked directly off the master
+   *  pane / task main pane. */
+  parentId: string
+  /** Claude session id this thread's pane is running (pre-generated
+   *  with `--session-id`, so no history-polling needed). */
+  claudeSessionId: string
+  /** tmux pane id, e.g. `%12`. Changes if tmux restarts the session. */
+  tmuxPaneId: string
+  /** ISO creation timestamp. */
+  createdAt: string
 }
 
 /**

@@ -109,138 +109,149 @@ function buildVoiceOverlay(opts: { projectB64: string; filePath: string }): stri
     .replace(/=+$/, '')
   const projectJs = escapeForJsString(projectSafe)
   const filePathJs = escapeForJsString(opts.filePath)
+  // Shadow-DOM isolated. Host CSS can't reach anything inside the shadow
+  // root — short class names ('.shell', '.btn', '.title') are safe. The
+  // host <div> wrapper carries inline !important resets in case the
+  // host targets `#__orka-ov-voice-host` directly.
   return `
-<style id="orka-voice-style">
-  .orka-voice-shell {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    width: min(400px, 92vw);
-    height: min(560px, calc(100vh - 32px));
-    border-radius: 20px;
-    background: rgba(17, 17, 27, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.25);
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
-    z-index: 2147483645;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    color: #ecf0fe;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    transition: width 0.18s ease, height 0.18s ease, border-radius 0.18s ease;
-  }
-  .orka-voice-shell.minimized {
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    padding: 0;
-    cursor: pointer;
-  }
-  .orka-voice-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    cursor: grab;
-    user-select: none;
-    touch-action: none;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.75);
-    flex-shrink: 0;
-  }
-  .orka-voice-header:active { cursor: grabbing; }
-  .orka-voice-shell.minimized .orka-voice-header { display: none; }
-  .orka-voice-grip {
-    opacity: 0.4;
-    flex-shrink: 0;
-    width: 16px; height: 16px;
-  }
-  .orka-voice-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .orka-voice-actions { display: flex; gap: 2px; }
-  .orka-voice-btn {
-    width: 26px; height: 26px;
-    border-radius: 6px; border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.55);
-    cursor: pointer;
-    display: inline-flex; align-items: center; justify-content: center;
-    transition: background 0.15s, color 0.15s;
-    font: inherit;
-  }
-  .orka-voice-btn:hover { background: rgba(255, 255, 255, 0.1); color: #ecf0fe; }
-  .orka-voice-btn svg { width: 14px; height: 14px; stroke-width: 2; }
-  .orka-voice-iframe {
-    flex: 1;
-    width: 100%;
-    border: 0;
-    background: transparent;
-    min-height: 0;
-  }
-  .orka-voice-shell.minimized .orka-voice-iframe {
-    /* Iframe stays mounted so the mic session survives minimize.
-       We tuck it off-screen while keeping it in the layout so its
-       AudioContext + WS don't hit an unmount path. */
-    position: absolute;
-    left: -99999px;
-    width: 400px; height: 560px;
-  }
-  .orka-voice-bubble {
-    /* The minimized pill shows a mic glyph as an affordance. It
-       overlays the tucked iframe. */
-    display: none;
-    width: 100%; height: 100%;
-    align-items: center; justify-content: center;
-    color: #cdd6f4;
-    pointer-events: none;
-  }
-  .orka-voice-shell.minimized .orka-voice-bubble {
-    display: flex;
-  }
-  .orka-voice-bubble svg { width: 24px; height: 24px; stroke-width: 2; }
-</style>
-<div id="orka-voice-shell" class="orka-voice-shell" role="dialog" aria-label="Voice Agent">
-  <div class="orka-voice-header" id="orka-voice-header">
-    <svg class="orka-voice-grip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
-    <span class="orka-voice-title">Voice Agent</span>
-    <div class="orka-voice-actions">
-      <button class="orka-voice-btn" id="orka-voice-min" title="Minimize" aria-label="Minimize voice agent">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      </button>
-      <button class="orka-voice-btn" id="orka-voice-close" title="Close" aria-label="Close voice agent">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </div>
-  </div>
-  <iframe id="orka-voice-iframe" class="orka-voice-iframe" title="Voice Agent" allow="microphone; clipboard-read; clipboard-write"></iframe>
-  <div class="orka-voice-bubble">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
-  </div>
-</div>
-<script id="orka-voice-controller">
+<div id="__orka-ov-voice-host" style="all: initial !important; display: block !important;"></div>
+<script id="__orka-ov-voice-boot">
 (function() {
   var PROJECT_B64 = '${projectJs}';
   var FILE_PATH = '${filePathJs}';
-
-  var shell = document.getElementById('orka-voice-shell');
-  var header = document.getElementById('orka-voice-header');
-  var iframe = document.getElementById('orka-voice-iframe');
-  var minBtn = document.getElementById('orka-voice-min');
-  var closeBtn = document.getElementById('orka-voice-close');
+  var host = document.getElementById('__orka-ov-voice-host');
+  if (!host || host.shadowRoot) return;
+  var shadow = host.attachShadow({ mode: 'open' });
+  var CSS = [
+    ':host { all: initial !important; display: block !important; }',
+    ':host *, :host *::before, :host *::after { box-sizing: border-box; }',
+    '.shell {',
+    '  position: fixed; top: 16px; right: 16px;',
+    '  width: min(400px, 92vw);',
+    '  height: min(560px, calc(100vh - 32px));',
+    '  border-radius: 20px;',
+    '  background: rgba(17, 17, 27, 0.72);',
+    '  border: 1px solid rgba(255, 255, 255, 0.08);',
+    '  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.25);',
+    '  backdrop-filter: blur(20px) saturate(140%);',
+    '  -webkit-backdrop-filter: blur(20px) saturate(140%);',
+    '  z-index: 2147483645;',
+    '  display: flex; flex-direction: column; overflow: hidden;',
+    '  color: #ecf0fe;',
+    '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
+    '  font-size: 14px; line-height: 1.4;',
+    '  pointer-events: auto;',
+    '  transition: width 0.18s ease, height 0.18s ease, border-radius 0.18s ease;',
+    '}',
+    '.shell.minimized {',
+    '  width: 52px; height: 52px; border-radius: 50%; padding: 0; cursor: pointer;',
+    '}',
+    '.header {',
+    '  display: flex; align-items: center; gap: 8px;',
+    '  padding: 8px 12px;',
+    '  border-bottom: 1px solid rgba(255, 255, 255, 0.06);',
+    '  cursor: grab; user-select: none; touch-action: none;',
+    '  font-size: 12px; font-weight: 600; letter-spacing: 0.4px;',
+    '  text-transform: uppercase;',
+    '  color: rgba(255, 255, 255, 0.75);',
+    '  flex-shrink: 0;',
+    '}',
+    '.header:active { cursor: grabbing; }',
+    '.shell.minimized .header { display: none; }',
+    '.grip {',
+    '  display: block; flex-shrink: 0;',
+    '  opacity: 0.4; width: 16px; height: 16px;',
+    '  stroke: currentColor; fill: none; stroke-width: 2;',
+    '}',
+    '.title {',
+    '  flex: 1; margin: 0;',
+    '  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;',
+    '}',
+    '.actions { display: flex; gap: 2px; }',
+    '.btn {',
+    '  margin: 0; padding: 0;',
+    '  width: 26px; height: 26px;',
+    '  border-radius: 6px; border: 0; outline: none;',
+    '  background: transparent;',
+    '  color: rgba(255, 255, 255, 0.55);',
+    '  cursor: pointer;',
+    '  display: inline-flex; align-items: center; justify-content: center;',
+    '  transition: background 0.15s, color 0.15s;',
+    '  font: inherit;',
+    '  appearance: none; -webkit-appearance: none;',
+    '}',
+    '.btn:hover { background: rgba(255, 255, 255, 0.1); color: #ecf0fe; }',
+    '.btn:focus-visible { background: rgba(255, 255, 255, 0.14); color: #ecf0fe; }',
+    '.btn svg {',
+    '  display: block;',
+    '  width: 14px; height: 14px;',
+    '  stroke: currentColor; fill: none; stroke-width: 2;',
+    '  pointer-events: none;',
+    '}',
+    '.iframe {',
+    '  flex: 1; width: 100%; border: 0;',
+    '  background: transparent; min-height: 0; display: block;',
+    '}',
+    '.shell.minimized .iframe {',
+    '  position: absolute; left: -99999px;',
+    '  width: 400px; height: 560px;',
+    '}',
+    '.bubble {',
+    '  display: none;',
+    '  width: 100%; height: 100%;',
+    '  align-items: center; justify-content: center;',
+    '  color: #cdd6f4;',
+    '  pointer-events: none;',
+    '}',
+    '.shell.minimized .bubble { display: flex; }',
+    '.bubble svg {',
+    '  display: block;',
+    '  width: 24px; height: 24px;',
+    '  stroke: currentColor; fill: none; stroke-width: 2;',
+    '}',
+  ].join(' ');
+  var HTML = [
+    '<style>', CSS, '</style>',
+    '<div id="shell" class="shell" role="dialog" aria-label="Voice Agent">',
+      '<div id="header" class="header">',
+        '<svg class="grip" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">',
+          '<line x1="3" y1="9" x2="21" y2="9"/>',
+          '<line x1="3" y1="15" x2="21" y2="15"/>',
+        '</svg>',
+        '<span class="title">Voice Agent</span>',
+        '<div class="actions">',
+          '<button id="min" class="btn" type="button" title="Minimize" aria-label="Minimize voice agent">',
+            '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">',
+              '<line x1="5" y1="12" x2="19" y2="12"/>',
+            '</svg>',
+          '</button>',
+          '<button id="close" class="btn" type="button" title="Close" aria-label="Close voice agent">',
+            '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">',
+              '<line x1="18" y1="6" x2="6" y2="18"/>',
+              '<line x1="6" y1="6" x2="18" y2="18"/>',
+            '</svg>',
+          '</button>',
+        '</div>',
+      '</div>',
+      '<iframe id="iframe" class="iframe" title="Voice Agent" allow="microphone; clipboard-read; clipboard-write"></iframe>',
+      '<div class="bubble">',
+        '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">',
+          '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>',
+          '<path d="M19 10v2a7 7 0 0 1-14 0v-2"/>',
+          '<line x1="12" y1="19" x2="12" y2="22"/>',
+        '</svg>',
+      '</div>',
+    '</div>',
+  ].join('');
+  shadow.innerHTML = HTML;
+  var shell = shadow.getElementById('shell');
+  var header = shadow.getElementById('header');
+  var iframe = shadow.getElementById('iframe');
+  var minBtn = shadow.getElementById('min');
+  var closeBtn = shadow.getElementById('close');
   if (!shell || !header || !iframe || !minBtn || !closeBtn) return;
-
-  // Iframe URL — the SPA route with embedded=1 chrome + this file
-  // pre-attached. Same-origin so the mic permission granted for the
-  // parent frame carries over.
   iframe.src = '/voice-agent?embedded=1&project=' + encodeURIComponent(PROJECT_B64)
              + '&path=' + encodeURIComponent(FILE_PATH);
-
-  // ---- Minimize / restore ----
   function setMinimized(v) {
     if (v) shell.classList.add('minimized');
     else shell.classList.remove('minimized');
@@ -251,27 +262,20 @@ function buildVoiceOverlay(opts: { projectB64: string; filePath: string }): stri
     e.stopPropagation();
     setMinimized(!shell.classList.contains('minimized'));
   });
-  // Clicking the pill body (when minimized) also restores.
   shell.addEventListener('click', function(e) {
     if (!shell.classList.contains('minimized')) return;
-    if (e.target === minBtn || e.target === closeBtn) return;
+    var path = (e.composedPath && e.composedPath()) || [];
+    if (path.indexOf(minBtn) >= 0 || path.indexOf(closeBtn) >= 0) return;
     setMinimized(false);
   });
-
-  // ---- Close ----
   closeBtn.addEventListener('click', function(e) {
     e.stopPropagation();
-    // Kill the iframe first so the WS + mic close cleanly, then
-    // remove the shell from the DOM. The parent page keeps its
-    // scroll position and doc state untouched.
     try { iframe.src = 'about:blank'; } catch (_) {}
-    shell.remove();
+    host.remove();
   });
-
-  // ---- Drag ----
   var drag = null;
   header.addEventListener('pointerdown', function(e) {
-    if (e.target.closest('button')) return; // let button clicks through
+    if (e.target && e.target.closest && e.target.closest('button')) return;
     var rect = shell.getBoundingClientRect();
     drag = {
       pointerId: e.pointerId,
@@ -293,7 +297,6 @@ function buildVoiceOverlay(opts: { projectB64: string; filePath: string }): stri
     var m = 8;
     var x = Math.min(Math.max(m, drag.startLeft + dx), vw - drag.shellW - m);
     var y = Math.min(Math.max(m, drag.startTop + dy), vh - drag.shellH - m);
-    // Absolute positioning via left/top; clear the default right/bottom.
     shell.style.left = x + 'px';
     shell.style.top  = y + 'px';
     shell.style.right = 'auto';
@@ -314,189 +317,8 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   const filePathJs = escapeForJsString(opts.filePath)
   const filePathQs = escapeForJsString(encodeURIComponent(opts.filePath))
   return `
-<style id="orka-comments-style">
-  /* ---- Rail as a FIXED overlay — the document's own layout is left
-          completely untouched. The rail lives on the right edge; by
-          default it's translated off-screen with just a small handle
-          poking in. Click the handle (or a highlighted phrase in the
-          doc) to open it. ---- */
-  #orka-review-rail {
-    position: fixed;
-    top: 0; right: 0; bottom: 0;
-    width: 380px;
-    max-width: 90vw;
-    background: linear-gradient(180deg, rgba(17, 18, 42, 0.96), rgba(10, 11, 31, 0.96));
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
-    display: flex;
-    flex-direction: column;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    color: #cdd6f4;
-    z-index: 2147483645;
-    transform: translateX(100%);
-    transition: transform 0.22s ease-out;
-    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35);
-  }
-  body.orka-rail-open #orka-review-rail { transform: translateX(0); }
-
-  .orka-rail-header {
-    padding: 16px 18px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    background: rgba(255, 255, 255, 0.02);
-    display: flex; flex-direction: column; gap: 12px;
-    position: sticky; top: 0; z-index: 5;
-  }
-  .orka-rail-title {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 13px; font-weight: 600;
-    letter-spacing: 0.2px;
-    color: #ecf0fe;
-  }
-  .orka-rail-count {
-    background: rgba(255, 255, 255, 0.08);
-    color: #a6adc8;
-    padding: 2px 9px; border-radius: 999px;
-    font-family: ui-monospace, monospace; font-size: 11px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-  }
-  .orka-rail-apply {
-    flex: 1;
-    padding: 9px 14px;
-    border-radius: 10px;
-    border: 1px solid rgba(250, 179, 135, 0.35);
-    background: linear-gradient(180deg, rgba(250, 179, 135, 0.22), rgba(250, 179, 135, 0.12));
-    color: #fab387;
-    font-weight: 600;
-    font-size: 12px;
-    cursor: pointer;
-    font-family: inherit;
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .orka-rail-apply:hover { background: rgba(250, 179, 135, 0.3); border-color: rgba(250, 179, 135, 0.55); }
-  .orka-rail-apply:disabled { opacity: 0.4; cursor: not-allowed; }
-  .orka-rail-clear {
-    background: rgba(243, 139, 168, 0.16);
-    color: #f38ba8;
-    border: 1px solid rgba(243, 139, 168, 0.35);
-    border-radius: 999px;
-    padding: 6px 12px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .orka-rail-clear:hover { background: rgba(243, 139, 168, 0.28); border-color: rgba(243, 139, 168, 0.55); }
-  .orka-rail-clear:disabled { opacity: 0.35; cursor: not-allowed; }
-  .orka-rail-apply.flash-ok {
-    background: rgba(166, 227, 161, 0.25);
-    border-color: rgba(166, 227, 161, 0.55);
-    color: #a6e3a1;
-  }
-  .orka-rail-actions { display: flex; gap: 8px; align-items: center; }
-  .orka-rail-toggle {
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
-    color: #cdd6f4;
-    border-radius: 10px;
-    padding: 9px 11px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-  .orka-rail-toggle:hover { background: rgba(255, 255, 255, 0.1); }
-
-  .orka-rail-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 14px;
-    display: flex; flex-direction: column; gap: 10px;
-  }
-
-  .orka-rail-empty {
-    text-align: center;
-    color: #6c7086;
-    font-style: italic;
-    font-size: 13px;
-    padding: 48px 20px;
-    line-height: 1.6;
-  }
-
-  /* ---- Comment card ---- */
-  .orka-comment-card {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 12px 14px;
-    animation: orka-card-in 0.22s ease-out;
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, transform 0.15s;
-  }
-  .orka-comment-card:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(250, 179, 135, 0.4);
-  }
-  .orka-comment-card.active {
-    border-color: rgba(250, 179, 135, 0.7);
-    background: rgba(250, 179, 135, 0.08);
-    box-shadow: 0 0 0 2px rgba(250, 179, 135, 0.18);
-  }
-  .orka-comment-card.resolved { opacity: 0.5; border-style: dashed; }
-  .orka-card-snippet {
-    background: rgba(250, 179, 135, 0.08);
-    border-left: 3px solid rgba(250, 179, 135, 0.6);
-    padding: 8px 10px;
-    font-size: 12px;
-    color: #a6adc8;
-    font-family: ui-monospace, monospace;
-    border-radius: 6px;
-    max-height: 70px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: pre-wrap;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    margin-bottom: 8px;
-  }
-  .orka-card-body {
-    font-size: 13px;
-    color: #ecf0fe;
-    line-height: 1.55;
-    white-space: pre-wrap;
-    margin-bottom: 6px;
-  }
-  .orka-card-meta {
-    display: flex; justify-content: space-between; align-items: center;
-    font-size: 11px;
-    color: #6c7086;
-    padding-top: 8px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.06);
-  }
-  .orka-card-actions { display: flex; gap: 4px; }
-  .orka-card-btn {
-    background: transparent; border: 0;
-    color: #a6adc8;
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-family: inherit;
-    transition: color 0.12s, background 0.12s;
-  }
-  .orka-card-btn:hover { background: rgba(255, 255, 255, 0.08); color: #ecf0fe; }
-  .orka-card-btn.danger:hover { background: rgba(243, 139, 168, 0.14); color: #f38ba8; }
-
-  @keyframes orka-card-in {
-    from { opacity: 0; transform: translateX(20px); }
-    to { opacity: 1; transform: translateX(0); }
-  }
-
-  /* ---- Highlighted phrase in the doc ----
+<style id="__orka-highlight-style">
+/* ---- Highlighted phrase in the doc ----
      Kept minimal on purpose: just a soft yellow background so it works
      over any host document. !important because many host docs set their
      own 'mark' styles that would otherwise win. box-decoration-break
@@ -504,8 +326,8 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
      several lines within the same block. Marks NEVER contain block
      elements — the JS splits big selections into one <mark> per text
      node, so this style always paints only inline text. */
-  mark.orka-comment-mark,
-  .orka-comment-mark {
+  mark.__orka-highlight-mark,
+  .__orka-highlight-mark {
     background: rgba(250, 179, 135, 0.28) !important;
     color: inherit !important;
     padding: 0 2px !important;
@@ -515,470 +337,26 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     -webkit-box-decoration-break: clone;
     transition: background 0.15s;
   }
-  mark.orka-comment-mark:hover,
-  .orka-comment-mark:hover {
+  mark.__orka-highlight-mark:hover,
+  .__orka-highlight-mark:hover {
     background: rgba(250, 179, 135, 0.45) !important;
   }
-  mark.orka-comment-mark.active,
-  .orka-comment-mark.active {
+  mark.__orka-highlight-mark.active,
+  .__orka-highlight-mark.active {
     background: rgba(250, 179, 135, 0.55) !important;
     outline: 1px solid rgba(250, 179, 135, 0.85) !important;
     outline-offset: 0;
   }
-
-  /* ---- Floating selection toolbar (Comment + Ask) ---- */
-  .orka-selection-toolbar {
-    position: absolute;
-    z-index: 2147483646;
-    display: none;
-    gap: 2px;
-    padding: 4px;
-    border-radius: 999px;
-    background: rgba(17, 18, 42, 0.94);
-    backdrop-filter: blur(16px) saturate(140%);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    user-select: none;
-    animation: orka-tool-in 0.14s ease-out;
-  }
-  @keyframes orka-tool-in {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .orka-selection-toolbar-btn {
-    padding: 7px 13px;
-    border-radius: 999px;
-    border: 0;
-    color: #cdd6f4;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    line-height: 1;
-    background: transparent;
-    display: inline-flex; align-items: center; gap: 6px;
-    transition: background 0.12s, color 0.12s;
-    font-family: inherit;
-  }
-  .orka-selection-toolbar-btn svg { flex-shrink: 0; }
-  .orka-selection-toolbar-btn.comment:hover {
-    background: rgba(250, 179, 135, 0.18);
-    color: #fab387;
-  }
-  .orka-selection-toolbar-btn.ask:hover {
-    background: rgba(137, 180, 250, 0.18);
-    color: #89b4fa;
-  }
-  .orka-selection-toolbar-divider {
-    width: 1px;
-    background: rgba(255, 255, 255, 0.08);
-    margin: 4px 0;
-  }
-
-  /* ---- Ask input (mini prompt anchored to selection) ---- */
-  .orka-ask-inline {
-    position: absolute;
-    z-index: 2147483646;
-    display: none;
-    gap: 8px;
-    padding: 10px;
-    border-radius: 14px;
-    background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98));
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
-    color: #ecf0fe;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    align-items: flex-start;
-    width: min(400px, 92vw);
-    box-sizing: border-box;
-    animation: orka-modal-rise 0.16s ease-out;
-  }
-  .orka-ask-inline textarea {
-    flex: 1;
-    min-height: 44px; max-height: 140px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
-    padding: 10px 12px;
-    font: inherit;
-    font-size: 13px;
-    resize: none;
-    outline: none;
-    color: #ecf0fe;
-    background: rgba(255, 255, 255, 0.04);
-    box-sizing: border-box;
-    transition: border-color 0.15s, background 0.15s;
-  }
-  .orka-ask-inline textarea::placeholder { color: #6c7086; }
-  .orka-ask-inline textarea:focus {
-    border-color: rgba(137, 180, 250, 0.55);
-    background: rgba(255, 255, 255, 0.06);
-    box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.18);
-  }
-  .orka-ask-inline button {
-    padding: 8px 14px;
-    border-radius: 10px;
-    border: 1px solid rgba(137, 180, 250, 0.45);
-    background: linear-gradient(180deg, rgba(137, 180, 250, 0.28), rgba(137, 180, 250, 0.16));
-    color: #89b4fa;
-    font: inherit; font-size: 13px; font-weight: 600;
-    cursor: pointer;
-    align-self: stretch;
-    display: inline-flex; align-items: center; gap: 6px;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .orka-ask-inline button:hover {
-    background: rgba(137, 180, 250, 0.32);
-    border-color: rgba(137, 180, 250, 0.65);
-  }
-  .orka-ask-inline button:disabled { opacity: 0.4; cursor: default; }
-
-  /* ---- Ask answer modal (draggable + minimizable) ---- */
-  .orka-ask-modal {
-    position: fixed;
-    z-index: 2147483645;
-    width: min(480px, 92vw);
-    max-height: 70vh;
-    background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98));
-    backdrop-filter: blur(24px) saturate(140%);
-    -webkit-backdrop-filter: blur(24px) saturate(140%);
-    color: #ecf0fe;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    box-shadow: 0 32px 72px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    display: flex; flex-direction: column;
-    overflow: hidden;
-    animation: orka-modal-rise 0.2s ease-out;
-  }
-  .orka-ask-modal-header {
-    display: flex; align-items: center; gap: 8px;
-    padding: 11px 14px;
-    background: rgba(255, 255, 255, 0.03);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    cursor: move;
-    user-select: none;
-  }
-  .orka-ask-modal-header::before {
-    content: '';
-    width: 6px; height: 6px; border-radius: 999px;
-    background: #89b4fa;
-    box-shadow: 0 0 8px rgba(137, 180, 250, 0.7);
-    flex-shrink: 0;
-  }
-  .orka-ask-modal-title {
-    flex: 1;
-    font-size: 12px; font-weight: 600;
-    color: #cdd6f4;
-    letter-spacing: 0.1px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .orka-ask-modal-icon-btn {
-    width: 26px; height: 26px;
-    border: 1px solid transparent;
-    background: transparent;
-    color: #a6adc8;
-    cursor: pointer;
-    border-radius: 8px;
-    font-size: 14px; line-height: 1;
-    display: inline-flex; align-items: center; justify-content: center;
-    transition: background 0.12s, color 0.12s;
-  }
-  .orka-ask-modal-icon-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #ecf0fe;
-  }
-  .orka-ask-modal-body {
-    padding: 16px 18px;
-    overflow-y: auto;
-    display: flex; flex-direction: column; gap: 12px;
-    font-size: 14px; line-height: 1.6;
-  }
-  .orka-ask-question {
-    font-size: 13px; font-weight: 600;
-    color: #ecf0fe;
-    padding-bottom: 4px;
-  }
-  .orka-ask-excerpt {
-    font-size: 12px; color: #a6adc8;
-    background: rgba(137, 180, 250, 0.08);
-    border-left: 3px solid rgba(137, 180, 250, 0.6);
-    border-radius: 8px;
-    padding: 10px 12px;
-    max-height: 220px; overflow: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    overflow-wrap: anywhere;
-    font-family: ui-monospace, monospace;
-    line-height: 1.5;
-  }
-  .orka-ask-excerpt-toggle {
-    display: inline-block;
-    margin-top: -4px;
-    font-size: 11px; color: #89b4fa; cursor: pointer;
-    user-select: none;
-    padding: 3px 0;
-    transition: color 0.12s;
-  }
-  .orka-ask-excerpt-toggle:hover { color: #b6d0fa; }
-  .orka-ask-answer {
-    white-space: pre-wrap;
-    color: #ecf0fe;
-    font-size: 13.5px;
-    line-height: 1.65;
-  }
-  .orka-ask-loading {
-    display: inline-flex; align-items: center; gap: 10px;
-    color: #a6adc8;
-    font-size: 13px;
-  }
-  .orka-ask-loading::before {
-    content: '';
-    width: 13px; height: 13px;
-    border: 2px solid rgba(137, 180, 250, 0.85);
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: orka-ask-spin 0.8s linear infinite;
-  }
-  @keyframes orka-ask-spin { to { transform: rotate(360deg); } }
-  .orka-ask-error {
-    padding: 10px 12px; border-radius: 8px;
-    background: rgba(243, 139, 168, 0.1);
-    border-left: 3px solid #f38ba8;
-    color: #f38ba8;
-    font-size: 13px;
-  }
-
-  /* ---- Minimized-modal tray (bottom-right stack of pills) ---- */
-  .orka-ask-tray {
-    position: fixed;
-    bottom: 20px; right: 20px;
-    z-index: 2147483646;
-    display: flex; flex-direction: column; gap: 6px;
-    max-width: 260px;
-  }
-  .orka-ask-pill {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 8px 8px 8px 14px;
-    border-radius: 999px;
-    background: rgba(30, 30, 46, 0.94);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    color: #89b4fa;
-    border: 1px solid rgba(137, 180, 250, 0.35);
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 12px; font-weight: 600;
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
-    cursor: pointer;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    max-width: 260px;
-    transition: background 0.15s, border-color 0.15s, transform 0.15s;
-    animation: orka-toast-in 0.2s ease-out;
-  }
-  .orka-ask-pill:hover {
-    background: rgba(137, 180, 250, 0.16);
-    border-color: rgba(137, 180, 250, 0.55);
-    transform: translateY(-1px);
-  }
-  .orka-ask-pill-close {
-    background: rgba(255, 255, 255, 0.08);
-    border: 0;
-    color: #cdd6f4;
-    width: 20px; height: 20px;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 12px; line-height: 1;
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 0;
-    flex-shrink: 0;
-    transition: background 0.12s;
-  }
-  .orka-ask-pill-close:hover { background: rgba(243, 139, 168, 0.3); color: #f38ba8; }
-
-  /* ---- Write dialog (modal for typing) ---- */
-  .orka-comment-dialog-overlay {
-    position: fixed; inset: 0; z-index: 2147483647;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    display: flex; align-items: center; justify-content: center;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    animation: orka-fade-in 0.14s ease-out;
-  }
-  @keyframes orka-fade-in { from { opacity: 0; } to { opacity: 1; } }
-  .orka-comment-dialog {
-    background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98));
-    backdrop-filter: blur(24px) saturate(140%);
-    -webkit-backdrop-filter: blur(24px) saturate(140%);
-    color: #ecf0fe;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    width: min(520px, 92vw);
-    padding: 22px 24px;
-    box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
-    display: flex; flex-direction: column; gap: 14px;
-    animation: orka-modal-rise 0.18s ease-out;
-  }
-  @keyframes orka-modal-rise {
-    from { opacity: 0; transform: translateY(12px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
-  }
-  .orka-comment-dialog-title {
-    font-size: 15px; font-weight: 600;
-    margin: 0;
-    color: #ecf0fe;
-    display: inline-flex; align-items: center; gap: 8px;
-  }
-  .orka-comment-dialog-title::before {
-    content: '';
-    width: 6px; height: 6px; border-radius: 999px;
-    background: #fab387;
-    box-shadow: 0 0 8px rgba(250, 179, 135, 0.7);
-  }
-  .orka-comment-dialog-snippet {
-    font-size: 12px; color: #a6adc8;
-    background: rgba(250, 179, 135, 0.08);
-    border-radius: 8px; padding: 10px 12px;
-    max-height: 100px; overflow: auto; white-space: pre-wrap;
-    border-left: 3px solid rgba(250, 179, 135, 0.6);
-    font-family: ui-monospace, monospace;
-    line-height: 1.5;
-  }
-  .orka-comment-dialog-textarea {
-    width: 100%; min-height: 110px; padding: 12px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
-    font-family: inherit; font-size: 14px; resize: vertical;
-    color: #ecf0fe; background: rgba(255, 255, 255, 0.04);
-    box-sizing: border-box;
-    transition: border-color 0.15s, background 0.15s;
-    outline: none;
-  }
-  .orka-comment-dialog-textarea::placeholder { color: #6c7086; }
-  .orka-comment-dialog-textarea:focus {
-    border-color: rgba(250, 179, 135, 0.55);
-    background: rgba(255, 255, 255, 0.06);
-    box-shadow: 0 0 0 2px rgba(250, 179, 135, 0.18);
-  }
-  .orka-comment-dialog-actions {
-    display: flex; justify-content: flex-end; gap: 8px;
-  }
-  .orka-comment-dialog-btn {
-    padding: 9px 16px; border-radius: 10px; border: 1px solid transparent;
-    font-family: inherit; font-size: 13px; font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .orka-comment-dialog-btn.primary {
-    background: linear-gradient(180deg, rgba(250, 179, 135, 0.28), rgba(250, 179, 135, 0.16));
-    border-color: rgba(250, 179, 135, 0.45);
-    color: #fab387;
-  }
-  .orka-comment-dialog-btn.primary:hover {
-    background: rgba(250, 179, 135, 0.32);
-    border-color: rgba(250, 179, 135, 0.65);
-  }
-  .orka-comment-dialog-btn.secondary {
-    background: rgba(255, 255, 255, 0.04);
-    color: #a6adc8;
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-  .orka-comment-dialog-btn.secondary:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ecf0fe;
-  }
-
-  /* ---- Toast ---- */
-  .orka-comment-toast {
-    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    z-index: 2147483647;
-    background: rgba(30, 30, 46, 0.94);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    color: #a6e3a1;
-    padding: 10px 18px; border-radius: 999px;
-    border: 1px solid rgba(166, 227, 161, 0.35);
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 13px; font-weight: 600;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
-    animation: orka-toast-in 0.2s ease-out;
-  }
-  .orka-comment-toast.error {
-    color: #f38ba8;
-    border-color: rgba(243, 139, 168, 0.4);
-  }
-  @keyframes orka-toast-in {
-    from { opacity: 0; transform: translate(-50%, 12px); }
-    to { opacity: 1; transform: translate(-50%, 0); }
-  }
-
-  .orka-rail-handle {
-    position: fixed;
-    right: 0; top: 20px;
-    width: 44px; min-height: 52px;
-    background: rgba(17, 18, 42, 0.92);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    color: #fab387;
-    border: 1px solid rgba(250, 179, 135, 0.35);
-    border-right: 0;
-    border-radius: 12px 0 0 12px;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 4px;
-    cursor: pointer;
-    font-weight: 700;
-    font-size: 16px;
-    box-shadow: -6px 0 20px rgba(0, 0, 0, 0.35);
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    padding: 8px 0;
-    z-index: 2147483646;
-    transition: transform 0.18s ease-out, background 0.15s;
-  }
-  .orka-rail-handle:hover {
-    transform: translateX(-3px);
-    background: rgba(250, 179, 135, 0.16);
-  }
-  .orka-rail-handle-badge {
-    font-size: 10px;
-    font-weight: 700;
-    background: #fab387;
-    color: #11122a;
-    border-radius: 999px;
-    padding: 2px 7px;
-    min-width: 18px;
-    text-align: center;
-    line-height: 1.2;
-    box-shadow: 0 0 8px rgba(250, 179, 135, 0.5);
-  }
-  .orka-rail-handle-badge[data-count="0"] { display: none; }
-  body.orka-rail-open .orka-rail-handle { display: none; }
-
-  @media (max-width: 800px) {
-    #orka-review-rail {
-      width: 100vw;
-      max-width: 100vw;
-      top: auto; height: 70vh;
-      transform: translateY(100%);
-      border-left: 0;
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 16px 16px 0 0;
-    }
-    body.orka-rail-open #orka-review-rail { transform: translateY(0); }
-    .orka-rail-handle {
-      right: 20px; bottom: 20px; top: auto;
-      border-radius: 999px;
-      border: 1px solid rgba(250, 179, 135, 0.35);
-      width: 52px; height: 52px;
-      flex-direction: row;
-    }
-    .orka-rail-handle:hover { transform: translateY(-3px); }
-  }
 </style>
-<script id="orka-comments-widget">
+<div id="__orka-ov-comments-host" style="all: initial !important; display: block !important;"></div>
+<script id="__orka-ov-comments-boot">
 (function() {
+  var hostEl = document.getElementById('__orka-ov-comments-host');
+  if (!hostEl || hostEl.shadowRoot) return;
+  var root = hostEl.attachShadow({ mode: 'open' });
+  var _styleEl = document.createElement('style');
+  _styleEl.textContent = ':host { all: initial !important; display: block !important; } :host *, :host *::before, :host *::after { box-sizing: border-box; } /* ---- Rail as a FIXED overlay — the document\\'s own layout is left completely untouched. The rail lives on the right edge; by default it\\'s translated off-screen with just a small handle poking in. Click the handle (or a highlighted phrase in the doc) to open it. ---- */ #orka-review-rail { position: fixed; top: 0; right: 0; bottom: 0; width: 380px; max-width: 90vw; background: linear-gradient(180deg, rgba(17, 18, 42, 0.96), rgba(10, 11, 31, 0.96)); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); border-left: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, \\'Segoe UI\\', Roboto, sans-serif; color: #cdd6f4; z-index: 2147483645; transform: translateX(100%); transition: transform 0.22s ease-out; box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35); } #orka-review-rail.open { transform: translateX(0); } .orka-rail-header { padding: 16px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; gap: 12px; position: sticky; top: 0; z-index: 5; } .orka-rail-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; letter-spacing: 0.2px; color: #ecf0fe; } .orka-rail-count { background: rgba(255, 255, 255, 0.08); color: #a6adc8; padding: 2px 9px; border-radius: 999px; font-family: ui-monospace, monospace; font-size: 11px; border: 1px solid rgba(255, 255, 255, 0.06); } .orka-rail-apply { flex: 1; padding: 9px 14px; border-radius: 10px; border: 1px solid rgba(250, 179, 135, 0.35); background: linear-gradient(180deg, rgba(250, 179, 135, 0.22), rgba(250, 179, 135, 0.12)); color: #fab387; font-weight: 600; font-size: 12px; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: background 0.15s, border-color 0.15s; } .orka-rail-apply:hover { background: rgba(250, 179, 135, 0.3); border-color: rgba(250, 179, 135, 0.55); } .orka-rail-apply:disabled { opacity: 0.4; cursor: not-allowed; } .orka-rail-clear { background: rgba(243, 139, 168, 0.16); color: #f38ba8; border: 1px solid rgba(243, 139, 168, 0.35); border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background 0.15s, border-color 0.15s; } .orka-rail-clear:hover { background: rgba(243, 139, 168, 0.28); border-color: rgba(243, 139, 168, 0.55); } .orka-rail-clear:disabled { opacity: 0.35; cursor: not-allowed; } .orka-rail-apply.flash-ok { background: rgba(166, 227, 161, 0.25); border-color: rgba(166, 227, 161, 0.55); color: #a6e3a1; } .orka-rail-actions { display: flex; gap: 8px; align-items: center; } .orka-rail-toggle { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.04); color: #cdd6f4; border-radius: 10px; padding: 9px 11px; font-size: 12px; cursor: pointer; transition: background 0.15s; } .orka-rail-toggle:hover { background: rgba(255, 255, 255, 0.1); } .orka-rail-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; } .orka-rail-empty { text-align: center; color: #6c7086; font-style: italic; font-size: 13px; padding: 48px 20px; line-height: 1.6; } /* ---- Comment card ---- */ .orka-comment-card { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 12px 14px; animation: orka-card-in 0.22s ease-out; cursor: pointer; transition: border-color 0.15s, background 0.15s, transform 0.15s; } .orka-comment-card:hover { background: rgba(255, 255, 255, 0.07); border-color: rgba(250, 179, 135, 0.4); } .orka-comment-card.active { border-color: rgba(250, 179, 135, 0.7); background: rgba(250, 179, 135, 0.08); box-shadow: 0 0 0 2px rgba(250, 179, 135, 0.18); } .orka-comment-card.resolved { opacity: 0.5; border-style: dashed; } .orka-card-snippet { background: rgba(250, 179, 135, 0.08); border-left: 3px solid rgba(250, 179, 135, 0.6); padding: 8px 10px; font-size: 12px; color: #a6adc8; font-family: ui-monospace, monospace; border-radius: 6px; max-height: 70px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; margin-bottom: 8px; } .orka-card-body { font-size: 13px; color: #ecf0fe; line-height: 1.55; white-space: pre-wrap; margin-bottom: 6px; } .orka-card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #6c7086; padding-top: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.06); } .orka-card-actions { display: flex; gap: 4px; } .orka-card-btn { background: transparent; border: 0; color: #a6adc8; cursor: pointer; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-family: inherit; transition: color 0.12s, background 0.12s; } .orka-card-btn:hover { background: rgba(255, 255, 255, 0.08); color: #ecf0fe; } .orka-card-btn.danger:hover { background: rgba(243, 139, 168, 0.14); color: #f38ba8; } @keyframes orka-card-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } } /* ---- Floating selection toolbar (Comment + Ask) ---- */ .orka-selection-toolbar { position: absolute; z-index: 2147483646; display: none; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(17, 18, 42, 0.94); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); font-family: -apple-system, BlinkMacSystemFont, sans-serif; user-select: none; animation: orka-tool-in 0.14s ease-out; } @keyframes orka-tool-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } } .orka-selection-toolbar-btn { padding: 7px 13px; border-radius: 999px; border: 0; color: #cdd6f4; font-size: 12px; font-weight: 600; cursor: pointer; line-height: 1; background: transparent; display: inline-flex; align-items: center; gap: 6px; transition: background 0.12s, color 0.12s; font-family: inherit; } .orka-selection-toolbar-btn svg { flex-shrink: 0; } .orka-selection-toolbar-btn.comment:hover { background: rgba(250, 179, 135, 0.18); color: #fab387; } .orka-selection-toolbar-btn.ask:hover { background: rgba(137, 180, 250, 0.18); color: #89b4fa; } .orka-selection-toolbar-divider { width: 1px; background: rgba(255, 255, 255, 0.08); margin: 4px 0; } /* ---- Ask input (mini prompt anchored to selection) ---- */ .orka-ask-inline { position: absolute; z-index: 2147483646; display: none; gap: 8px; padding: 10px; border-radius: 14px; background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98)); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); color: #ecf0fe; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.02) inset; font-family: -apple-system, BlinkMacSystemFont, sans-serif; align-items: flex-start; width: min(400px, 92vw); box-sizing: border-box; animation: orka-modal-rise 0.16s ease-out; } .orka-ask-inline textarea { flex: 1; min-height: 44px; max-height: 140px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 13px; resize: none; outline: none; color: #ecf0fe; background: rgba(255, 255, 255, 0.04); box-sizing: border-box; transition: border-color 0.15s, background 0.15s; } .orka-ask-inline textarea::placeholder { color: #6c7086; } .orka-ask-inline textarea:focus { border-color: rgba(137, 180, 250, 0.55); background: rgba(255, 255, 255, 0.06); box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.18); } .orka-ask-inline button { padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(137, 180, 250, 0.45); background: linear-gradient(180deg, rgba(137, 180, 250, 0.28), rgba(137, 180, 250, 0.16)); color: #89b4fa; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; align-self: stretch; display: inline-flex; align-items: center; gap: 6px; transition: background 0.15s, border-color 0.15s; } .orka-ask-inline button:hover { background: rgba(137, 180, 250, 0.32); border-color: rgba(137, 180, 250, 0.65); } .orka-ask-inline button:disabled { opacity: 0.4; cursor: default; } /* ---- Ask answer modal (draggable + minimizable) ---- */ .orka-ask-modal { position: fixed; z-index: 2147483645; width: min(480px, 92vw); max-height: 70vh; background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98)); backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%); color: #ecf0fe; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; box-shadow: 0 32px 72px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.02) inset; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; overflow: hidden; animation: orka-modal-rise 0.2s ease-out; } .orka-ask-modal-header { display: flex; align-items: center; gap: 8px; padding: 11px 14px; background: rgba(255, 255, 255, 0.03); border-bottom: 1px solid rgba(255, 255, 255, 0.06); cursor: move; user-select: none; } .orka-ask-modal-header::before { content: \\'\\'; width: 6px; height: 6px; border-radius: 999px; background: #89b4fa; box-shadow: 0 0 8px rgba(137, 180, 250, 0.7); flex-shrink: 0; } .orka-ask-modal-title { flex: 1; font-size: 12px; font-weight: 600; color: #cdd6f4; letter-spacing: 0.1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .orka-ask-modal-icon-btn { width: 26px; height: 26px; border: 1px solid transparent; background: transparent; color: #a6adc8; cursor: pointer; border-radius: 8px; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; } .orka-ask-modal-icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #ecf0fe; } .orka-ask-modal-body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 1.6; } .orka-ask-question { font-size: 13px; font-weight: 600; color: #ecf0fe; padding-bottom: 4px; } .orka-ask-excerpt { font-size: 12px; color: #a6adc8; background: rgba(137, 180, 250, 0.08); border-left: 3px solid rgba(137, 180, 250, 0.6); border-radius: 8px; padding: 10px 12px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; font-family: ui-monospace, monospace; line-height: 1.5; } .orka-ask-excerpt-toggle { display: inline-block; margin-top: -4px; font-size: 11px; color: #89b4fa; cursor: pointer; user-select: none; padding: 3px 0; transition: color 0.12s; } .orka-ask-excerpt-toggle:hover { color: #b6d0fa; } .orka-ask-answer { white-space: pre-wrap; color: #ecf0fe; font-size: 13.5px; line-height: 1.65; } .orka-ask-loading { display: inline-flex; align-items: center; gap: 10px; color: #a6adc8; font-size: 13px; } .orka-ask-loading::before { content: \\'\\'; width: 13px; height: 13px; border: 2px solid rgba(137, 180, 250, 0.85); border-top-color: transparent; border-radius: 50%; animation: orka-ask-spin 0.8s linear infinite; } @keyframes orka-ask-spin { to { transform: rotate(360deg); } } .orka-ask-error { padding: 10px 12px; border-radius: 8px; background: rgba(243, 139, 168, 0.1); border-left: 3px solid #f38ba8; color: #f38ba8; font-size: 13px; } /* ---- Minimized-modal tray (bottom-right stack of pills) ---- */ .orka-ask-tray { position: fixed; bottom: 20px; right: 20px; z-index: 2147483646; display: flex; flex-direction: column; gap: 6px; max-width: 260px; } .orka-ask-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 999px; background: rgba(30, 30, 46, 0.94); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: #89b4fa; border: 1px solid rgba(137, 180, 250, 0.35); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; font-weight: 600; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; transition: background 0.15s, border-color 0.15s, transform 0.15s; animation: orka-toast-in 0.2s ease-out; } .orka-ask-pill:hover { background: rgba(137, 180, 250, 0.16); border-color: rgba(137, 180, 250, 0.55); transform: translateY(-1px); } .orka-ask-pill-close { background: rgba(255, 255, 255, 0.08); border: 0; color: #cdd6f4; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; transition: background 0.12s; } .orka-ask-pill-close:hover { background: rgba(243, 139, 168, 0.3); color: #f38ba8; } /* ---- Write dialog (modal for typing) ---- */ .orka-comment-dialog-overlay { position: fixed; inset: 0; z-index: 2147483647; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif; animation: orka-fade-in 0.14s ease-out; } @keyframes orka-fade-in { from { opacity: 0; } to { opacity: 1; } } .orka-comment-dialog { background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98)); backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%); color: #ecf0fe; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; width: min(520px, 92vw); padding: 22px 24px; box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.02) inset; display: flex; flex-direction: column; gap: 14px; animation: orka-modal-rise 0.18s ease-out; } @keyframes orka-modal-rise { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } } .orka-comment-dialog-title { font-size: 15px; font-weight: 600; margin: 0; color: #ecf0fe; display: inline-flex; align-items: center; gap: 8px; } .orka-comment-dialog-title::before { content: \\'\\'; width: 6px; height: 6px; border-radius: 999px; background: #fab387; box-shadow: 0 0 8px rgba(250, 179, 135, 0.7); } .orka-comment-dialog-snippet { font-size: 12px; color: #a6adc8; background: rgba(250, 179, 135, 0.08); border-radius: 8px; padding: 10px 12px; max-height: 100px; overflow: auto; white-space: pre-wrap; border-left: 3px solid rgba(250, 179, 135, 0.6); font-family: ui-monospace, monospace; line-height: 1.5; } .orka-comment-dialog-textarea { width: 100%; min-height: 110px; padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; font-family: inherit; font-size: 14px; resize: vertical; color: #ecf0fe; background: rgba(255, 255, 255, 0.04); box-sizing: border-box; transition: border-color 0.15s, background 0.15s; outline: none; } .orka-comment-dialog-textarea::placeholder { color: #6c7086; } .orka-comment-dialog-textarea:focus { border-color: rgba(250, 179, 135, 0.55); background: rgba(255, 255, 255, 0.06); box-shadow: 0 0 0 2px rgba(250, 179, 135, 0.18); } .orka-comment-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; } .orka-comment-dialog-btn { padding: 9px 16px; border-radius: 10px; border: 1px solid transparent; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s, border-color 0.15s; } .orka-comment-dialog-btn.primary { background: linear-gradient(180deg, rgba(250, 179, 135, 0.28), rgba(250, 179, 135, 0.16)); border-color: rgba(250, 179, 135, 0.45); color: #fab387; } .orka-comment-dialog-btn.primary:hover { background: rgba(250, 179, 135, 0.32); border-color: rgba(250, 179, 135, 0.65); } .orka-comment-dialog-btn.secondary { background: rgba(255, 255, 255, 0.04); color: #a6adc8; border-color: rgba(255, 255, 255, 0.08); } .orka-comment-dialog-btn.secondary:hover { background: rgba(255, 255, 255, 0.1); color: #ecf0fe; } /* ---- Toast ---- */ .orka-comment-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483647; background: rgba(30, 30, 46, 0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); color: #a6e3a1; padding: 10px 18px; border-radius: 999px; border: 1px solid rgba(166, 227, 161, 0.35); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; font-weight: 600; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4); animation: orka-toast-in 0.2s ease-out; } .orka-comment-toast.error { color: #f38ba8; border-color: rgba(243, 139, 168, 0.4); } @keyframes orka-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } } .orka-rail-handle { position: fixed; right: 0; top: 20px; width: 44px; min-height: 52px; background: rgba(17, 18, 42, 0.92); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); color: #fab387; border: 1px solid rgba(250, 179, 135, 0.35); border-right: 0; border-radius: 12px 0 0 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; font-weight: 700; font-size: 16px; box-shadow: -6px 0 20px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 8px 0; z-index: 2147483646; transition: transform 0.18s ease-out, background 0.15s; } .orka-rail-handle:hover { transform: translateX(-3px); background: rgba(250, 179, 135, 0.16); } .orka-rail-handle-badge { font-size: 10px; font-weight: 700; background: #fab387; color: #11122a; border-radius: 999px; padding: 2px 7px; min-width: 18px; text-align: center; line-height: 1.2; box-shadow: 0 0 8px rgba(250, 179, 135, 0.5); } .orka-rail-handle-badge[data-count="0"] { display: none; } .orka-rail-handle.hidden { display: none; } @media (max-width: 800px) { #orka-review-rail { width: 100vw; max-width: 100vw; top: auto; height: 70vh; transform: translateY(100%); border-left: 0; border-top: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px 16px 0 0; } #orka-review-rail.open { transform: translateY(0); } .orka-rail-handle { right: 20px; bottom: 20px; top: auto; border-radius: 999px; border: 1px solid rgba(250, 179, 135, 0.35); width: 52px; height: 52px; flex-direction: row; } .orka-rail-handle:hover { transform: translateY(-3px); } }';
+  root.appendChild(_styleEl);
   var PROJECT_B64 = '${projectJs}';
   var FILE_PATH = '${filePathJs}';
   var FILE_PATH_QS = '${filePathQs}';
@@ -1021,7 +399,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   handleBtn.innerHTML =
     '<span>💬</span>' +
     '<span class="orka-rail-handle-badge" id="orka-rail-handle-badge" data-count="0">0</span>';
-  document.body.appendChild(handleBtn);
+  root.appendChild(handleBtn);
 
   var rail = document.createElement('aside');
   rail.id = 'orka-review-rail';
@@ -1047,7 +425,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
         'Selecciona texto en el documento y usa el botón flotante para agregar.' +
       '</div>' +
     '</div>';
-  document.body.appendChild(rail);
+  root.appendChild(rail);
 
   var railBody = rail.querySelector('#orka-rail-body');
   var railEmpty = rail.querySelector('#orka-rail-empty');
@@ -1055,10 +433,18 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   var applyBtn = rail.querySelector('#orka-rail-apply');
   var clearBtn = rail.querySelector('#orka-rail-clear');
   var toggleBtn = rail.querySelector('#orka-rail-toggle-btn');
-  var handleBadge = document.getElementById('orka-rail-handle-badge');
+  var handleBadge = root.getElementById('orka-rail-handle-badge');
 
-  function openRail() { document.body.classList.add('orka-rail-open'); }
-  function closeRail() { document.body.classList.remove('orka-rail-open'); }
+  // Lockstep: the body class that used to hide the handle is gone,
+  // so the handle hides itself via its own class now.
+  function openRail() {
+    rail.classList.add('open');
+    handleBtn.classList.add('hidden');
+  }
+  function closeRail() {
+    rail.classList.remove('open');
+    handleBtn.classList.remove('hidden');
+  }
   handleBtn.addEventListener('click', openRail);
   toggleBtn.addEventListener('click', closeRail);
   // Esc closes the rail (only if focus isn't inside a textarea).
@@ -1066,7 +452,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     if (e.key !== 'Escape') return;
     var t = e.target;
     if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
-    if (document.body.classList.contains('orka-rail-open')) closeRail();
+    if (rail.classList.contains('open')) closeRail();
   });
 
   // -------- Selection → floating toolbar (Comment + Ask) ------------
@@ -1090,7 +476,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   toolbar.appendChild(commentBtn);
   toolbar.appendChild(divider);
   toolbar.appendChild(askBtn);
-  document.body.appendChild(toolbar);
+  root.appendChild(toolbar);
 
   var currentSelectedText = '';
   var lastSelectionRange = null;
@@ -1205,7 +591,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     send.disabled = true;
     askInline.appendChild(ta);
     askInline.appendChild(send);
-    document.body.appendChild(askInline);
+    root.appendChild(askInline);
 
     // Position near the selection (below the range, clamped to viewport).
     var rect = (range || (function() { var r = document.createRange(); r.selectNodeContents(document.body); return r; })()).getBoundingClientRect();
@@ -1260,7 +646,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     if (askTray) return askTray;
     askTray = document.createElement('div');
     askTray.className = 'orka-ask-tray';
-    document.body.appendChild(askTray);
+    root.appendChild(askTray);
     return askTray;
   }
 
@@ -1316,7 +702,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
 
     body.appendChild(qEl); body.appendChild(exEl); body.appendChild(toggle); body.appendChild(content);
     modal.appendChild(header); modal.appendChild(body);
-    document.body.appendChild(modal);
+    root.appendChild(modal);
 
     var off = nextModalOffset();
     modal.style.top = off.top + 'px';
@@ -1413,7 +799,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     var el = document.createElement('div');
     el.className = 'orka-comment-toast' + (isError ? ' error' : '');
     el.textContent = msg;
-    document.body.appendChild(el);
+    root.appendChild(el);
     setTimeout(function() {
       el.style.transition = 'opacity 0.2s';
       el.style.opacity = '0';
@@ -1454,13 +840,14 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   //
   // The walker skips the rail's own DOM so we never highlight text
   // inside a card snippet by accident.
-  function isInRail(node) {
-    var el = node && (node.nodeType === 3 ? node.parentElement : node);
-    return el ? !!el.closest('#orka-review-rail') : false;
+  function isInRail(_node) {
+    // The rail now lives inside a shadow root; a TreeWalker over
+    // document.body can't reach it, so this guard is always false.
+    return false;
   }
 
   function attachMark(mark, commentId) {
-    mark.className = 'orka-comment-mark';
+    mark.className = '__orka-highlight-mark';
     mark.dataset.commentId = commentId;
     mark.addEventListener('click', function(e) {
       e.stopPropagation();
@@ -1477,7 +864,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     var node;
     while ((node = walker.nextNode())) {
       if (isInRail(node)) continue;
-      if (node.parentElement && node.parentElement.closest('mark.orka-comment-mark')) continue;
+      if (node.parentElement && node.parentElement.closest('mark.__orka-highlight-mark')) continue;
       var idx = node.nodeValue.indexOf(phrase);
       if (idx === -1) continue;
       var range = document.createRange();
@@ -1503,7 +890,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     var n2;
     while ((n2 = w2.nextNode())) {
       if (isInRail(n2)) continue;
-      if (n2.parentElement && n2.parentElement.closest('mark.orka-comment-mark')) continue;
+      if (n2.parentElement && n2.parentElement.closest('mark.__orka-highlight-mark')) continue;
       textNodes.push({ node: n2, start: joined.length, end: joined.length + n2.nodeValue.length });
       joined += n2.nodeValue;
     }
@@ -1562,7 +949,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
       var n3;
       while ((n3 = w3.nextNode())) {
         if (isInRail(n3)) continue;
-        if (n3.parentElement && n3.parentElement.closest('mark.orka-comment-mark')) continue;
+        if (n3.parentElement && n3.parentElement.closest('mark.__orka-highlight-mark')) continue;
         if (!seenStart) {
           if (n3 === startNode) seenStart = true; else continue;
         }
@@ -1599,16 +986,19 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   function setActive(id, source) {
     activeId = id;
     Array.prototype.forEach.call(
-      document.querySelectorAll('.orka-comment-mark.active, .orka-comment-card.active'),
+      [].concat(
+        Array.prototype.slice.call(document.querySelectorAll('.__orka-highlight-mark.active')),
+        Array.prototype.slice.call(root.querySelectorAll('.orka-comment-card.active'))
+      ),
       function(el) { el.classList.remove('active'); }
     );
-    var card = document.querySelector('.orka-comment-card[data-comment-id="' + id + '"]');
+    var card = root.querySelector('.orka-comment-card[data-comment-id="' + id + '"]');
     // A single comment may be split across MULTIPLE <mark>s when the
     // selection crossed inline formatting (e.g. plain text + <em> ...).
     // Activate every mark that carries this comment id so they all
     // switch to the orange focus state together — otherwise you get an
     // orange + yellow split for one logical highlight.
-    var marks = document.querySelectorAll('.orka-comment-mark[data-comment-id="' + id + '"]');
+    var marks = document.querySelectorAll('.__orka-highlight-mark[data-comment-id="' + id + '"]');
     if (card) card.classList.add('active');
     for (var i = 0; i < marks.length; i++) marks[i].classList.add('active');
     if (source === 'from-doc' && card) {
@@ -1704,11 +1094,11 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
     for (var i = 0; i < comments.length; i++) if (comments[i].id === id) { idx = i; break; }
     if (idx >= 0) comments.splice(idx, 1);
     delete byId[id];
-    var card = document.querySelector('.orka-comment-card[data-comment-id="' + id + '"]');
+    var card = root.querySelector('.orka-comment-card[data-comment-id="' + id + '"]');
     if (card) card.remove();
     // Same "one comment can have many marks" story as setActive — unwrap
     // every mark that belongs to this comment.
-    var allMarks = document.querySelectorAll('.orka-comment-mark[data-comment-id="' + id + '"]');
+    var allMarks = document.querySelectorAll('.__orka-highlight-mark[data-comment-id="' + id + '"]');
     for (var mi = 0; mi < allMarks.length; mi++) {
       var mm = allMarks[mi];
       var parent = mm.parentNode;
@@ -1749,7 +1139,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
       '</div>';
     overlay.querySelector('.orka-comment-dialog-snippet').textContent =
       selectedText.length > 500 ? selectedText.slice(0, 500) + '…' : selectedText;
-    document.body.appendChild(overlay);
+    root.appendChild(overlay);
 
     var textarea = overlay.querySelector('.orka-comment-dialog-textarea');
     setTimeout(function() { textarea.focus(); }, 30);

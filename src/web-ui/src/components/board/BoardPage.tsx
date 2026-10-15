@@ -17,6 +17,7 @@ import {
   Minimize2,
   ExternalLink,
   SplitSquareHorizontal,
+  GitBranch,
   Newspaper,
   Plus,
   Archive,
@@ -687,6 +688,20 @@ export function BoardPage() {
                       </button>
                     ))}
                   </div>
+                  <button
+                    className="board-terminal-toolbar-btn"
+                    onClick={async () => {
+                      try {
+                        await api.createBoardMasterThread(projectPath, boardId, { vertical: true })
+                      } catch (err: any) {
+                        setError(err?.message || 'Failed to start thread')
+                      }
+                    }}
+                    title="New thread: fork a Claude conversation off this master"
+                    aria-label="New thread"
+                  >
+                    <GitBranch size={12} />
+                  </button>
                   {/* Split — adds a bare shell pane to the same tmux
                       session. Shows up in the iframe automatically. */}
                   <button

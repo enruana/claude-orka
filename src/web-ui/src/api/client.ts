@@ -1550,6 +1550,22 @@ export const api = {
     return res.json()
   },
 
+  /** Fork a Claude thread off the master's main pane. */
+  async createBoardMasterThread(
+    projectPath: string,
+    boardId: string,
+    opts: { name?: string; parentId?: string; vertical?: boolean } = {},
+  ): Promise<BoardThread> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/master/thread?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   /** Add a bare shell pane next to a board task's Claude pane. Starts in
    *  the task's worktree if set, else the project root. */
   async splitBoardTask(
@@ -1580,6 +1596,23 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ layout }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Fork a Claude thread off a board task's main pane. */
+  async createBoardTaskThread(
+    projectPath: string,
+    boardId: string,
+    key: string,
+    opts: { name?: string; parentId?: string; vertical?: boolean } = {},
+  ): Promise<BoardThread> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/thread?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts),
     })
     if (!res.ok) throw new Error(await res.text())
     return res.json()
@@ -1731,6 +1764,17 @@ export interface BoardConfig {
   lastSyncedAt?: string
   createdAt: string
   schemaVersion: string
+  masterClaudeSessionId?: string
+  masterThreads?: BoardThread[]
+}
+
+export interface BoardThread {
+  id: string
+  name: string
+  parentId: string
+  claudeSessionId: string
+  tmuxPaneId: string
+  createdAt: string
 }
 
 /** Mirror of the server-side discriminator (see src/models/Board.ts).
@@ -1773,6 +1817,7 @@ export interface BoardTask {
   lastToolName?: string
   lastToolAt?: string
   lastStopAt?: string
+  threads?: BoardThread[]
   createdAt: string
   updatedAt: string
   raw?: unknown

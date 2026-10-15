@@ -32,6 +32,8 @@ import {
   splitBoardMasterTerminal,
   setBoardMasterLayout,
   setBoardTaskLayout,
+  createBoardMasterThread,
+  createBoardTaskThread,
 } from '../../core/BoardTerminals'
 import { logger } from '../../utils'
 
@@ -412,6 +414,24 @@ boardRouter.post('/:boardId/master/layout', async (req, res) => {
   }
 })
 
+/**
+ * `POST /:boardId/master/thread` — fork a Claude thread off the
+ * master. Body: `{ name?, parentId?, vertical? }`. Returns the new
+ * BoardThread row.
+ */
+boardRouter.post('/:boardId/master/thread', async (req, res) => {
+  try {
+    const projectPath = project(req)
+    const { name, parentId, vertical } = req.body || {}
+    const thread = await createBoardMasterThread(projectPath, req.params.boardId, {
+      name, parentId, vertical: !!vertical,
+    })
+    res.json(thread)
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
 // ---------- Task lifecycle ----------
 
 boardRouter.post('/:boardId/tasks/:key/start', async (req, res) => {
@@ -659,6 +679,24 @@ boardRouter.post('/:boardId/tasks/:key/layout', async (req, res) => {
     }
     await setBoardTaskLayout(req.params.key, layout)
     res.json({ ok: true, layout })
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
+ * `POST /:boardId/tasks/:key/thread` — fork a Claude thread off the
+ * task's main pane. Body: `{ name?, parentId?, vertical? }`. Returns
+ * the new BoardThread row.
+ */
+boardRouter.post('/:boardId/tasks/:key/thread', async (req, res) => {
+  try {
+    const projectPath = project(req)
+    const { name, parentId, vertical } = req.body || {}
+    const thread = await createBoardTaskThread(projectPath, req.params.boardId, req.params.key, {
+      name, parentId, vertical: !!vertical,
+    })
+    res.json(thread)
   } catch (err) {
     handle(res, err)
   }

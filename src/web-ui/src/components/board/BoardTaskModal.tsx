@@ -19,6 +19,7 @@ import {
   FolderOpen,
   Link as LinkIcon,
   SplitSquareHorizontal,
+  GitBranch,
   Power,
   LayoutGrid,
   Columns3,
@@ -474,6 +475,20 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
                   </button>
                 ))}
               </div>
+              <button
+                onClick={async () => {
+                  try {
+                    await api.createBoardTaskThread(projectPath, boardId, task.key, { vertical: true })
+                  } catch (err: any) {
+                    console.error('Failed to start task thread:', err)
+                    window.alert(err?.message || 'Failed to start thread')
+                  }
+                }}
+                title="New thread: fork a Claude conversation off this task"
+                aria-label="New thread"
+              >
+                <GitBranch size={12} />
+              </button>
               {/* Split — adds a bare shell pane to the task's tmux
                   session (cwd = worktree if set, else project root).
                   Shows up in the iframe automatically. */}

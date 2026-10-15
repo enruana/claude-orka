@@ -108,7 +108,7 @@ export class BoardManager {
 
   async updateBoard(
     boardId: string,
-    patch: Partial<Pick<BoardConfig, 'name' | 'jiraUrl' | 'jql' | 'columns' | 'masterPromptId' | 'syncPromptId' | 'lastSyncedAt' | 'lastStandupAt'>>,
+    patch: Partial<Pick<BoardConfig, 'name' | 'jiraUrl' | 'jql' | 'columns' | 'masterPromptId' | 'syncPromptId' | 'lastSyncedAt' | 'lastStandupAt' | 'masterClaudeSessionId' | 'masterThreads'>>,
   ): Promise<BoardConfig> {
     const cfg = await this.getBoard(boardId)
     if (!cfg) throw new Error(`Board not found: ${boardId}`)
