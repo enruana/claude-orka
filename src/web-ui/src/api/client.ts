@@ -243,6 +243,12 @@ export interface EnglishScenario {
   opening: string
 }
 
+export interface ClipSegment {
+  start: number
+  end: number
+  text: string
+}
+
 export interface EnglishClip {
   id: string
   name: string
@@ -252,6 +258,7 @@ export interface EnglishClip {
   createdAt: string
   status: 'transcribing' | 'ready' | 'failed'
   transcript: string
+  segments?: ClipSegment[]
   error?: string
   source?: 'upload' | 'chrome-ext'
   hasAudio: boolean
@@ -1211,24 +1218,27 @@ export const api = {
     return Array.isArray(data?.scenarios) ? data.scenarios : []
   },
 
-  async listEnglishClips(): Promise<EnglishClip[]> {
-    const res = await fetch(`${API_BASE}/english/clips`)
+  async listEnglishClips(host = ''): Promise<EnglishClip[]> {
+    const base = host ? `${host}/api` : API_BASE
+    const res = await fetch(`${base}/english/clips`)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     return Array.isArray(data?.clips) ? data.clips : []
   },
 
-  async getEnglishClip(id: string): Promise<EnglishClip> {
-    const res = await fetch(`${API_BASE}/english/clips/${encodeURIComponent(id)}`)
+  async getEnglishClip(id: string, host = ''): Promise<EnglishClip> {
+    const base = host ? `${host}/api` : API_BASE
+    const res = await fetch(`${base}/english/clips/${encodeURIComponent(id)}`)
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || `HTTP ${res.status}`)
     const data = await res.json()
     return data.clip
   },
 
-  async uploadEnglishClip(file: File | Blob, name: string): Promise<EnglishClip> {
+  async uploadEnglishClip(file: File | Blob, name: string, host = ''): Promise<EnglishClip> {
+    const base = host ? `${host}/api` : API_BASE
     const buf = await file.arrayBuffer()
     const contentType = (file as File).type || 'audio/mpeg'
-    const res = await fetch(`${API_BASE}/english/clips?name=${encodeURIComponent(name)}`, {
+    const res = await fetch(`${base}/english/clips?name=${encodeURIComponent(name)}`, {
       method: 'POST',
       headers: { 'Content-Type': contentType },
       body: buf,
@@ -1238,38 +1248,46 @@ export const api = {
     return data.clip
   },
 
-  async deleteEnglishClip(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/english/clips/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  async deleteEnglishClip(id: string, host = ''): Promise<void> {
+    const base = host ? `${host}/api` : API_BASE
+    const res = await fetch(`${base}/english/clips/${encodeURIComponent(id)}`, { method: 'DELETE' })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
   },
 
-  async retranscribeEnglishClip(id: string): Promise<EnglishClip> {
-    const res = await fetch(`${API_BASE}/english/clips/${encodeURIComponent(id)}/retranscribe`, { method: 'POST' })
+  async retranscribeEnglishClip(id: string, host = ''): Promise<EnglishClip> {
+    const base = host ? `${host}/api` : API_BASE
+    const res = await fetch(`${base}/english/clips/${encodeURIComponent(id)}/retranscribe`, { method: 'POST' })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     return data.clip
   },
 
-  englishClipAudioUrl(id: string): string {
-    return `${API_BASE}/english/clips/${encodeURIComponent(id)}/audio`
+  englishClipAudioUrl(id: string, host = ''): string {
+    const base = host ? `${host}/api` : API_BASE
+    return `${base}/english/clips/${encodeURIComponent(id)}/audio`
   },
 
-  async mineVocab(clipId: string): Promise<VocabCard[]> {
-    const res = await fetch(`${API_BASE}/english/vocab-mine/${encodeURIComponent(clipId)}`, { method: 'POST' })
+  async mineVocab(clipId: string, host = '', range?: { startSec: number; endSec: number }): Promise<VocabCard[]> {
+    const base = host ? `${host}/api` : API_BASE
+    const qs = range ? `?startSec=${range.startSec}&endSec=${range.endSec}` : ''
+    const res = await fetch(`${base}/english/vocab-mine/${encodeURIComponent(clipId)}${qs}`, { method: 'POST' })
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'vocab mine failed')
     const data = await res.json()
     return data.cards || []
   },
 
-  async buildCloze(clipId: string): Promise<ClozeResult> {
-    const res = await fetch(`${API_BASE}/english/cloze/${encodeURIComponent(clipId)}`, { method: 'POST' })
+  async buildCloze(clipId: string, host = '', range?: { startSec: number; endSec: number }): Promise<ClozeResult> {
+    const base = host ? `${host}/api` : API_BASE
+    const qs = range ? `?startSec=${range.startSec}&endSec=${range.endSec}` : ''
+    const res = await fetch(`${base}/english/cloze/${encodeURIComponent(clipId)}${qs}`, { method: 'POST' })
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'cloze failed')
     return res.json()
   },
 
-  async submitShadow(original: string, audio: Blob): Promise<ShadowDiffResult> {
+  async submitShadow(original: string, audio: Blob, host = ''): Promise<ShadowDiffResult> {
+    const base = host ? `${host}/api` : API_BASE
     const buf = await audio.arrayBuffer()
-    const res = await fetch(`${API_BASE}/english/shadow-diff?original=${encodeURIComponent(original)}`, {
+    const res = await fetch(`${base}/english/shadow-diff?original=${encodeURIComponent(original)}`, {
       method: 'POST',
       headers: { 'Content-Type': audio.type || 'audio/webm' },
       body: buf,
@@ -1278,9 +1296,10 @@ export const api = {
     return res.json()
   },
 
-  async submitSummary(source: string, audio: Blob): Promise<SummaryGradeResult> {
+  async submitSummary(source: string, audio: Blob, host = ''): Promise<SummaryGradeResult> {
+    const base = host ? `${host}/api` : API_BASE
     const buf = await audio.arrayBuffer()
-    const res = await fetch(`${API_BASE}/english/summary-grade?source=${encodeURIComponent(source)}`, {
+    const res = await fetch(`${base}/english/summary-grade?source=${encodeURIComponent(source)}`, {
       method: 'POST',
       headers: { 'Content-Type': audio.type || 'audio/webm' },
       body: buf,

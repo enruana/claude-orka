@@ -95,7 +95,7 @@ export async function createServer(options: ServerOptions = {}) {
   app.use(cors())
   app.use('/api/transcribe', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '100mb' }))
   app.use(['/api/english/clips', '/api/english/shadow-diff', '/api/english/summary-grade'],
-    express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '150mb' }))
+    express.raw({ type: () => true, limit: '150mb' }))
   app.use(express.json())
 
   // API routes

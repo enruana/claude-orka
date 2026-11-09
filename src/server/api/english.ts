@@ -14,6 +14,12 @@ const CLIPS_DIR = path.join(os.homedir(), '.orka', 'english-clips')
 const INDEX_PATH = path.join(CLIPS_DIR, 'index.json')
 const MAX_AUDIO_BYTES = 150 * 1024 * 1024
 
+export interface ClipSegment {
+  start: number
+  end: number
+  text: string
+}
+
 interface ClipRow {
   id: string
   name: string
@@ -24,6 +30,7 @@ interface ClipRow {
   createdAt: string
   status: 'transcribing' | 'ready' | 'failed'
   transcript: string
+  segments?: ClipSegment[]
   error?: string
   source?: 'upload' | 'chrome-ext'
 }
@@ -84,23 +91,66 @@ async function convertToWav(input: string, output: string): Promise<void> {
   ])
 }
 
+/**
+ * Call whisper-server directly to get segment-level timestamps (verbose_json).
+ * The utility's .transcribe() method hardcodes no_timestamps=true, so we go
+ * around it to keep the segments payload. Returns both the stitched text and
+ * the per-segment timing used for live highlighting.
+ */
+async function transcribeWithSegments(wav: Buffer, language: string): Promise<{ text: string; segments: ClipSegment[] }> {
+  const whisper = await getWhisperServer()
+  await whisper.ready
+  const form = new FormData()
+  const view = new Uint8Array(wav.byteLength)
+  view.set(wav)
+  form.append('file', new Blob([view], { type: 'audio/wav' }), 'chunk.wav')
+  form.append('language', language)
+  form.append('response_format', 'verbose_json')
+  form.append('suppress_nst', 'true')
+  const resp = await fetch(whisper.url + '/inference', { method: 'POST', body: form as any })
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => resp.statusText)
+    throw new Error(`whisper-server ${resp.status}: ${detail.slice(0, 200)}`)
+  }
+  const parsed = await resp.json().catch(() => null) as
+    | { text?: string; segments?: Array<{ start?: number; end?: number; text?: string }> }
+    | null
+  if (!parsed) return { text: '', segments: [] }
+  const segments: ClipSegment[] = (parsed.segments || [])
+    .map((s) => ({
+      start: Number(s?.start) || 0,
+      end: Number(s?.end) || 0,
+      text: String(s?.text || '').trim(),
+    }))
+    .filter((s) => s.text.length > 0)
+  const stitched = (parsed.text || segments.map((s) => s.text).join(' ')).trim()
+  return { text: stitched, segments }
+}
+
 async function transcribeClipInBackground(clip: ClipRow): Promise<void> {
   const audio = clipAudioPath(clip)
   const wavPath = path.join(clipFolder(clip.id), 'audio.wav')
   try {
     await convertToWav(audio, wavPath)
     const wav = await fs.readFile(wavPath)
-    const whisper = await getWhisperServer()
-    const text = await whisper.transcribe(wav, { language: 'auto' })
+    // WAV always has an accurate duration; MediaRecorder webm files often
+    // don't have one in the container header (Chrome streams Cues at end
+    // of writing which is missing when the recorder was just stopped),
+    // so ffprobe on the source returns a bogus value. Probe the WAV instead.
+    const wavDuration = await probeDurationSec(wavPath)
+
+    const { text, segments } = await transcribeWithSegments(wav, 'auto')
 
     const idx = await readIndex()
     const row = idx.clips.find((c) => c.id === clip.id)
     if (row) {
       row.status = 'ready'
       row.transcript = text
+      row.segments = segments
+      if (wavDuration !== null) row.durationSec = wavDuration
       await writeIndex(idx)
     }
-    logger.info(`[english-clips] transcribed ${clip.id} (${text.length} chars)`)
+    logger.info(`[english-clips] transcribed ${clip.id} (${text.length} chars, ${segments.length} segments, ${wavDuration?.toFixed(1)}s)`)
   } catch (err: any) {
     logger.error(`[english-clips] transcribe failed for ${clip.id}:`, err)
     const idx = await readIndex()
@@ -115,6 +165,30 @@ async function transcribeClipInBackground(clip: ClipRow): Promise<void> {
   }
 }
 
+/**
+ * Return only the transcript text between [startSec, endSec] based on the
+ * clip's whisper segments. Falls back to the whole transcript when the
+ * range isn't specified or the clip has no segments. Used by vocab-mine
+ * and cloze to scope exercises to a slice of the audio.
+ */
+function sliceTranscript(clip: ClipRow, startQ: unknown, endQ: unknown): string {
+  const start = parseFinite(startQ)
+  const end = parseFinite(endQ)
+  if (start === null && end === null) return clip.transcript || ''
+  const segs = clip.segments || []
+  if (segs.length === 0) return clip.transcript || ''
+  const lo = start ?? 0
+  const hi = end ?? Number.POSITIVE_INFINITY
+  const picked = segs.filter((s) => s.end > lo && s.start < hi).map((s) => s.text).join(' ').trim()
+  return picked || clip.transcript || ''
+}
+
+function parseFinite(v: unknown): number | null {
+  if (typeof v !== 'string') return null
+  const n = parseFloat(v)
+  return Number.isFinite(n) ? n : null
+}
+
 function extFromMime(mime: string): string {
   const m = mime.toLowerCase()
   if (m.includes('mp3') || m.includes('mpeg')) return 'mp3'
@@ -124,6 +198,19 @@ function extFromMime(mime: string): string {
   if (m.includes('m4a') || m.includes('mp4') || m.includes('aac')) return 'm4a'
   if (m.includes('flac')) return 'flac'
   return 'bin'
+}
+
+function normalizeAudioMime(mime: string): string {
+  const m = mime.toLowerCase().trim()
+  if (!m || m === 'application/octet-stream') return 'audio/mpeg'
+  if (m.startsWith('audio/')) return m
+  if (m.includes('webm')) return 'audio/webm'
+  if (m.includes('ogg')) return 'audio/ogg'
+  if (m.includes('mp4') || m.includes('m4a') || m.includes('aac')) return 'audio/mp4'
+  if (m.includes('wav')) return 'audio/wav'
+  if (m.includes('mpeg') || m.includes('mp3')) return 'audio/mpeg'
+  if (m.includes('flac')) return 'audio/flac'
+  return m
 }
 
 // ---------- Clip CRUD ----------
@@ -191,7 +278,8 @@ englishRouter.post('/clips', async (req: Request, res: Response) => {
     }
 
     const name = String(req.query.name || '').trim() || `clip-${new Date().toISOString().slice(0, 10)}`
-    const mimeType = String(req.headers['content-type'] || 'audio/mpeg').split(';')[0].trim()
+    const rawType = String(req.headers['content-type'] || 'audio/mpeg').split(';')[0].trim()
+    const mimeType = normalizeAudioMime(rawType)
     const id = randomUUID()
     const ext = extFromMime(mimeType)
     const filename = `audio.${ext}`
@@ -267,6 +355,9 @@ englishRouter.post('/vocab-mine/:id', async (req, res) => {
     if (!clip) { res.status(404).json({ error: 'clip not found' }); return }
     if (!clip.transcript) { res.status(400).json({ error: 'transcript not ready yet' }); return }
 
+    const text = sliceTranscript(clip, req.query.startSec, req.query.endSec)
+    if (!text) { res.status(400).json({ error: 'no transcript in that range' }); return }
+
     const prompt = `You are an English vocabulary coach for a Spanish speaker. From the transcript below, extract up to 10 useful vocabulary items: phrasal verbs, idioms, collocations, less-common connectors, business/work jargon. Skip trivial words the user already knows at intermediate level.
 
 Return ONLY a JSON object with this exact shape (no code fences, no commentary):
@@ -294,7 +385,7 @@ Rules:
       timeout: 60000,
       env: { ...process.env, CLAUDECODE: '' },
       extendEnv: false,
-      input: clip.transcript,
+      input: text,
     })
 
     let raw = stdout.trim()
@@ -343,6 +434,9 @@ englishRouter.post('/cloze/:id', async (req, res) => {
     if (!clip) { res.status(404).json({ error: 'clip not found' }); return }
     if (!clip.transcript) { res.status(400).json({ error: 'transcript not ready yet' }); return }
 
+    const text = sliceTranscript(clip, req.query.startSec, req.query.endSec)
+    if (!text) { res.status(400).json({ error: 'no transcript in that range' }); return }
+
     const prompt = `You are an English listening coach. The transcript below is from a recording the student just listened to. Build a cloze exercise: pick up to 10 words/short phrases worth testing (phrasal verbs, connectors, collocations, prepositions, articles that native speakers get right without thinking). Replace each with a blank placeholder in the text.
 
 Return ONLY a JSON object (no code fences, no commentary) with this shape:
@@ -366,7 +460,7 @@ Rules:
       timeout: 60000,
       env: { ...process.env, CLAUDECODE: '' },
       extendEnv: false,
-      input: clip.transcript,
+      input: text,
     })
 
     let raw = stdout.trim()
