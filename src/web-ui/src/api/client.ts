@@ -223,6 +223,80 @@ export interface AIQueryResponse {
   answer: string
 }
 
+export interface EnglishCheckIssue {
+  quote: string
+  suggestion: string
+  explanation: string
+  severity: 'minor' | 'moderate' | 'major'
+}
+
+export interface EnglishCheckResult {
+  summary: string
+  rewritten: string
+  issues: EnglishCheckIssue[]
+}
+
+export interface EnglishScenario {
+  id: string
+  title: string
+  description: string
+  opening: string
+}
+
+export interface EnglishClip {
+  id: string
+  name: string
+  mimeType: string
+  bytes: number
+  durationSec: number | null
+  createdAt: string
+  status: 'transcribing' | 'ready' | 'failed'
+  transcript: string
+  error?: string
+  source?: 'upload' | 'chrome-ext'
+  hasAudio: boolean
+}
+
+export interface VocabCard {
+  term: string
+  partOfSpeech: string
+  definition: string
+  example: string
+  sourceLine: string
+}
+
+export interface ClozeBlank {
+  idx: number
+  answer: string
+  hint: string
+}
+
+export interface ClozeResult {
+  text: string
+  blanks: ClozeBlank[]
+}
+
+export interface ShadowDiffToken {
+  original: string | null
+  spoken: string | null
+  status: 'match' | 'substituted' | 'missed' | 'extra'
+}
+
+export interface ShadowDiffResult {
+  userText: string
+  diff: { tokens: ShadowDiffToken[]; score: number }
+  score: number
+}
+
+export interface SummaryGradeResult {
+  userSummary: string
+  comprehensionScore: number
+  comprehensionNote: string
+  languageScore: number
+  languageNote: string
+  topCorrections: Array<{ quote: string; suggestion: string; explanation: string }>
+}
+
 // Detailed views returned by GET /api/system/details?category=...
 export interface SystemProcessInfo {
   pid: number
@@ -1117,6 +1191,104 @@ export const api = {
     return res.json()
   },
 
+  async englishCheck(text: string): Promise<EnglishCheckResult> {
+    const res = await fetch(`${API_BASE}/ai/english-check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => null)
+      throw new Error(data?.error || 'English check failed')
+    }
+    return res.json()
+  },
+
+  async listEnglishScenarios(): Promise<EnglishScenario[]> {
+    const res = await fetch(`${API_BASE}/voice/scenarios`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    return Array.isArray(data?.scenarios) ? data.scenarios : []
+  },
+
+  async listEnglishClips(): Promise<EnglishClip[]> {
+    const res = await fetch(`${API_BASE}/english/clips`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    return Array.isArray(data?.clips) ? data.clips : []
+  },
+
+  async getEnglishClip(id: string): Promise<EnglishClip> {
+    const res = await fetch(`${API_BASE}/english/clips/${encodeURIComponent(id)}`)
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || `HTTP ${res.status}`)
+    const data = await res.json()
+    return data.clip
+  },
+
+  async uploadEnglishClip(file: File | Blob, name: string): Promise<EnglishClip> {
+    const buf = await file.arrayBuffer()
+    const contentType = (file as File).type || 'audio/mpeg'
+    const res = await fetch(`${API_BASE}/english/clips?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body: buf,
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || `HTTP ${res.status}`)
+    const data = await res.json()
+    return data.clip
+  },
+
+  async deleteEnglishClip(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/english/clips/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  },
+
+  async retranscribeEnglishClip(id: string): Promise<EnglishClip> {
+    const res = await fetch(`${API_BASE}/english/clips/${encodeURIComponent(id)}/retranscribe`, { method: 'POST' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    return data.clip
+  },
+
+  englishClipAudioUrl(id: string): string {
+    return `${API_BASE}/english/clips/${encodeURIComponent(id)}/audio`
+  },
+
+  async mineVocab(clipId: string): Promise<VocabCard[]> {
+    const res = await fetch(`${API_BASE}/english/vocab-mine/${encodeURIComponent(clipId)}`, { method: 'POST' })
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'vocab mine failed')
+    const data = await res.json()
+    return data.cards || []
+  },
+
+  async buildCloze(clipId: string): Promise<ClozeResult> {
+    const res = await fetch(`${API_BASE}/english/cloze/${encodeURIComponent(clipId)}`, { method: 'POST' })
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'cloze failed')
+    return res.json()
+  },
+
+  async submitShadow(original: string, audio: Blob): Promise<ShadowDiffResult> {
+    const buf = await audio.arrayBuffer()
+    const res = await fetch(`${API_BASE}/english/shadow-diff?original=${encodeURIComponent(original)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': audio.type || 'audio/webm' },
+      body: buf,
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'shadow failed')
+    return res.json()
+  },
+
+  async submitSummary(source: string, audio: Blob): Promise<SummaryGradeResult> {
+    const buf = await audio.arrayBuffer()
+    const res = await fetch(`${API_BASE}/english/summary-grade?source=${encodeURIComponent(source)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': audio.type || 'audio/webm' },
+      body: buf,
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'summary failed')
+    return res.json()
+  },
+
   // AI Query
   async aiQuery(question: string, context?: AIQueryContext): Promise<AIQueryResponse> {
     const res = await fetch(`${API_BASE}/ai/query`, {
@@ -1550,6 +1722,20 @@ export const api = {
     return res.json()
   },
 
+  /** Toggle zoom on the board master's active pane. Server-side
+   *  `resize-pane -Z`. Returns the new zoom state. */
+  async toggleBoardMasterZoom(
+    projectPath: string,
+    boardId: string,
+  ): Promise<{ zoomed: boolean }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/master/zoom?project=${p}`, {
+      method: 'POST',
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
   /** Fork a Claude thread off the master's main pane. */
   async createBoardMasterThread(
     projectPath: string,
@@ -1596,6 +1782,20 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ layout }),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  /** Toggle zoom on a board task's active pane. */
+  async toggleBoardTaskZoom(
+    projectPath: string,
+    boardId: string,
+    key: string,
+  ): Promise<{ zoomed: boolean }> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/board/${boardId}/tasks/${key}/zoom?project=${p}`, {
+      method: 'POST',
     })
     if (!res.ok) throw new Error(await res.text())
     return res.json()
@@ -1718,7 +1918,8 @@ export const api = {
     command:
       | { type: 'navigate'; path: string }
       | { type: 'sendText'; sessionId: string; projectPath: string; text: string; pressEnter?: boolean }
-      | { type: 'flash' },
+      | { type: 'flash' }
+      | { type: 'pin'; favorite: DeckPinPayload },
   ): Promise<{ commandId: string }> {
     const res = await fetch(`${API_BASE}/deck/clients/${clientId}/command`, {
       method: 'POST',
@@ -1742,6 +1943,18 @@ export interface DeckClientPublic {
   connectedAt: number
   lastSeen: number
   self?: boolean
+}
+
+/** Payload for the `pin` deck command. Target writes this into its own
+ *  `orka-deck-favorites` localStorage so the Stream Deck page shows the
+ *  entry on next render. */
+export interface DeckPinPayload {
+  id: string
+  label: string
+  subtitle?: string
+  tint: string
+  iconName: string
+  path: string
 }
 
 // ---------- Board types (client-side mirror) ----------

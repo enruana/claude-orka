@@ -81,6 +81,31 @@
 .board-header-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .board-header-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.board-header-pin-to-deck .pin-to-deck-trigger {
+  width: auto;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #cdd6f4;
+}
+.board-header-pin-to-deck .pin-to-deck-trigger:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.board-header-pin-to-deck .pin-to-deck-trigger.open {
+  background: rgba(203, 166, 247, 0.18);
+  border-color: rgba(203, 166, 247, 0.4);
+  color: #cba6f7;
+}
+.board-header-pin-to-deck .pin-to-deck-trigger.ok {
+  background: rgba(166, 227, 161, 0.2);
+  border-color: rgba(166, 227, 161, 0.4);
+  color: #a6e3a1;
+}
+
 /* Split-button group — primary (Open) + secondary (Regenerate) share
    one visual pill so they read as related actions instead of two
    independent buttons. */

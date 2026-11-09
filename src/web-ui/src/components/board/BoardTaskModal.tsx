@@ -25,8 +25,12 @@ import {
   Columns3,
   Rows3,
   PanelLeft,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import { VoiceTerminalButton } from '../VoiceTerminalButton'
+import { PinToDeckButton } from '../PinToDeckButton'
+import { encodeProjectPath } from '../ProjectDashboard'
 import { api, type AIQueryContext, type BoardTask, type SessionLayout } from '../../api/client'
 import { TaskWidget } from '../TaskWidget'
 import { QuickAIDialogWrapper } from '../../App'
@@ -96,6 +100,7 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
   const [busy, setBusy] = useState(false)
   const [resumeState, setResumeState] = useState<ResumeState>('idle')
   const [taskLayout, setTaskLayout] = useState<SessionLayout | null>(null)
+  const [taskZoomed, setTaskZoomed] = useState(false)
   const [infoCollapsed, setInfoCollapsed] = useState<boolean>(() => {
     return localStorage.getItem('orka-board-task-info-collapsed') === '1'
   })
@@ -505,6 +510,22 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
               >
                 <SplitSquareHorizontal size={12} />
               </button>
+              <button
+                className={taskZoomed ? 'active' : ''}
+                onClick={async () => {
+                  try {
+                    const r = await api.toggleBoardTaskZoom(projectPath, boardId, task.key)
+                    setTaskZoomed(r.zoomed)
+                  } catch (err: any) {
+                    console.error('Failed to toggle task zoom:', err)
+                    window.alert(err?.message || 'Failed to toggle zoom')
+                  }
+                }}
+                title={taskZoomed ? 'Unzoom pane (restore layout)' : 'Zoom pane (focus)'}
+                aria-label={taskZoomed ? 'Unzoom pane' : 'Zoom pane'}
+              >
+                {taskZoomed ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
               <VoiceTerminalButton
                 paneId={task.terminalPaneId}
                 tmuxSession={task.terminalTmuxSessionId}
@@ -513,6 +534,17 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
                 projectB64={btoa(projectPath)}
                 sessionId={task.key}
                 className="board-task-term-btn"
+              />
+              <PinToDeckButton
+                className="board-task-pin-to-deck"
+                favorite={{
+                  id: `task:${projectPath}:${boardId}:${task.key}`,
+                  label: task.key,
+                  subtitle: task.title,
+                  tint: taskTint(task.status),
+                  iconName: 'Terminal',
+                  path: `/projects/${encodeProjectPath(projectPath)}/boards/${boardId}?task=${encodeURIComponent(task.key)}`,
+                }}
               />
               <button
                 onClick={() => window.open(`/terminal/${task.ttydPort}?desktop=1`, '_blank')}
@@ -768,6 +800,15 @@ export function BoardTaskModal({ projectPath, boardId, task, columns, onMoveTask
       />
     </div>
   )
+}
+
+function taskTint(status: string): string {
+  const s = (status || '').toLowerCase()
+  if (s.includes('progress')) return 'green'
+  if (s.includes('review')) return 'amber'
+  if (s.includes('done') || s.includes('closed')) return 'teal'
+  if (s.includes('block')) return 'pink'
+  return 'gray'
 }
 
 /** Friendly Spanish label for a path property key — same wording the KB

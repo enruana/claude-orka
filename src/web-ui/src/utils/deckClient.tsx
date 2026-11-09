@@ -72,7 +72,48 @@ export function setPersistentClientName(name: string): void {
 interface CommandNavigate { type: 'navigate'; path: string; commandId: string }
 interface CommandSendText { type: 'sendText'; sessionId: string; projectPath: string; text: string; pressEnter?: boolean; commandId: string }
 interface CommandFlash { type: 'flash'; commandId: string }
-type DeckCommand = CommandNavigate | CommandSendText | CommandFlash
+interface CommandPin {
+  type: 'pin'
+  favorite: {
+    id: string
+    label: string
+    subtitle?: string
+    tint: string
+    iconName: string
+    path: string
+  }
+  commandId: string
+}
+type DeckCommand = CommandNavigate | CommandSendText | CommandFlash | CommandPin
+
+export const DECK_FAVORITES_KEY = 'orka-deck-favorites'
+const DECK_FAVORITES_MAX = 8
+export const DECK_FAVORITES_EVENT = 'orka-deck-favorites-updated'
+
+function applyPinToLocalStorage(payload: CommandPin['favorite']): void {
+  try {
+    const raw = localStorage.getItem(DECK_FAVORITES_KEY)
+    const list: Array<Record<string, unknown>> = raw ? JSON.parse(raw) : []
+    const now = Date.now()
+    const safeList = Array.isArray(list) ? list : []
+    const hitIdx = safeList.findIndex((f) => f?.id === payload.id)
+    let next
+    if (hitIdx >= 0) {
+      const existing = safeList[hitIdx]
+      const prevCount = typeof existing.count === 'number' ? existing.count : 1
+      next = safeList.map((f, i) => i === hitIdx
+        ? { ...f, ...payload, count: prevCount + 1, lastUsedAt: now }
+        : f)
+    } else {
+      next = [...safeList, { ...payload, count: 1, lastUsedAt: now }]
+      if (next.length > DECK_FAVORITES_MAX) next = next.slice(next.length - DECK_FAVORITES_MAX)
+    }
+    localStorage.setItem(DECK_FAVORITES_KEY, JSON.stringify(next))
+    window.dispatchEvent(new CustomEvent(DECK_FAVORITES_EVENT, { detail: payload }))
+  } catch (err) {
+    console.warn('[deck] pin apply failed', err)
+  }
+}
 
 export type DeckConnStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed'
 
@@ -180,6 +221,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
       case 'flash': {
         showFlash('flash')
+        break
+      }
+      case 'pin': {
+        applyPinToLocalStorage(cmd.favorite)
+        showFlash('pin')
         break
       }
     }
@@ -333,6 +379,7 @@ function showFlash(kind: string): void {
     }
     node.textContent = kind === 'sendText' ? '⌨︎ typed from Stream Deck'
       : kind === 'navigate' ? '↗ navigated from Stream Deck'
+      : kind === 'pin' ? '📌 pinned from host'
       : '● poked from Stream Deck'
     node.style.opacity = '1'
     if (flashTimer !== null) window.clearTimeout(flashTimer)

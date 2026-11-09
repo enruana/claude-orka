@@ -18,14 +18,41 @@ interface AIQueryBody {
   }
 }
 
+interface AskDocumentTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 interface AskDocumentBody {
   question: string
   selectedText: string
   documentText: string
   filePath?: string
+  history?: AskDocumentTurn[]
 }
 
 const ASK_DOC_MAX_CONTEXT = 120_000
+const ASK_DOC_MAX_HISTORY_CHARS = 24_000
+
+function formatAskDocumentHistory(history: AskDocumentTurn[] | undefined): string {
+  if (!Array.isArray(history) || history.length === 0) return ''
+  const cleaned = history
+    .filter((t) => t && typeof t.content === 'string' && t.content.trim())
+    .map((t) => ({ role: t.role === 'assistant' ? 'Assistant' : 'User', content: t.content.trim() }))
+  if (cleaned.length === 0) return ''
+
+  const rendered: string[] = []
+  let total = 0
+  for (let i = cleaned.length - 1; i >= 0; i--) {
+    const turn = cleaned[i]
+    const line = `${turn.role}: ${turn.content}`
+    total += line.length + 2
+    if (total > ASK_DOC_MAX_HISTORY_CHARS) break
+    rendered.unshift(line)
+  }
+  if (rendered.length === 0) return ''
+  return ['', 'Prior conversation (oldest first):', '"""', rendered.join('\n\n'), '"""'].join('\n')
+}
 
 interface InlineCompleteBody {
   contextBefore: string
@@ -125,7 +152,7 @@ aiRouter.post('/query', async (req, res) => {
  */
 aiRouter.post('/ask-document', async (req, res) => {
   try {
-    const { question, selectedText, documentText, filePath } = req.body as AskDocumentBody
+    const { question, selectedText, documentText, filePath, history } = req.body as AskDocumentBody
 
     if (!question?.trim()) { res.status(400).json({ error: 'question is required' }); return }
     if (!selectedText?.trim()) { res.status(400).json({ error: 'selectedText is required' }); return }
@@ -148,9 +175,12 @@ aiRouter.post('/ask-document', async (req, res) => {
       ? '\nNote: the full document was long; a middle chunk was elided. Say so if the answer would need what was cut.'
       : ''
 
+    const historyBlock = formatAskDocumentHistory(history)
+
     const prompt = [
       'You are answering a reader\'s question about a document. The full document is on stdin.',
       'The reader highlighted a specific excerpt and asked about it. Answer the question directly; use the rest of the document to ground your answer when relevant.',
+      'If a prior conversation is provided, treat the new question as a follow-up; stay consistent with earlier answers unless the user explicitly corrects them.',
       'Be concise. Reply in the same language as the question. If the answer is not in the document, say so plainly.',
       filePathLine,
       truncationLine,
@@ -159,9 +189,10 @@ aiRouter.post('/ask-document', async (req, res) => {
       '"""',
       excerpt,
       '"""',
+      historyBlock,
       '',
-      `Question: ${question.trim()}`,
-    ].join('\n')
+      `Current question: ${question.trim()}`,
+    ].filter(Boolean).join('\n')
 
     const args = ['-p', prompt, '--model', 'haiku', '--no-session-persistence']
     const execaOptions: any = {
@@ -451,6 +482,95 @@ Rules:
       return
     }
     res.status(500).json({ error: error.message || 'Failed to format markdown' })
+  }
+})
+
+/**
+ * POST /api/ai/english-check
+ *
+ * Grammar / style / naturalness feedback for an English Coach writing
+ * practice snippet. Returns structured JSON so the UI can render each
+ * issue as a card.
+ *
+ * Body: { text: string }
+ * Reply: { summary, rewritten, issues: Array<{ quote, suggestion, explanation, severity }> }
+ */
+aiRouter.post('/english-check', async (req, res) => {
+  try {
+    const { text } = req.body as { text: string }
+    if (!text?.trim()) {
+      res.status(400).json({ error: 'text is required' })
+      return
+    }
+    if (text.length > 6000) {
+      res.status(400).json({ error: 'text too long; keep it under 6000 characters for a focused review' })
+      return
+    }
+
+    const prompt = `You are an English writing coach. The user is practicing English.
+Review the text provided on stdin and return ONLY a single JSON object (no code fences, no prose before or after) with this exact shape:
+
+{
+  "summary": "one short sentence saying how the text reads overall, in Spanish",
+  "issues": [
+    {
+      "quote": "the exact substring from the user's text that has an issue",
+      "suggestion": "the corrected version of that substring",
+      "explanation": "one short sentence in Spanish explaining why the fix helps (grammar, naturalness, register, clarity)",
+      "severity": "minor" | "moderate" | "major"
+    }
+  ],
+  "rewritten": "the entire text rewritten in natural, native-sounding English, preserving the author's voice and meaning"
+}
+
+Rules:
+- "quote" must be a verbatim substring that actually appears in the user's text; the UI diffs it, so don't paraphrase.
+- Return at most 8 issues, ordered most-impactful first. If the text is already clean, return an empty issues array.
+- Do not flag stylistic choices that are fine — only real improvements: grammar errors, awkward phrasing a native would not use, wrong word choice, missing articles, tense slips, register mismatch.
+- "summary" and "explanation" are in Spanish because the user is a Spanish speaker learning English.
+- "rewritten" is in English, same length range as the original, natural and conversational unless the input was clearly formal.
+- Output valid JSON ONLY. No markdown. No commentary. No trailing newline chatter.`
+
+    const { stdout } = await execa('claude', ['-p', prompt, '--model', 'sonnet', '--no-session-persistence'], {
+      timeout: 60000,
+      env: { ...process.env, CLAUDECODE: '' },
+      extendEnv: false,
+      input: text,
+    })
+
+    let raw = stdout.trim()
+    if (raw.startsWith('```json')) raw = raw.replace(/^```json\s*/, '').replace(/\s*```$/, '')
+    else if (raw.startsWith('```')) raw = raw.replace(/^```\s*/, '').replace(/\s*```$/, '')
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      res.status(502).json({ error: 'model returned non-JSON response', raw })
+      return
+    }
+    const issues = Array.isArray(parsed?.issues) ? parsed.issues.slice(0, 8) : []
+    res.json({
+      summary: String(parsed?.summary || ''),
+      rewritten: String(parsed?.rewritten || ''),
+      issues: issues.map((i: any) => ({
+        quote: String(i?.quote || ''),
+        suggestion: String(i?.suggestion || ''),
+        explanation: String(i?.explanation || ''),
+        severity: ['minor', 'moderate', 'major'].includes(i?.severity) ? i.severity : 'minor',
+      })),
+    })
+  } catch (error: any) {
+    console.error('Error in AI english-check:', error)
+    if (error.code === 'ENOENT') {
+      res.status(500).json({ error: 'Claude CLI not found.' })
+      return
+    }
+    if (error.timedOut) {
+      res.status(500).json({ error: 'Request timed out.' })
+      return
+    }
+    res.status(500).json({ error: error.message || 'Failed to run english check' })
   }
 })
 

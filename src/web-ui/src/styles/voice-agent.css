@@ -33,6 +33,29 @@
   padding: 0;
 }
 
+.voice-agent-page-coach {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(250, 179, 135, 0.14), transparent 60%),
+    radial-gradient(ellipse 60% 80% at 90% 90%, rgba(243, 139, 168, 0.1), transparent 60%),
+    #120d14;
+}
+.voice-agent-page-coach .va-header {
+  background: rgba(250, 179, 135, 0.04);
+  border-bottom-color: rgba(250, 179, 135, 0.15);
+}
+.voice-agent-page-coach .va-title {
+  color: #fab387;
+}
+.voice-agent-page-coach .va-lang-btn {
+  display: none;
+}
+.voice-agent-page-coach.voice-agent-page-embedded {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(250, 179, 135, 0.14), transparent 60%),
+    radial-gradient(ellipse 60% 80% at 90% 90%, rgba(243, 139, 168, 0.1), transparent 60%),
+    transparent;
+}
+
 .va-header {
   display: flex;
   align-items: center;
@@ -424,6 +447,34 @@
   border: 1px solid rgba(137, 180, 250, 0.1);
   align-self: flex-start;
   max-width: 85%;
+}
+
+.va-sentence {
+  color: inherit;
+  transition: background 180ms ease, color 180ms ease;
+  padding: 1px 2px;
+  border-radius: 3px;
+}
+.va-sentence-done {
+  color: rgba(255, 255, 255, 0.55);
+}
+.va-sentence-playing {
+  background: rgba(255, 207, 107, 0.18);
+  color: #ffd7a7;
+  box-shadow: 0 0 0 1px rgba(255, 207, 107, 0.25);
+}
+.va-sentence-failed {
+  color: rgba(243, 139, 168, 0.75);
+  text-decoration: line-through dotted rgba(243, 139, 168, 0.6);
+  text-decoration-skip-ink: none;
+}
+.va-sentence-failed::after {
+  content: ' (sin audio)';
+  font-size: 10px;
+  opacity: 0.7;
+  margin-left: 2px;
+  text-decoration: none;
+  color: rgba(243, 139, 168, 0.85);
 }
 
 /* ============ Actions Bar (Always Visible) ============ */
@@ -1186,6 +1237,150 @@
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.35);
   padding: 4px 2px 0;
+}
+.va-picker-heading-coach { color: rgba(250, 179, 135, 0.6); }
+
+.va-mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.va-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #ecf0fe;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.va-mode-card:hover {
+  background: rgba(137, 180, 250, 0.08);
+  border-color: rgba(137, 180, 250, 0.35);
+  transform: translateY(-1px);
+}
+.va-mode-card-coach:hover {
+  background: rgba(250, 179, 135, 0.08);
+  border-color: rgba(250, 179, 135, 0.35);
+}
+.va-mode-card-clips:hover {
+  background: rgba(203, 166, 247, 0.08);
+  border-color: rgba(203, 166, 247, 0.35);
+}
+.va-mode-icon-clips {
+  background: rgba(203, 166, 247, 0.16);
+  color: #cba6f7;
+}
+.va-mode-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(137, 180, 250, 0.16);
+  color: #89b4fa;
+}
+.va-mode-icon-coach {
+  background: rgba(250, 179, 135, 0.16);
+  color: #fab387;
+}
+.va-mode-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ecf0fe;
+}
+.va-mode-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #a6adc8;
+}
+
+.va-picker-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #a6adc8;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  transition: background 0.12s, color 0.12s;
+}
+.va-picker-back:hover { background: rgba(255, 255, 255, 0.06); color: #ecf0fe; }
+
+.va-scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+.va-scenario-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 14px;
+  color: #ecf0fe;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: background 0.12s, border-color 0.12s, transform 0.12s;
+}
+.va-scenario-card:hover {
+  background: rgba(250, 179, 135, 0.08);
+  border-color: rgba(250, 179, 135, 0.35);
+  transform: translateY(-1px);
+}
+.va-scenario-free {
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.1), rgba(203, 166, 247, 0.08));
+  border-color: rgba(137, 180, 250, 0.3);
+}
+.va-scenario-free:hover {
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.16), rgba(203, 166, 247, 0.12));
+  border-color: rgba(137, 180, 250, 0.55);
+}
+.va-scenario-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(250, 179, 135, 0.14);
+  color: #fab387;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.va-scenario-icon-free {
+  background: rgba(137, 180, 250, 0.18);
+  color: #89b4fa;
+}
+.va-scenario-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ecf0fe;
+}
+.va-scenario-desc {
+  font-size: 12px;
+  color: #a6adc8;
+  line-height: 1.45;
+}
+
+.va-picker-empty-inline {
+  grid-column: 1 / -1;
+  padding: 10px;
+  font-size: 12px;
+  color: #a6adc8;
 }
 
 .va-picker-list {

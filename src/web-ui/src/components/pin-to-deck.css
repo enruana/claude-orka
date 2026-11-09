@@ -1,0 +1,142 @@
+.pin-to-deck { position: relative; display: inline-flex; }
+
+.pin-to-deck-trigger {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(205, 214, 244, 0.75);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.pin-to-deck-trigger:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.pin-to-deck-trigger.open {
+  background: rgba(203, 166, 247, 0.15);
+  color: #cba6f7;
+  border-color: rgba(203, 166, 247, 0.4);
+}
+.pin-to-deck-trigger.ok {
+  background: rgba(166, 227, 161, 0.18);
+  color: #a6e3a1;
+  border-color: rgba(166, 227, 161, 0.4);
+}
+.pin-to-deck-trigger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pin-to-deck-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  background: #1e1e2e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  z-index: 100;
+  color: #cdd6f4;
+  font-size: 12px;
+}
+
+.pin-to-deck-pop-head {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #6c7086;
+  padding: 6px 8px 4px;
+}
+
+.pin-to-deck-empty {
+  padding: 8px 10px 10px;
+  color: #a6adc8;
+  line-height: 1.4;
+  font-size: 11px;
+}
+
+.pin-to-deck-opt {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #cdd6f4;
+  padding: 7px 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease;
+}
+.pin-to-deck-opt:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+.pin-to-deck-opt:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pin-to-deck-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 5px;
+  color: #a6adc8;
+}
+
+.pin-to-deck-opt-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pin-to-deck-opt-sub {
+  font-size: 10px;
+  color: #6c7086;
+  text-transform: lowercase;
+}
+
+.pin-to-deck-sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 4px 2px;
+}
+
+.pin-to-deck-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #cba6f7;
+  box-shadow: 0 0 10px rgba(203, 166, 247, 0.6);
+  animation: pin-to-deck-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes pin-to-deck-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.pin-to-deck-err {
+  margin-top: 4px;
+  padding: 6px 8px;
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.08);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}

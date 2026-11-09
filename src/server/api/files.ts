@@ -355,7 +355,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   if (!hostEl || hostEl.shadowRoot) return;
   var root = hostEl.attachShadow({ mode: 'open' });
   var _styleEl = document.createElement('style');
-  _styleEl.textContent = ':host { all: initial !important; display: block !important; } :host *, :host *::before, :host *::after { box-sizing: border-box; } /* ---- Rail as a FIXED overlay — the document\\'s own layout is left completely untouched. The rail lives on the right edge; by default it\\'s translated off-screen with just a small handle poking in. Click the handle (or a highlighted phrase in the doc) to open it. ---- */ #orka-review-rail { position: fixed; top: 0; right: 0; bottom: 0; width: 380px; max-width: 90vw; background: linear-gradient(180deg, rgba(17, 18, 42, 0.96), rgba(10, 11, 31, 0.96)); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); border-left: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, \\'Segoe UI\\', Roboto, sans-serif; color: #cdd6f4; z-index: 2147483645; transform: translateX(100%); transition: transform 0.22s ease-out; box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35); } #orka-review-rail.open { transform: translateX(0); } .orka-rail-header { padding: 16px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; gap: 12px; position: sticky; top: 0; z-index: 5; } .orka-rail-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; letter-spacing: 0.2px; color: #ecf0fe; } .orka-rail-count { background: rgba(255, 255, 255, 0.08); color: #a6adc8; padding: 2px 9px; border-radius: 999px; font-family: ui-monospace, monospace; font-size: 11px; border: 1px solid rgba(255, 255, 255, 0.06); } .orka-rail-apply { flex: 1; padding: 9px 14px; border-radius: 10px; border: 1px solid rgba(250, 179, 135, 0.35); background: linear-gradient(180deg, rgba(250, 179, 135, 0.22), rgba(250, 179, 135, 0.12)); color: #fab387; font-weight: 600; font-size: 12px; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: background 0.15s, border-color 0.15s; } .orka-rail-apply:hover { background: rgba(250, 179, 135, 0.3); border-color: rgba(250, 179, 135, 0.55); } .orka-rail-apply:disabled { opacity: 0.4; cursor: not-allowed; } .orka-rail-clear { background: rgba(243, 139, 168, 0.16); color: #f38ba8; border: 1px solid rgba(243, 139, 168, 0.35); border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background 0.15s, border-color 0.15s; } .orka-rail-clear:hover { background: rgba(243, 139, 168, 0.28); border-color: rgba(243, 139, 168, 0.55); } .orka-rail-clear:disabled { opacity: 0.35; cursor: not-allowed; } .orka-rail-apply.flash-ok { background: rgba(166, 227, 161, 0.25); border-color: rgba(166, 227, 161, 0.55); color: #a6e3a1; } .orka-rail-actions { display: flex; gap: 8px; align-items: center; } .orka-rail-toggle { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.04); color: #cdd6f4; border-radius: 10px; padding: 9px 11px; font-size: 12px; cursor: pointer; transition: background 0.15s; } .orka-rail-toggle:hover { background: rgba(255, 255, 255, 0.1); } .orka-rail-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; } .orka-rail-empty { text-align: center; color: #6c7086; font-style: italic; font-size: 13px; padding: 48px 20px; line-height: 1.6; } /* ---- Comment card ---- */ .orka-comment-card { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 12px 14px; animation: orka-card-in 0.22s ease-out; cursor: pointer; transition: border-color 0.15s, background 0.15s, transform 0.15s; } .orka-comment-card:hover { background: rgba(255, 255, 255, 0.07); border-color: rgba(250, 179, 135, 0.4); } .orka-comment-card.active { border-color: rgba(250, 179, 135, 0.7); background: rgba(250, 179, 135, 0.08); box-shadow: 0 0 0 2px rgba(250, 179, 135, 0.18); } .orka-comment-card.resolved { opacity: 0.5; border-style: dashed; } .orka-card-snippet { background: rgba(250, 179, 135, 0.08); border-left: 3px solid rgba(250, 179, 135, 0.6); padding: 8px 10px; font-size: 12px; color: #a6adc8; font-family: ui-monospace, monospace; border-radius: 6px; max-height: 70px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; margin-bottom: 8px; } .orka-card-body { font-size: 13px; color: #ecf0fe; line-height: 1.55; white-space: pre-wrap; margin-bottom: 6px; } .orka-card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #6c7086; padding-top: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.06); } .orka-card-actions { display: flex; gap: 4px; } .orka-card-btn { background: transparent; border: 0; color: #a6adc8; cursor: pointer; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-family: inherit; transition: color 0.12s, background 0.12s; } .orka-card-btn:hover { background: rgba(255, 255, 255, 0.08); color: #ecf0fe; } .orka-card-btn.danger:hover { background: rgba(243, 139, 168, 0.14); color: #f38ba8; } @keyframes orka-card-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } } /* ---- Floating selection toolbar (Comment + Ask) ---- */ .orka-selection-toolbar { position: absolute; z-index: 2147483646; display: none; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(17, 18, 42, 0.94); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); font-family: -apple-system, BlinkMacSystemFont, sans-serif; user-select: none; animation: orka-tool-in 0.14s ease-out; } @keyframes orka-tool-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } } .orka-selection-toolbar-btn { padding: 7px 13px; border-radius: 999px; border: 0; color: #cdd6f4; font-size: 12px; font-weight: 600; cursor: pointer; line-height: 1; background: transparent; display: inline-flex; align-items: center; gap: 6px; transition: background 0.12s, color 0.12s; font-family: inherit; } .orka-selection-toolbar-btn svg { flex-shrink: 0; } .orka-selection-toolbar-btn.comment:hover { background: rgba(250, 179, 135, 0.18); color: #fab387; } .orka-selection-toolbar-btn.ask:hover { background: rgba(137, 180, 250, 0.18); color: #89b4fa; } .orka-selection-toolbar-divider { width: 1px; background: rgba(255, 255, 255, 0.08); margin: 4px 0; } /* ---- Ask input (mini prompt anchored to selection) ---- */ .orka-ask-inline { position: absolute; z-index: 2147483646; display: none; gap: 8px; padding: 10px; border-radius: 14px; background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98)); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); color: #ecf0fe; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.02) inset; font-family: -apple-system, BlinkMacSystemFont, sans-serif; align-items: flex-start; width: min(400px, 92vw); box-sizing: border-box; animation: orka-modal-rise 0.16s ease-out; } .orka-ask-inline textarea { flex: 1; min-height: 44px; max-height: 140px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 13px; resize: none; outline: none; color: #ecf0fe; background: rgba(255, 255, 255, 0.04); box-sizing: border-box; transition: border-color 0.15s, background 0.15s; } .orka-ask-inline textarea::placeholder { color: #6c7086; } .orka-ask-inline textarea:focus { border-color: rgba(137, 180, 250, 0.55); background: rgba(255, 255, 255, 0.06); box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.18); } .orka-ask-inline button { padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(137, 180, 250, 0.45); background: linear-gradient(180deg, rgba(137, 180, 250, 0.28), rgba(137, 180, 250, 0.16)); color: #89b4fa; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; align-self: stretch; display: inline-flex; align-items: center; gap: 6px; transition: background 0.15s, border-color 0.15s; } .orka-ask-inline button:hover { background: rgba(137, 180, 250, 0.32); border-color: rgba(137, 180, 250, 0.65); } .orka-ask-inline button:disabled { opacity: 0.4; cursor: default; } /* ---- Ask answer modal (draggable + minimizable) ---- */ .orka-ask-modal { position: fixed; z-index: 2147483645; width: min(480px, 92vw); max-height: 70vh; background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98)); backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%); color: #ecf0fe; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; box-shadow: 0 32px 72px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.02) inset; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; overflow: hidden; animation: orka-modal-rise 0.2s ease-out; } .orka-ask-modal-header { display: flex; align-items: center; gap: 8px; padding: 11px 14px; background: rgba(255, 255, 255, 0.03); border-bottom: 1px solid rgba(255, 255, 255, 0.06); cursor: move; user-select: none; } .orka-ask-modal-header::before { content: \\'\\'; width: 6px; height: 6px; border-radius: 999px; background: #89b4fa; box-shadow: 0 0 8px rgba(137, 180, 250, 0.7); flex-shrink: 0; } .orka-ask-modal-title { flex: 1; font-size: 12px; font-weight: 600; color: #cdd6f4; letter-spacing: 0.1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .orka-ask-modal-icon-btn { width: 26px; height: 26px; border: 1px solid transparent; background: transparent; color: #a6adc8; cursor: pointer; border-radius: 8px; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; } .orka-ask-modal-icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #ecf0fe; } .orka-ask-modal-body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 1.6; } .orka-ask-question { font-size: 13px; font-weight: 600; color: #ecf0fe; padding-bottom: 4px; } .orka-ask-excerpt { font-size: 12px; color: #a6adc8; background: rgba(137, 180, 250, 0.08); border-left: 3px solid rgba(137, 180, 250, 0.6); border-radius: 8px; padding: 10px 12px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; font-family: ui-monospace, monospace; line-height: 1.5; } .orka-ask-excerpt-toggle { display: inline-block; margin-top: -4px; font-size: 11px; color: #89b4fa; cursor: pointer; user-select: none; padding: 3px 0; transition: color 0.12s; } .orka-ask-excerpt-toggle:hover { color: #b6d0fa; } .orka-ask-answer { white-space: pre-wrap; color: #ecf0fe; font-size: 13.5px; line-height: 1.65; } .orka-ask-loading { display: inline-flex; align-items: center; gap: 10px; color: #a6adc8; font-size: 13px; } .orka-ask-loading::before { content: \\'\\'; width: 13px; height: 13px; border: 2px solid rgba(137, 180, 250, 0.85); border-top-color: transparent; border-radius: 50%; animation: orka-ask-spin 0.8s linear infinite; } @keyframes orka-ask-spin { to { transform: rotate(360deg); } } .orka-ask-error { padding: 10px 12px; border-radius: 8px; background: rgba(243, 139, 168, 0.1); border-left: 3px solid #f38ba8; color: #f38ba8; font-size: 13px; } /* ---- Minimized-modal tray (bottom-right stack of pills) ---- */ .orka-ask-tray { position: fixed; bottom: 20px; right: 20px; z-index: 2147483646; display: flex; flex-direction: column; gap: 6px; max-width: 260px; } .orka-ask-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 999px; background: rgba(30, 30, 46, 0.94); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: #89b4fa; border: 1px solid rgba(137, 180, 250, 0.35); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; font-weight: 600; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; transition: background 0.15s, border-color 0.15s, transform 0.15s; animation: orka-toast-in 0.2s ease-out; } .orka-ask-pill:hover { background: rgba(137, 180, 250, 0.16); border-color: rgba(137, 180, 250, 0.55); transform: translateY(-1px); } .orka-ask-pill-close { background: rgba(255, 255, 255, 0.08); border: 0; color: #cdd6f4; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; transition: background 0.12s; } .orka-ask-pill-close:hover { background: rgba(243, 139, 168, 0.3); color: #f38ba8; } /* ---- Write dialog (modal for typing) ---- */ .orka-comment-dialog-overlay { position: fixed; inset: 0; z-index: 2147483647; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif; animation: orka-fade-in 0.14s ease-out; } @keyframes orka-fade-in { from { opacity: 0; } to { opacity: 1; } } .orka-comment-dialog { background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98)); backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%); color: #ecf0fe; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; width: min(520px, 92vw); padding: 22px 24px; box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.02) inset; display: flex; flex-direction: column; gap: 14px; animation: orka-modal-rise 0.18s ease-out; } @keyframes orka-modal-rise { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } } .orka-comment-dialog-title { font-size: 15px; font-weight: 600; margin: 0; color: #ecf0fe; display: inline-flex; align-items: center; gap: 8px; } .orka-comment-dialog-title::before { content: \\'\\'; width: 6px; height: 6px; border-radius: 999px; background: #fab387; box-shadow: 0 0 8px rgba(250, 179, 135, 0.7); } .orka-comment-dialog-snippet { font-size: 12px; color: #a6adc8; background: rgba(250, 179, 135, 0.08); border-radius: 8px; padding: 10px 12px; max-height: 100px; overflow: auto; white-space: pre-wrap; border-left: 3px solid rgba(250, 179, 135, 0.6); font-family: ui-monospace, monospace; line-height: 1.5; } .orka-comment-dialog-textarea { width: 100%; min-height: 110px; padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; font-family: inherit; font-size: 14px; resize: vertical; color: #ecf0fe; background: rgba(255, 255, 255, 0.04); box-sizing: border-box; transition: border-color 0.15s, background 0.15s; outline: none; } .orka-comment-dialog-textarea::placeholder { color: #6c7086; } .orka-comment-dialog-textarea:focus { border-color: rgba(250, 179, 135, 0.55); background: rgba(255, 255, 255, 0.06); box-shadow: 0 0 0 2px rgba(250, 179, 135, 0.18); } .orka-comment-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; } .orka-comment-dialog-btn { padding: 9px 16px; border-radius: 10px; border: 1px solid transparent; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s, border-color 0.15s; } .orka-comment-dialog-btn.primary { background: linear-gradient(180deg, rgba(250, 179, 135, 0.28), rgba(250, 179, 135, 0.16)); border-color: rgba(250, 179, 135, 0.45); color: #fab387; } .orka-comment-dialog-btn.primary:hover { background: rgba(250, 179, 135, 0.32); border-color: rgba(250, 179, 135, 0.65); } .orka-comment-dialog-btn.secondary { background: rgba(255, 255, 255, 0.04); color: #a6adc8; border-color: rgba(255, 255, 255, 0.08); } .orka-comment-dialog-btn.secondary:hover { background: rgba(255, 255, 255, 0.1); color: #ecf0fe; } /* ---- Toast ---- */ .orka-comment-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483647; background: rgba(30, 30, 46, 0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); color: #a6e3a1; padding: 10px 18px; border-radius: 999px; border: 1px solid rgba(166, 227, 161, 0.35); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; font-weight: 600; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4); animation: orka-toast-in 0.2s ease-out; } .orka-comment-toast.error { color: #f38ba8; border-color: rgba(243, 139, 168, 0.4); } @keyframes orka-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } } .orka-rail-handle { position: fixed; right: 0; top: 20px; width: 44px; min-height: 52px; background: rgba(17, 18, 42, 0.92); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); color: #fab387; border: 1px solid rgba(250, 179, 135, 0.35); border-right: 0; border-radius: 12px 0 0 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; font-weight: 700; font-size: 16px; box-shadow: -6px 0 20px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 8px 0; z-index: 2147483646; transition: transform 0.18s ease-out, background 0.15s; } .orka-rail-handle:hover { transform: translateX(-3px); background: rgba(250, 179, 135, 0.16); } .orka-rail-handle-badge { font-size: 10px; font-weight: 700; background: #fab387; color: #11122a; border-radius: 999px; padding: 2px 7px; min-width: 18px; text-align: center; line-height: 1.2; box-shadow: 0 0 8px rgba(250, 179, 135, 0.5); } .orka-rail-handle-badge[data-count="0"] { display: none; } .orka-rail-handle.hidden { display: none; } @media (max-width: 800px) { #orka-review-rail { width: 100vw; max-width: 100vw; top: auto; height: 70vh; transform: translateY(100%); border-left: 0; border-top: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px 16px 0 0; } #orka-review-rail.open { transform: translateY(0); } .orka-rail-handle { right: 20px; bottom: 20px; top: auto; border-radius: 999px; border: 1px solid rgba(250, 179, 135, 0.35); width: 52px; height: 52px; flex-direction: row; } .orka-rail-handle:hover { transform: translateY(-3px); } }';
+  _styleEl.textContent = ':host { all: initial !important; display: block !important; } :host *, :host *::before, :host *::after { box-sizing: border-box; } /* ---- Rail as a FIXED overlay — the document\\'s own layout is left completely untouched. The rail lives on the right edge; by default it\\'s translated off-screen with just a small handle poking in. Click the handle (or a highlighted phrase in the doc) to open it. ---- */ #orka-review-rail { position: fixed; top: 0; right: 0; bottom: 0; width: 380px; max-width: 90vw; background: linear-gradient(180deg, rgba(17, 18, 42, 0.96), rgba(10, 11, 31, 0.96)); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); border-left: 1px solid rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, \\'Segoe UI\\', Roboto, sans-serif; color: #cdd6f4; z-index: 2147483645; transform: translateX(100%); transition: transform 0.22s ease-out; box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35); } #orka-review-rail.open { transform: translateX(0); } .orka-rail-header { padding: 16px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; gap: 12px; position: sticky; top: 0; z-index: 5; } .orka-rail-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; letter-spacing: 0.2px; color: #ecf0fe; } .orka-rail-count { background: rgba(255, 255, 255, 0.08); color: #a6adc8; padding: 2px 9px; border-radius: 999px; font-family: ui-monospace, monospace; font-size: 11px; border: 1px solid rgba(255, 255, 255, 0.06); } .orka-rail-apply { flex: 1; padding: 9px 14px; border-radius: 10px; border: 1px solid rgba(250, 179, 135, 0.35); background: linear-gradient(180deg, rgba(250, 179, 135, 0.22), rgba(250, 179, 135, 0.12)); color: #fab387; font-weight: 600; font-size: 12px; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: background 0.15s, border-color 0.15s; } .orka-rail-apply:hover { background: rgba(250, 179, 135, 0.3); border-color: rgba(250, 179, 135, 0.55); } .orka-rail-apply:disabled { opacity: 0.4; cursor: not-allowed; } .orka-rail-clear { background: rgba(243, 139, 168, 0.16); color: #f38ba8; border: 1px solid rgba(243, 139, 168, 0.35); border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background 0.15s, border-color 0.15s; } .orka-rail-clear:hover { background: rgba(243, 139, 168, 0.28); border-color: rgba(243, 139, 168, 0.55); } .orka-rail-clear:disabled { opacity: 0.35; cursor: not-allowed; } .orka-rail-apply.flash-ok { background: rgba(166, 227, 161, 0.25); border-color: rgba(166, 227, 161, 0.55); color: #a6e3a1; } .orka-rail-actions { display: flex; gap: 8px; align-items: center; } .orka-rail-toggle { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.04); color: #cdd6f4; border-radius: 10px; padding: 9px 11px; font-size: 12px; cursor: pointer; transition: background 0.15s; } .orka-rail-toggle:hover { background: rgba(255, 255, 255, 0.1); } .orka-rail-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; } .orka-rail-empty { text-align: center; color: #6c7086; font-style: italic; font-size: 13px; padding: 48px 20px; line-height: 1.6; } /* ---- Comment card ---- */ .orka-comment-card { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 12px 14px; animation: orka-card-in 0.22s ease-out; cursor: pointer; transition: border-color 0.15s, background 0.15s, transform 0.15s; } .orka-comment-card:hover { background: rgba(255, 255, 255, 0.07); border-color: rgba(250, 179, 135, 0.4); } .orka-comment-card.active { border-color: rgba(250, 179, 135, 0.7); background: rgba(250, 179, 135, 0.08); box-shadow: 0 0 0 2px rgba(250, 179, 135, 0.18); } .orka-comment-card.resolved { opacity: 0.5; border-style: dashed; } .orka-card-snippet { background: rgba(250, 179, 135, 0.08); border-left: 3px solid rgba(250, 179, 135, 0.6); padding: 8px 10px; font-size: 12px; color: #a6adc8; font-family: ui-monospace, monospace; border-radius: 6px; max-height: 70px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; margin-bottom: 8px; } .orka-card-body { font-size: 13px; color: #ecf0fe; line-height: 1.55; white-space: pre-wrap; margin-bottom: 6px; } .orka-card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #6c7086; padding-top: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.06); } .orka-card-actions { display: flex; gap: 4px; } .orka-card-btn { background: transparent; border: 0; color: #a6adc8; cursor: pointer; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-family: inherit; transition: color 0.12s, background 0.12s; } .orka-card-btn:hover { background: rgba(255, 255, 255, 0.08); color: #ecf0fe; } .orka-card-btn.danger:hover { background: rgba(243, 139, 168, 0.14); color: #f38ba8; } @keyframes orka-card-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } } /* ---- Floating selection toolbar (Comment + Ask) ---- */ .orka-selection-toolbar { position: absolute; z-index: 2147483646; display: none; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(17, 18, 42, 0.94); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); font-family: -apple-system, BlinkMacSystemFont, sans-serif; user-select: none; animation: orka-tool-in 0.14s ease-out; } @keyframes orka-tool-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } } .orka-selection-toolbar-btn { padding: 7px 13px; border-radius: 999px; border: 0; color: #cdd6f4; font-size: 12px; font-weight: 600; cursor: pointer; line-height: 1; background: transparent; display: inline-flex; align-items: center; gap: 6px; transition: background 0.12s, color 0.12s; font-family: inherit; } .orka-selection-toolbar-btn svg { flex-shrink: 0; } .orka-selection-toolbar-btn.comment:hover { background: rgba(250, 179, 135, 0.18); color: #fab387; } .orka-selection-toolbar-btn.ask:hover { background: rgba(137, 180, 250, 0.18); color: #89b4fa; } .orka-selection-toolbar-divider { width: 1px; background: rgba(255, 255, 255, 0.08); margin: 4px 0; } /* ---- Ask input (mini prompt anchored to selection) ---- */ .orka-ask-inline { position: absolute; z-index: 2147483646; display: none; gap: 8px; padding: 10px; border-radius: 14px; background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98)); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); color: #ecf0fe; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.02) inset; font-family: -apple-system, BlinkMacSystemFont, sans-serif; align-items: flex-start; width: min(400px, 92vw); box-sizing: border-box; animation: orka-modal-rise 0.16s ease-out; } .orka-ask-inline textarea { flex: 1; min-height: 44px; max-height: 140px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 13px; resize: none; outline: none; color: #ecf0fe; background: rgba(255, 255, 255, 0.04); box-sizing: border-box; transition: border-color 0.15s, background 0.15s; } .orka-ask-inline textarea::placeholder { color: #6c7086; } .orka-ask-inline textarea:focus { border-color: rgba(137, 180, 250, 0.55); background: rgba(255, 255, 255, 0.06); box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.18); } .orka-ask-inline button { padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(137, 180, 250, 0.45); background: linear-gradient(180deg, rgba(137, 180, 250, 0.28), rgba(137, 180, 250, 0.16)); color: #89b4fa; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; align-self: stretch; display: inline-flex; align-items: center; gap: 6px; transition: background 0.15s, border-color 0.15s; } .orka-ask-inline button:hover { background: rgba(137, 180, 250, 0.32); border-color: rgba(137, 180, 250, 0.65); } .orka-ask-inline button:disabled { opacity: 0.4; cursor: default; } /* ---- Ask answer modal (draggable + minimizable) ---- */ .orka-ask-modal { position: fixed; z-index: 2147483645; width: min(560px, 92vw); max-height: 78vh; height: min(620px, 78vh); background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98)); backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%); color: #ecf0fe; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; box-shadow: 0 32px 72px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.02) inset; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; overflow: hidden; animation: orka-modal-rise 0.2s ease-out; } .orka-ask-modal-body { flex: 1; } .orka-ask-turns { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; } .orka-ask-turn { display: flex; } .orka-ask-turn-user { justify-content: flex-end; } .orka-ask-turn-assistant { justify-content: flex-start; } .orka-ask-bubble { max-width: 86%; padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.55; } .orka-ask-bubble-user { background: linear-gradient(180deg, rgba(137, 180, 250, 0.22), rgba(137, 180, 250, 0.12)); border: 1px solid rgba(137, 180, 250, 0.35); color: #ecf0fe; white-space: pre-wrap; word-break: break-word; border-top-right-radius: 4px; } .orka-ask-bubble-assistant { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); color: #ecf0fe; border-top-left-radius: 4px; } .orka-ask-modal-footer { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.02); align-items: flex-end; } .orka-ask-follow-input { flex: 1; min-height: 38px; max-height: 160px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 9px 12px; font-family: inherit; font-size: 13px; resize: none; outline: none; color: #ecf0fe; background: rgba(255, 255, 255, 0.04); line-height: 1.5; transition: border-color 0.15s, background 0.15s; } .orka-ask-follow-input::placeholder { color: #6c7086; } .orka-ask-follow-input:focus { border-color: rgba(137, 180, 250, 0.55); background: rgba(255, 255, 255, 0.06); box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.18); } .orka-ask-follow-send { padding: 0 14px; min-width: 44px; height: 38px; border-radius: 10px; border: 1px solid rgba(137, 180, 250, 0.45); background: linear-gradient(180deg, rgba(137, 180, 250, 0.28), rgba(137, 180, 250, 0.16)); color: #89b4fa; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s, border-color 0.15s; } .orka-ask-follow-send:hover { background: rgba(137, 180, 250, 0.32); border-color: rgba(137, 180, 250, 0.65); } .orka-ask-follow-send:disabled { opacity: 0.4; cursor: default; } .orka-ask-modal-header { display: flex; align-items: center; gap: 8px; padding: 11px 14px; background: rgba(255, 255, 255, 0.03); border-bottom: 1px solid rgba(255, 255, 255, 0.06); cursor: move; user-select: none; } .orka-ask-modal-header::before { content: \\'\\'; width: 6px; height: 6px; border-radius: 999px; background: #89b4fa; box-shadow: 0 0 8px rgba(137, 180, 250, 0.7); flex-shrink: 0; } .orka-ask-modal-title { flex: 1; font-size: 12px; font-weight: 600; color: #cdd6f4; letter-spacing: 0.1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .orka-ask-modal-icon-btn { width: 26px; height: 26px; border: 1px solid transparent; background: transparent; color: #a6adc8; cursor: pointer; border-radius: 8px; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; } .orka-ask-modal-icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #ecf0fe; } .orka-ask-modal-body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 1.6; } .orka-ask-question { font-size: 13px; font-weight: 600; color: #ecf0fe; padding-bottom: 4px; } .orka-ask-excerpt { font-size: 12px; color: #a6adc8; background: rgba(137, 180, 250, 0.08); border-left: 3px solid rgba(137, 180, 250, 0.6); border-radius: 8px; padding: 10px 12px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; font-family: ui-monospace, monospace; line-height: 1.5; } .orka-ask-excerpt-toggle { display: inline-block; margin-top: -4px; font-size: 11px; color: #89b4fa; cursor: pointer; user-select: none; padding: 3px 0; transition: color 0.12s; } .orka-ask-excerpt-toggle:hover { color: #b6d0fa; } .orka-ask-answer { color: #ecf0fe; font-size: 13.5px; line-height: 1.65; } .orka-md > *:first-child { margin-top: 0; } .orka-md > *:last-child { margin-bottom: 0; } .orka-md p { margin: 0 0 10px 0; } .orka-md h1, .orka-md h2, .orka-md h3, .orka-md h4, .orka-md h5, .orka-md h6 { color: #ecf0fe; font-weight: 700; line-height: 1.3; margin: 14px 0 6px 0; } .orka-md h1 { font-size: 18px; } .orka-md h2 { font-size: 16px; } .orka-md h3 { font-size: 15px; } .orka-md h4, .orka-md h5, .orka-md h6 { font-size: 13.5px; } .orka-md ul, .orka-md ol { margin: 0 0 10px 0; padding-left: 22px; } .orka-md li { margin: 2px 0; } .orka-md li > p { margin: 0; } .orka-md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: rgba(137, 180, 250, 0.14); color: #cdd6f4; padding: 1px 6px; border-radius: 4px; } .orka-md pre { margin: 10px 0; padding: 10px 12px; background: rgba(17, 18, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; overflow: auto; } .orka-md pre code { background: transparent; padding: 0; font-size: 12.5px; line-height: 1.55; color: #ecf0fe; display: block; white-space: pre; } .orka-md a { color: #89b4fa; text-decoration: underline; text-underline-offset: 2px; } .orka-md a:hover { color: #b6d0fa; } .orka-md strong { color: #ffd7a7; font-weight: 700; } .orka-md em { color: #cdd6f4; font-style: italic; } .orka-md blockquote { margin: 10px 0; padding: 8px 12px; border-left: 3px solid rgba(137, 180, 250, 0.5); background: rgba(137, 180, 250, 0.06); color: #a6adc8; border-radius: 0 8px 8px 0; } .orka-ask-loading { display: inline-flex; align-items: center; gap: 10px; color: #a6adc8; font-size: 13px; } .orka-ask-loading::before { content: \\'\\'; width: 13px; height: 13px; border: 2px solid rgba(137, 180, 250, 0.85); border-top-color: transparent; border-radius: 50%; animation: orka-ask-spin 0.8s linear infinite; } @keyframes orka-ask-spin { to { transform: rotate(360deg); } } .orka-ask-error { padding: 10px 12px; border-radius: 8px; background: rgba(243, 139, 168, 0.1); border-left: 3px solid #f38ba8; color: #f38ba8; font-size: 13px; } /* ---- Minimized-modal tray (bottom-right stack of pills) ---- */ .orka-ask-tray { position: fixed; bottom: 20px; right: 20px; z-index: 2147483646; display: flex; flex-direction: column; gap: 6px; max-width: 260px; } .orka-ask-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 999px; background: rgba(30, 30, 46, 0.94); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: #89b4fa; border: 1px solid rgba(137, 180, 250, 0.35); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; font-weight: 600; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; transition: background 0.15s, border-color 0.15s, transform 0.15s; animation: orka-toast-in 0.2s ease-out; } .orka-ask-pill:hover { background: rgba(137, 180, 250, 0.16); border-color: rgba(137, 180, 250, 0.55); transform: translateY(-1px); } .orka-ask-pill-close { background: rgba(255, 255, 255, 0.08); border: 0; color: #cdd6f4; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; transition: background 0.12s; } .orka-ask-pill-close:hover { background: rgba(243, 139, 168, 0.3); color: #f38ba8; } /* ---- Write dialog (modal for typing) ---- */ .orka-comment-dialog-overlay { position: fixed; inset: 0; z-index: 2147483647; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif; animation: orka-fade-in 0.14s ease-out; } @keyframes orka-fade-in { from { opacity: 0; } to { opacity: 1; } } .orka-comment-dialog { background: linear-gradient(180deg, rgba(24, 25, 54, 0.98), rgba(15, 16, 36, 0.98)); backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%); color: #ecf0fe; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; width: min(520px, 92vw); padding: 22px 24px; box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.02) inset; display: flex; flex-direction: column; gap: 14px; animation: orka-modal-rise 0.18s ease-out; } @keyframes orka-modal-rise { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } } .orka-comment-dialog-title { font-size: 15px; font-weight: 600; margin: 0; color: #ecf0fe; display: inline-flex; align-items: center; gap: 8px; } .orka-comment-dialog-title::before { content: \\'\\'; width: 6px; height: 6px; border-radius: 999px; background: #fab387; box-shadow: 0 0 8px rgba(250, 179, 135, 0.7); } .orka-comment-dialog-snippet { font-size: 12px; color: #a6adc8; background: rgba(250, 179, 135, 0.08); border-radius: 8px; padding: 10px 12px; max-height: 100px; overflow: auto; white-space: pre-wrap; border-left: 3px solid rgba(250, 179, 135, 0.6); font-family: ui-monospace, monospace; line-height: 1.5; } .orka-comment-dialog-textarea { width: 100%; min-height: 110px; padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; font-family: inherit; font-size: 14px; resize: vertical; color: #ecf0fe; background: rgba(255, 255, 255, 0.04); box-sizing: border-box; transition: border-color 0.15s, background 0.15s; outline: none; } .orka-comment-dialog-textarea::placeholder { color: #6c7086; } .orka-comment-dialog-textarea:focus { border-color: rgba(250, 179, 135, 0.55); background: rgba(255, 255, 255, 0.06); box-shadow: 0 0 0 2px rgba(250, 179, 135, 0.18); } .orka-comment-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; } .orka-comment-dialog-btn { padding: 9px 16px; border-radius: 10px; border: 1px solid transparent; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s, border-color 0.15s; } .orka-comment-dialog-btn.primary { background: linear-gradient(180deg, rgba(250, 179, 135, 0.28), rgba(250, 179, 135, 0.16)); border-color: rgba(250, 179, 135, 0.45); color: #fab387; } .orka-comment-dialog-btn.primary:hover { background: rgba(250, 179, 135, 0.32); border-color: rgba(250, 179, 135, 0.65); } .orka-comment-dialog-btn.secondary { background: rgba(255, 255, 255, 0.04); color: #a6adc8; border-color: rgba(255, 255, 255, 0.08); } .orka-comment-dialog-btn.secondary:hover { background: rgba(255, 255, 255, 0.1); color: #ecf0fe; } /* ---- Toast ---- */ .orka-comment-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483647; background: rgba(30, 30, 46, 0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); color: #a6e3a1; padding: 10px 18px; border-radius: 999px; border: 1px solid rgba(166, 227, 161, 0.35); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; font-weight: 600; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4); animation: orka-toast-in 0.2s ease-out; } .orka-comment-toast.error { color: #f38ba8; border-color: rgba(243, 139, 168, 0.4); } @keyframes orka-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } } .orka-rail-handle { position: fixed; right: 0; top: 20px; width: 44px; min-height: 52px; background: rgba(17, 18, 42, 0.92); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); color: #fab387; border: 1px solid rgba(250, 179, 135, 0.35); border-right: 0; border-radius: 12px 0 0 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; font-weight: 700; font-size: 16px; box-shadow: -6px 0 20px rgba(0, 0, 0, 0.35); font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 8px 0; z-index: 2147483646; transition: transform 0.18s ease-out, background 0.15s; } .orka-rail-handle:hover { transform: translateX(-3px); background: rgba(250, 179, 135, 0.16); } .orka-rail-handle-badge { font-size: 10px; font-weight: 700; background: #fab387; color: #11122a; border-radius: 999px; padding: 2px 7px; min-width: 18px; text-align: center; line-height: 1.2; box-shadow: 0 0 8px rgba(250, 179, 135, 0.5); } .orka-rail-handle-badge[data-count="0"] { display: none; } .orka-rail-handle.hidden { display: none; } @media (max-width: 800px) { #orka-review-rail { width: 100vw; max-width: 100vw; top: auto; height: 70vh; transform: translateY(100%); border-left: 0; border-top: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px 16px 0 0; } #orka-review-rail.open { transform: translateY(0); } .orka-rail-handle { right: 20px; bottom: 20px; top: auto; border-radius: 999px; border: 1px solid rgba(250, 179, 135, 0.35); width: 52px; height: 52px; flex-direction: row; } .orka-rail-handle:hover { transform: translateY(-3px); } }';
   root.appendChild(_styleEl);
   var PROJECT_B64 = '${projectJs}';
   var FILE_PATH = '${filePathJs}';
@@ -574,7 +574,7 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
   var askInline = null;
 
   function closeAskInline() {
-    if (askInline && askInline.parentElement) askInline.parentElement.removeChild(askInline);
+    if (askInline) askInline.remove();
     askInline = null;
   }
 
@@ -615,12 +615,14 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
       launchAskModal(question, selectedText);
     });
 
-    // Clicking outside cancels — but skip when the click lands on the
-    // toolbar (already hidden) or the modal (opened by send).
     setTimeout(function() {
       var onDocDown = function(e) {
         if (!askInline) { document.removeEventListener('mousedown', onDocDown); return; }
-        if (!askInline.contains(e.target)) { closeAskInline(); document.removeEventListener('mousedown', onDocDown); }
+        var path = e.composedPath ? e.composedPath() : [e.target];
+        if (path.indexOf(askInline) === -1) {
+          closeAskInline();
+          document.removeEventListener('mousedown', onDocDown);
+        }
       };
       document.addEventListener('mousedown', onDocDown);
     }, 0);
@@ -677,38 +679,152 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
 
     var body = document.createElement('div');
     body.className = 'orka-ask-modal-body';
-    var qEl = document.createElement('div');
-    qEl.className = 'orka-ask-question';
-    qEl.textContent = question;
 
     var exEl = document.createElement('div');
     exEl.className = 'orka-ask-excerpt';
     exEl.textContent = selectedText;
+    exEl.style.display = 'none';
 
+    var lineCount = (selectedText.match(/\\n/g) || []).length + 1;
+    var charCount = selectedText.length;
     var toggle = document.createElement('span');
     toggle.className = 'orka-ask-excerpt-toggle';
-    toggle.textContent = 'Ocultar fragmento';
+    var toggleLabel = lineCount > 1
+      ? 'Mostrar fragmento (' + lineCount + ' lineas, ' + charCount + ' caracteres)'
+      : 'Mostrar fragmento (' + charCount + ' caracteres)';
+    toggle.textContent = toggleLabel;
     toggle.addEventListener('click', function() {
       var hidden = exEl.style.display === 'none';
       exEl.style.display = hidden ? 'block' : 'none';
-      toggle.textContent = hidden ? 'Ocultar fragmento' : 'Mostrar fragmento';
+      toggle.textContent = hidden ? 'Ocultar fragmento' : toggleLabel;
     });
 
-    var content = document.createElement('div');
-    var loading = document.createElement('div');
-    loading.className = 'orka-ask-loading';
-    loading.textContent = 'Pensando…';
-    content.appendChild(loading);
+    var turnsEl = document.createElement('div');
+    turnsEl.className = 'orka-ask-turns';
 
-    body.appendChild(qEl); body.appendChild(exEl); body.appendChild(toggle); body.appendChild(content);
-    modal.appendChild(header); modal.appendChild(body);
+    body.appendChild(toggle);
+    body.appendChild(exEl);
+    body.appendChild(turnsEl);
+
+    var footer = document.createElement('form');
+    footer.className = 'orka-ask-modal-footer';
+    var followTa = document.createElement('textarea');
+    followTa.className = 'orka-ask-follow-input';
+    followTa.rows = 1;
+    followTa.placeholder = 'Pregunta de seguimiento… (Enter envia, Shift+Enter salto de linea)';
+    var followSend = document.createElement('button');
+    followSend.type = 'submit';
+    followSend.className = 'orka-ask-follow-send';
+    followSend.innerHTML = ICON_SEND;
+    followSend.title = 'Enviar';
+    footer.appendChild(followTa);
+    footer.appendChild(followSend);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
     root.appendChild(modal);
 
     var off = nextModalOffset();
     modal.style.top = off.top + 'px';
     modal.style.right = off.right + 'px';
 
-    // Drag from the header.
+    var history = [];
+    var busy = false;
+
+    function scrollTurnsToBottom() {
+      body.scrollTop = body.scrollHeight;
+    }
+
+    function appendUserTurn(text) {
+      var turn = document.createElement('div');
+      turn.className = 'orka-ask-turn orka-ask-turn-user';
+      var bubble = document.createElement('div');
+      bubble.className = 'orka-ask-bubble orka-ask-bubble-user';
+      bubble.textContent = text;
+      turn.appendChild(bubble);
+      turnsEl.appendChild(turn);
+      scrollTurnsToBottom();
+    }
+
+    function appendAssistantTurn(markdown) {
+      var turn = document.createElement('div');
+      turn.className = 'orka-ask-turn orka-ask-turn-assistant';
+      var bubble = document.createElement('div');
+      bubble.className = 'orka-ask-bubble orka-ask-bubble-assistant orka-md';
+      bubble.innerHTML = renderMarkdown(markdown);
+      turn.appendChild(bubble);
+      turnsEl.appendChild(turn);
+      scrollTurnsToBottom();
+    }
+
+    function appendLoadingTurn() {
+      var turn = document.createElement('div');
+      turn.className = 'orka-ask-turn orka-ask-turn-assistant';
+      var loading = document.createElement('div');
+      loading.className = 'orka-ask-loading';
+      loading.textContent = 'Pensando…';
+      turn.appendChild(loading);
+      turnsEl.appendChild(turn);
+      scrollTurnsToBottom();
+      return turn;
+    }
+
+    function appendErrorTurn(message) {
+      var turn = document.createElement('div');
+      turn.className = 'orka-ask-turn orka-ask-turn-assistant';
+      var err = document.createElement('div');
+      err.className = 'orka-ask-error';
+      err.textContent = message;
+      turn.appendChild(err);
+      turnsEl.appendChild(turn);
+      scrollTurnsToBottom();
+    }
+
+    function setBusy(next) {
+      busy = next;
+      followSend.disabled = next;
+      followTa.disabled = next;
+    }
+
+    function askTurn(q) {
+      if (!q || busy) return;
+      setBusy(true);
+      appendUserTurn(q);
+      var pending = appendLoadingTurn();
+      var sent = history.slice();
+
+      fetch(API_BASE + '/ai/ask-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: q,
+          selectedText: selectedText,
+          documentText: getDocText(),
+          filePath: FILE_PATH,
+          history: sent,
+        }),
+      }).then(function(r) {
+        return r.json().then(function(d) { return { ok: r.ok, data: d }; });
+      }).then(function(result) {
+        pending.remove();
+        if (!result.ok || (result.data && result.data.error)) {
+          appendErrorTurn((result.data && result.data.error) || 'La solicitud fallo.');
+        } else {
+          var ans = (result.data && result.data.answer) || '(respuesta vacia)';
+          appendAssistantTurn(ans);
+          history.push({ role: 'user', content: q });
+          history.push({ role: 'assistant', content: ans });
+        }
+      }).catch(function(e) {
+        pending.remove();
+        appendErrorTurn('Error de red: ' + (e && e.message || 'desconocido'));
+      }).then(function() {
+        setBusy(false);
+        try { followTa.focus(); } catch (_) {}
+      });
+    }
+
     (function() {
       var drag = null;
       header.addEventListener('mousedown', function(e) {
@@ -749,41 +865,102 @@ function buildCommentsOverlay(opts: { projectB64: string; filePath: string }): s
       tray.appendChild(pill);
     });
 
-    // Fire the request.
-    fetch(API_BASE + '/ai/ask-document', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question: question,
-        selectedText: selectedText,
-        documentText: getDocText(),
-        filePath: FILE_PATH,
-      }),
-    }).then(function(r) {
-      return r.json().then(function(d) { return { ok: r.ok, data: d }; });
-    }).then(function(result) {
-      content.innerHTML = '';
-      if (!result.ok || result.data && result.data.error) {
-        var err = document.createElement('div');
-        err.className = 'orka-ask-error';
-        err.textContent = (result.data && result.data.error) || 'La solicitud falló.';
-        content.appendChild(err);
-        return;
-      }
-      var ans = document.createElement('div');
-      ans.className = 'orka-ask-answer';
-      ans.textContent = (result.data && result.data.answer) || '(respuesta vacía)';
-      content.appendChild(ans);
-    }).catch(function(e) {
-      content.innerHTML = '';
-      var err = document.createElement('div');
-      err.className = 'orka-ask-error';
-      err.textContent = 'Error de red: ' + (e && e.message || 'desconocido');
-      content.appendChild(err);
+    followTa.addEventListener('input', function() {
+      followTa.style.height = 'auto';
+      followTa.style.height = Math.min(followTa.scrollHeight, 160) + 'px';
     });
+
+    followTa.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        var q = followTa.value.trim();
+        if (!q || busy) return;
+        followTa.value = '';
+        followTa.style.height = 'auto';
+        askTurn(q);
+      }
+    });
+
+    footer.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var q = followTa.value.trim();
+      if (!q || busy) return;
+      followTa.value = '';
+      followTa.style.height = 'auto';
+      askTurn(q);
+    });
+
+    askTurn(question);
   }
 
   // -------- Helpers --------------------------------------------------
+
+  function renderMarkdown(src) {
+    if (!src) return '';
+    var esc = function(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
+    var fences = [];
+    src = src.replace(/\`\`\`([a-zA-Z0-9_-]*)\\n([\\s\\S]*?)\`\`\`/g, function(_, lang, code) {
+      fences.push({ lang: lang, code: code });
+      return '\\u0000FENCE' + (fences.length - 1) + '\\u0000';
+    });
+    var inlines = [];
+    src = src.replace(/\`([^\`\\n]+)\`/g, function(_, code) {
+      inlines.push(code);
+      return '\\u0000CODE' + (inlines.length - 1) + '\\u0000';
+    });
+    src = esc(src);
+    src = src.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
+    src = src.replace(/^##### (.+)$/gm, '<h5>$1</h5>');
+    src = src.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+    src = src.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    src = src.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    src = src.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    src = src.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<strong>$1</strong>');
+    src = src.replace(/__([^_\\n]+)__/g, '<strong>$1</strong>');
+    src = src.replace(/(^|[^*\\w])\\*([^*\\n]+)\\*(?!\\w)/g, '$1<em>$2</em>');
+    src = src.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, function(_, label, url) {
+      var safe = /^(https?:\\/\\/|mailto:|\\/)/.test(url) ? url : '#';
+      return '<a href="' + safe + '" target="_blank" rel="noopener">' + label + '</a>';
+    });
+    var lines = src.split('\\n');
+    var out = [];
+    var inList = null;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var ul = line.match(/^\\s*[-*+] (.+)$/);
+      var ol = line.match(/^\\s*\\d+\\. (.+)$/);
+      if (ul) {
+        if (inList !== 'ul') { if (inList) out.push('</' + inList + '>'); out.push('<ul>'); inList = 'ul'; }
+        out.push('<li>' + ul[1] + '</li>');
+      } else if (ol) {
+        if (inList !== 'ol') { if (inList) out.push('</' + inList + '>'); out.push('<ol>'); inList = 'ol'; }
+        out.push('<li>' + ol[1] + '</li>');
+      } else {
+        if (inList) { out.push('</' + inList + '>'); inList = null; }
+        out.push(line);
+      }
+    }
+    if (inList) out.push('</' + inList + '>');
+    src = out.join('\\n');
+    var blocks = src.split(/\\n\\n+/);
+    src = blocks.map(function(b) {
+      var trimmed = b.trim();
+      if (!trimmed) return '';
+      if (/^<(h[1-6]|ul|ol|pre|blockquote)/.test(trimmed)) return trimmed;
+      if (/^\\u0000FENCE\\d+\\u0000$/.test(trimmed)) return trimmed;
+      return '<p>' + trimmed.replace(/\\n/g, '<br>') + '</p>';
+    }).join('\\n');
+    src = src.replace(/\\u0000CODE(\\d+)\\u0000/g, function(_, i) {
+      return '<code>' + esc(inlines[+i]) + '</code>';
+    });
+    src = src.replace(/\\u0000FENCE(\\d+)\\u0000/g, function(_, i) {
+      var f = fences[+i];
+      return '<pre><code' + (f.lang ? ' class="lang-' + esc(f.lang) + '"' : '') + '>' + esc(f.code) + '</code></pre>';
+    });
+    return src;
+  }
 
   function computeLineRange(text) {
     if (!sourceText) return { startLine: 1, endLine: 1 };

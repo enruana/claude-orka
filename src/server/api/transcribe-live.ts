@@ -86,12 +86,16 @@ interface Session {
   emittedMs: number            // audio time already committed
   receivedMs: number           // total audio time received from the client
   emittedTail: string          // tail of previously-emitted text (prompt + dedup)
+  recentNormTokens: string[]   // last ~CROSS_CHUNK_WINDOW normalized tokens; feeds cross-chunk repeat guard
   processing: boolean          // guard against overlapping whisper spawns
   closed: boolean
   startedAt: number
   tempDir: string
   ws: WebSocket
 }
+
+const CROSS_CHUNK_WINDOW = 20
+const SILENCE_RMS_THRESHOLD = 150
 
 const activeSessions = new Set<Session>()
 
@@ -421,6 +425,56 @@ function isDegenerateChunk(text: string): boolean {
 }
 
 /**
+ * Trim leading tokens of `newText` whose normalized form continues an
+ * existing same-token run already present at the tail of `recentNorm`.
+ * Without this, chunks that produce 1-2 "I'm." each never trip the
+ * per-chunk guard but stack into a visible "I'm. I'm. I'm. …" wall
+ * across many consecutive chunks.
+ */
+function trimCrossChunkRun(
+  newText: string,
+  recentNorm: string[],
+): { text: string; trimmed: number } {
+  if (!newText) return { text: newText, trimmed: 0 }
+  const { raw, norm } = tokenizeForRepeat(newText)
+  if (raw.length === 0) return { text: newText, trimmed: 0 }
+
+  let tailRun = 0
+  const tailLast = recentNorm[recentNorm.length - 1] || ''
+  if (tailLast) {
+    for (let i = recentNorm.length - 1; i >= 0 && recentNorm[i] === tailLast; i--) tailRun++
+  }
+
+  let leadingSame = 0
+  if (tailLast) {
+    while (leadingSame < norm.length && norm[leadingSame] === tailLast) leadingSame++
+  }
+  if (leadingSame === 0) return { text: newText, trimmed: 0 }
+
+  const allowed = Math.max(0, REPEAT_RUN_THRESHOLD - tailRun)
+  const dropFromNew = Math.max(0, leadingSame - allowed)
+  if (dropFromNew === 0) return { text: newText, trimmed: 0 }
+
+  const kept = raw.slice(dropFromNew)
+  return { text: kept.join(' '), trimmed: dropFromNew }
+}
+
+/** RMS of PCM16 little-endian samples. Cheap pre-filter: whisper
+ *  hallucinates on silence more than any other condition, so dropping
+ *  near-mute chunks before synthesis kills the dominant failure mode
+ *  AND saves a whisper spawn per chunk. */
+function pcm16Rms(pcm: Buffer): number {
+  const count = Math.floor(pcm.length / 2)
+  if (count === 0) return 0
+  let sumSq = 0
+  for (let i = 0; i < pcm.length; i += 2) {
+    const s = pcm.readInt16LE(i)
+    sumSq += s * s
+  }
+  return Math.sqrt(sumSq / count)
+}
+
+/**
  * Levenshtein distance — small helper for the fuzzy tail matcher below.
  * Two strings under distance 2 are treated as "the same word" for
  * dedup purposes. This tolerates whisper's slight rephrasings on the
@@ -548,6 +602,12 @@ async function tryFinalize(sess: Session): Promise<void> {
   const until = since + hopMs
   sess.emittedMs = until
 
+  const rms = pcm16Rms(window)
+  if (rms < SILENCE_RMS_THRESHOLD) {
+    logger.debug(`[transcribe-live ${sess.id}] silence-skip hop=${hopMs}ms rms=${rms.toFixed(1)}`)
+    return
+  }
+
   const wavPath = path.join(sess.tempDir, `chunk-${since}.wav`)
   try {
     const header = buildWavHeader(window.length)
@@ -559,47 +619,36 @@ async function tryFinalize(sess: Session): Promise<void> {
     const backlogMs = msFromBytes(sess.buffer.length)
     logger.info(
       `[transcribe-live ${sess.id}] hop=${hopMs}ms window=${msFromBytes(window.length)}ms ` +
-      `infer=${inferMs}ms via=${backendChoice || 'unknown'} backlog=${backlogMs}ms chars=${raw.length}`
+      `infer=${inferMs}ms via=${backendChoice || 'unknown'} backlog=${backlogMs}ms chars=${raw.length} rms=${rms.toFixed(0)}`
     )
-    // Strip [Música], (music), etc. BEFORE the dedup pass so the
-    // annotation isn't the thing that gets matched between chunks.
     const speechOnly = stripNonSpeech(raw)
     const seamCleaned = dedupHead(speechOnly, sess.emittedTail)
-    // Collapse whisper hallucination loops ("to. to. to. …") to at most
-    // two occurrences. Also flag when the collapse was significant so
-    // we can protect the next chunk's prompt from cascading the bug.
     const { text: cleaned, collapsed } = collapseRepetitions(seamCleaned)
-    const degenerate = collapsed || isDegenerateChunk(seamCleaned)
-    if (degenerate) {
+    const { text: crossTrimmed, trimmed: crossCut } = trimCrossChunkRun(cleaned, sess.recentNormTokens)
+    const degenerate = collapsed || isDegenerateChunk(seamCleaned) || crossCut >= REPEAT_RUN_THRESHOLD
+    if (degenerate || crossCut > 0) {
       logger.warn(
         `[transcribe-live ${sess.id}] hallucination-loop guard: ` +
         `raw="${speechOnly.slice(0, 80)}${speechOnly.length > 80 ? '…' : ''}" ` +
-        `→ collapsed="${cleaned.slice(0, 80)}${cleaned.length > 80 ? '…' : ''}"`
+        `→ final="${crossTrimmed.slice(0, 80)}${crossTrimmed.length > 80 ? '…' : ''}"` +
+        (crossCut > 0 ? ` cross-cut=${crossCut}` : '')
       )
     }
-    if (!sess.closed && cleaned) {
+    if (!sess.closed && crossTrimmed) {
       sendJson(sess.ws, {
         type: 'transcript',
-        text: cleaned,
+        text: crossTrimmed,
         since,
         until,
-        // driftMs = audio the client already sent us but we haven't
-        // finished transcribing yet. Users see this as "N seconds
-        // behind" in the panel. inferMs helps if we want to expose
-        // the raw processing cost.
         driftMs: backlogMs,
         inferMs,
       })
-      // Keep a rolling window of emitted text for the next prompt +
-      // dedup pass. Bounded so it doesn't grow without limit.
-      //
-      // Prompt-poisoning guard: if this chunk was degenerate, DO NOT
-      // append it to the tail — whisper uses emittedTail as `--prompt`
-      // and a runaway pattern in the prompt biases the model to keep
-      // producing the same runaway, cascading the failure. Skipping
-      // just this chunk leaves the previous good context in place.
+      const { norm: newNorm } = tokenizeForRepeat(crossTrimmed)
+      sess.recentNormTokens = sess.recentNormTokens
+        .concat(newNorm.filter(Boolean))
+        .slice(-CROSS_CHUNK_WINDOW)
       if (!degenerate) {
-        sess.emittedTail = (sess.emittedTail + ' ' + cleaned).trim().slice(-EMITTED_TAIL_KEEP_CHARS)
+        sess.emittedTail = (sess.emittedTail + ' ' + crossTrimmed).trim().slice(-EMITTED_TAIL_KEEP_CHARS)
       }
     }
   } catch (err) {
@@ -689,6 +738,7 @@ export function attachLiveTranscribeWS(server: HttpServer | HttpsServer): void {
       emittedMs: 0,
       receivedMs: 0,
       emittedTail: '',
+      recentNormTokens: [],
       processing: false,
       closed: false,
       startedAt: Date.now(),

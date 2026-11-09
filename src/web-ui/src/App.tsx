@@ -22,6 +22,7 @@ import { HomePage } from './pages/HomePage'
 import { IPhoneLauncher } from './components/launcher/IPhoneLauncher'
 import { StatusPage } from './components/StatusPage'
 import { VoiceAgentPage } from './components/VoiceAgentPage'
+import { EnglishCoachPage } from './components/EnglishCoachPage'
 import { TaskWidget } from './components/TaskWidget'
 import { QuickAIDialog } from './components/QuickAIDialog'
 import { api, AIQueryContext } from './api/client'
@@ -279,6 +280,7 @@ const router = createBrowserRouter(
       <Route path="/status" element={<StatusPage />} />
       <Route path="/stream-deck" element={<StreamDeckPage />} />
       <Route path="/voice-agent" element={<VoiceAgentPage />} />
+      <Route path="/english" element={<EnglishCoachPage />} />
       <Route path="/agents" element={<AgentCanvasPage />} />
       <Route path="/projects/:encodedPath" element={<Navigate to="/launcher" replace />} />
       <Route path="/projects/:encodedPath/sessions/:sessionId" element={<SessionPage />} />

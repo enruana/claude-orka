@@ -751,6 +751,34 @@ export async function setBoardTaskLayout(
 }
 
 /**
+ * Toggle zoom on the board master's active pane. tmux `resize-pane -Z`
+ * is a real toggle so the same call serves both directions.
+ */
+export async function toggleBoardMasterZoom(boardId: string): Promise<{ zoomed: boolean }> {
+  const tmuxSessionId = masterTmuxName(boardId)
+  try {
+    await execa('tmux', ['has-session', '-t', tmuxSessionId])
+  } catch {
+    throw new Error(`Board master for ${boardId} is not running`)
+  }
+  const state = await TmuxCommands.togglePaneZoom(tmuxSessionId)
+  if (state === null) throw new Error('Failed to toggle master zoom')
+  return { zoomed: state === 'zoomed' }
+}
+
+export async function toggleBoardTaskZoom(taskKey: string): Promise<{ zoomed: boolean }> {
+  const tmuxSessionId = taskTmuxName(taskKey)
+  try {
+    await execa('tmux', ['has-session', '-t', tmuxSessionId])
+  } catch {
+    throw new Error(`Task terminal for ${taskKey} is not running`)
+  }
+  const state = await TmuxCommands.togglePaneZoom(tmuxSessionId)
+  if (state === null) throw new Error('Failed to toggle task zoom')
+  return { zoomed: state === 'zoomed' }
+}
+
+/**
  * Fork a Claude thread off the board master's main pane. Creates a new
  * tmux pane in the master's tmux session, runs
  * `claude --resume <masterClaudeSessionId> --fork-session`, records

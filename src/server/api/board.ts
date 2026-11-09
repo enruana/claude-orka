@@ -32,6 +32,8 @@ import {
   splitBoardMasterTerminal,
   setBoardMasterLayout,
   setBoardTaskLayout,
+  toggleBoardMasterZoom,
+  toggleBoardTaskZoom,
   createBoardMasterThread,
   createBoardTaskThread,
 } from '../../core/BoardTerminals'
@@ -415,6 +417,19 @@ boardRouter.post('/:boardId/master/layout', async (req, res) => {
 })
 
 /**
+ * `POST /:boardId/master/zoom` — toggle zoom on the master's active
+ * pane. Returns the new state.
+ */
+boardRouter.post('/:boardId/master/zoom', async (req, res) => {
+  try {
+    const result = await toggleBoardMasterZoom(req.params.boardId)
+    res.json(result)
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
  * `POST /:boardId/master/thread` — fork a Claude thread off the
  * master. Body: `{ name?, parentId?, vertical? }`. Returns the new
  * BoardThread row.
@@ -679,6 +694,19 @@ boardRouter.post('/:boardId/tasks/:key/layout', async (req, res) => {
     }
     await setBoardTaskLayout(req.params.key, layout)
     res.json({ ok: true, layout })
+  } catch (err) {
+    handle(res, err)
+  }
+})
+
+/**
+ * `POST /:boardId/tasks/:key/zoom` — toggle zoom on the task's active
+ * pane. Returns the new state.
+ */
+boardRouter.post('/:boardId/tasks/:key/zoom', async (req, res) => {
+  try {
+    const result = await toggleBoardTaskZoom(req.params.key)
+    res.json(result)
   } catch (err) {
     handle(res, err)
   }

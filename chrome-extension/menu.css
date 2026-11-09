@@ -33,6 +33,34 @@ body {
 .status-dot.online { background: #a6e3a1; }
 .status-dot.offline { background: #f38ba8; }
 
+.menu-version {
+  margin-left: auto;
+  margin-right: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #a6adc8;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.menu-version.synced {
+  background: rgba(166, 227, 161, 0.14);
+  color: #a6e3a1;
+}
+.menu-version.outdated {
+  background: rgba(250, 179, 135, 0.18);
+  color: #fab387;
+  animation: menu-version-nudge 1.2s ease-in-out infinite;
+}
+.menu-version.hidden { display: none; }
+
+@keyframes menu-version-nudge {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-1px); }
+}
+
 .menu-item {
   display: flex;
   align-items: center;

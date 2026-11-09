@@ -1,14 +1,47 @@
-// Server status check
 ;(async () => {
   const SERVER = await getServerUrl()
   const dot = document.getElementById('status-dot')
+  const versionBadge = document.getElementById('menu-version')
+  const extVersion = chrome.runtime.getManifest().version
   try {
     const res = await fetch(`${SERVER}/api/health`, { signal: AbortSignal.timeout(3000) })
     dot.className = 'status-dot ' + (res.ok ? 'online' : 'offline')
+    if (res.ok && versionBadge) {
+      const body = await res.json().catch(() => null)
+      const serverVersion = body && typeof body.version === 'string' ? body.version : null
+      if (serverVersion) {
+        const cmp = cmpSemverStr(extVersion, serverVersion)
+        versionBadge.textContent = cmp === 0
+          ? `v${extVersion}`
+          : cmp < 0
+            ? `v${extVersion} → v${serverVersion}`
+            : `v${extVersion}`
+        versionBadge.classList.remove('hidden', 'synced', 'outdated')
+        versionBadge.classList.add(cmp === 0 ? 'synced' : cmp < 0 ? 'outdated' : 'synced')
+        versionBadge.title = cmp < 0
+          ? `Server is on v${serverVersion}. Open Settings to update.`
+          : `Extension v${extVersion} matches the server.`
+      }
+    }
   } catch {
     dot.className = 'status-dot offline'
+    if (versionBadge) {
+      versionBadge.textContent = `v${extVersion}`
+      versionBadge.classList.remove('hidden')
+    }
   }
 })()
+
+function cmpSemverStr(a, b) {
+  const pa = String(a || '0').split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = String(b || '0').split('.').map((n) => parseInt(n, 10) || 0)
+  const len = Math.max(pa.length, pb.length)
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] || 0, y = pb[i] || 0
+    if (x !== y) return x < y ? -1 : 1
+  }
+  return 0
+}
 
 // Writer - open in new tab
 document.getElementById('btn-writer').addEventListener('click', () => {

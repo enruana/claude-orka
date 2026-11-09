@@ -4,12 +4,13 @@ import {
   ArrowLeft, Mic, Paperclip, Link as LinkIcon, X, Loader2,
   AlertTriangle, FileText, Globe, Square, Minus, Maximize2, GripHorizontal, Copy, Check,
   Languages, ClipboardPaste, Save, Trash2, Plus, MessageSquare, ChevronLeft, RefreshCw,
-  TerminalSquare, Cpu,
+  TerminalSquare, Cpu, GraduationCap, Sparkles, Headphones,
 } from 'lucide-react'
-import { api, type ActiveTerminal } from '../api/client'
+import { api, type ActiveTerminal, type EnglishScenario } from '../api/client'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { useLocalVoiceHost } from '../hooks/useLocalVoiceHost'
 import { ParticleCloud } from './ParticleCloud'
+import { EnglishClips } from './EnglishClips'
 import '../styles/voice-agent.css'
 
 /**
@@ -69,10 +70,19 @@ interface Attachment {
   origin?: string
 }
 
+type SentenceStatus = 'queued' | 'playing' | 'done' | 'failed'
+
+interface TranscriptSentence {
+  sentenceId: number
+  text: string
+  status: SentenceStatus
+}
+
 interface TranscriptTurn {
   id: string
   role: 'user' | 'assistant'
   text: string
+  sentences?: TranscriptSentence[]
   ts: number
 }
 
@@ -164,7 +174,6 @@ interface SessionProps {
  * re-entrant.
  */
 function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
-  usePageTitle('Voice Agent')
   // URL params:
   //   ?embedded=1     — hide our own header/back button. Used by the
   //                     iPhone launcher / preview overlay which wrap
@@ -180,6 +189,13 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   const embedded = searchParams.get('embedded') === '1'
   const projectParam = searchParams.get('project')
   const pathParam = searchParams.get('path')
+  const modeParam = (searchParams.get('mode') || '').trim().toLowerCase()
+  const coachMode = modeParam === 'english-coach'
+  const scenarioParam = (searchParams.get('scenario') || '').trim().toLowerCase()
+  const clipParam = (searchParams.get('clip') || '').trim()
+  const clipModeParam = (searchParams.get('clipMode') || '').trim().toLowerCase()
+  const pageTitle = coachMode ? 'English Coach' : 'Voice Agent'
+  usePageTitle(pageTitle)
   // Opened FROM a terminal: everything needed to bind to it travels in
   // the URL, so the agent comes up already pointed at that pane instead
   // of making the user find it again in the picker.
@@ -250,6 +266,7 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   // whatever the user last spoke, and mirrored into a ref because the
   // WS init effect runs once and can't see later state.
   const [language, setLanguage] = useState<VoiceLanguage>(() => {
+    if (coachMode) return 'en'
     const fromUrl = searchParams.get('language')
     if (fromUrl === 'es' || fromUrl === 'en') return fromUrl
     try {
@@ -320,13 +337,11 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   // reply knows it was requested rather than arriving unsolicited.
   const pendingContentRef = useRef<Set<string>>(new Set())
   const currentAssistantRef = useRef<string>('')
-  // Id of the assistant bubble currently being appended to. Set when a
-  // new agent turn starts (first `assistant-text` after a user turn),
-  // cleared on `assistant-turn-end`. Updating the transcript BY ID
-  // avoids the React-18 batching quirk where two rapid setTranscript
-  // updaters both see the same `prev` and each end up appending a
-  // fresh bubble (visible symptom: multiple empty AGENT rows).
   const assistantTurnIdRef = useRef<string | null>(null)
+  const activeAudioSentenceIdRef = useRef<number | null>(null)
+  const sentencePlaybackRef = useRef<Map<number, { startSec: number; endSec: number }>>(new Map())
+  const highlightRafRef = useRef<number | null>(null)
+  const [activeSentenceId, setActiveSentenceId] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Level-meter plumbing. AnalyserNode is a pure passive tap on the
   // mic stream — doesn't affect what VAD sees. RAF drives the poll.
@@ -432,6 +447,51 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
     ws.send(JSON.stringify(msg))
   }, [])
 
+  useEffect(() => {
+    const tick = () => {
+      const ctx = audioCtxRef.current
+      if (ctx) {
+        const now = ctx.currentTime
+        let current: number | null = null
+        for (const [sid, range] of sentencePlaybackRef.current) {
+          if (now >= range.startSec && now < range.endSec) {
+            current = sid
+            break
+          }
+        }
+        setActiveSentenceId((prev) => (prev === current ? prev : current))
+
+        if (sentencePlaybackRef.current.size > 0) {
+          const turnId = assistantTurnIdRef.current
+          const expired: number[] = []
+          for (const [sid, range] of sentencePlaybackRef.current) {
+            if (now >= range.endSec && sid !== activeAudioSentenceIdRef.current) {
+              expired.push(sid)
+            }
+          }
+          if (expired.length > 0 && turnId) {
+            setTranscript((prev) => prev.map((t) => {
+              if (t.id !== turnId || !t.sentences) return t
+              const updated = t.sentences.map((s) =>
+                expired.includes(s.sentenceId) && s.status === 'playing'
+                  ? { ...s, status: 'done' as SentenceStatus }
+                  : s
+              )
+              return { ...t, sentences: updated }
+            }))
+            for (const sid of expired) sentencePlaybackRef.current.delete(sid)
+          }
+        }
+      }
+      highlightRafRef.current = requestAnimationFrame(tick)
+    }
+    highlightRafRef.current = requestAnimationFrame(tick)
+    return () => {
+      if (highlightRafRef.current != null) cancelAnimationFrame(highlightRafRef.current)
+      highlightRafRef.current = null
+    }
+  }, [])
+
   // Playback pipeline: enqueue PCM16 chunks as AudioBuffers, chain-schedule
   const enqueuePcm = useCallback((pcm: Int16Array, sampleRate: number) => {
     const ctx = audioCtxRef.current
@@ -440,7 +500,6 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
     for (let i = 0; i < pcm.length; i++) f32[i] = pcm[i] / 0x8000
     const buf = ctx.createBuffer(1, f32.length, sampleRate)
     buf.copyToChannel(f32, 0)
-    // Schedule at max(now, tail) for gapless playback
     const src = ctx.createBufferSource()
     src.buffer = buf
     src.connect(ctx.destination)
@@ -448,10 +507,17 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
     src.start(startAt)
     playbackTailRef.current = startAt + buf.duration
     playbackNodeRef.current = src
-    // Every chunk is start()ed the moment it arrives, scheduled into the
-    // future — so at any instant there can be a long backlog of sources
-    // already committed to the audio clock. stopPlayback() has to be
-    // able to reach all of them, not just the newest.
+
+    const sid = activeAudioSentenceIdRef.current
+    if (sid != null) {
+      const existing = sentencePlaybackRef.current.get(sid)
+      if (!existing) {
+        sentencePlaybackRef.current.set(sid, { startSec: startAt, endSec: playbackTailRef.current })
+      } else {
+        existing.endSec = playbackTailRef.current
+      }
+    }
+
     scheduledSourcesRef.current.push(src)
     src.onended = () => {
       const i = scheduledSourcesRef.current.indexOf(src)
@@ -460,10 +526,6 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   }, [])
 
   const stopPlayback = useCallback(() => {
-    // Stop the whole scheduled backlog. Stopping only the most recent
-    // source (what this used to do) left every earlier chunk running,
-    // so interrupting a long answer didn't actually silence it — the
-    // agent kept talking over the user for as long as the queue was.
     for (const src of scheduledSourcesRef.current) {
       try { src.onended = null; src.stop() } catch { /* already ended */ }
     }
@@ -471,6 +533,9 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
     playbackNodeRef.current = null
     playbackTailRef.current = 0
     playbackQueueRef.current = []
+    activeAudioSentenceIdRef.current = null
+    sentencePlaybackRef.current.clear()
+    setActiveSentenceId(null)
     const ctx = audioCtxRef.current
     if (ctx) playbackTailRef.current = ctx.currentTime
   }, [])
@@ -498,9 +563,11 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
           : ''
         const url = `${proto}//${window.location.host}/api/voice/live?project=${projectQs}${pathQs}`
           + `&language=${encodeURIComponent(languageRef.current)}${convQs}`
-          // Ask the server to send captions only — this browser is
-          // synthesizing on its own machine.
           + (localVoiceRef.current?.enabled ? '&clientTts=1' : '')
+          + (coachMode ? '&mode=english-coach' : '')
+          + (coachMode && scenarioParam ? `&scenario=${encodeURIComponent(scenarioParam)}` : '')
+          + (coachMode && clipParam ? `&clip=${encodeURIComponent(clipParam)}` : '')
+          + (coachMode && clipParam && clipModeParam ? `&clipMode=${encodeURIComponent(clipModeParam)}` : '')
         const ws = new WebSocket(url)
         ws.binaryType = 'arraybuffer'
         wsRef.current = ws
@@ -577,32 +644,79 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
               if (localVoiceRef.current?.enabled) void speakLocalRef.current(chunk)
               currentAssistantRef.current += (currentAssistantRef.current ? ' ' : '') + chunk
               const full = currentAssistantRef.current
+              const sentenceId = typeof msg.sentenceId === 'number' ? msg.sentenceId : null
+              const sentence: TranscriptSentence | null = sentenceId != null
+                ? { sentenceId, text: chunk, status: 'queued' }
+                : null
               if (assistantTurnIdRef.current == null) {
-                // Start a new assistant bubble the first time text
-                // arrives after a user turn. Capture the id so we
-                // update the SAME bubble on subsequent chunks —
-                // independent of array position, which React 18
-                // batching could momentarily desync.
                 const id = nextTurnId()
                 assistantTurnIdRef.current = id
-                setTranscript((prev) => [...prev, { id, role: 'assistant', text: full, ts: Date.now() }])
+                setTranscript((prev) => [
+                  ...prev,
+                  { id, role: 'assistant', text: full, sentences: sentence ? [sentence] : [], ts: Date.now() },
+                ])
               } else {
                 const targetId = assistantTurnIdRef.current
-                setTranscript((prev) => prev.map((t) =>
-                  t.id === targetId ? { ...t, text: full } : t
-                ))
+                setTranscript((prev) => prev.map((t) => {
+                  if (t.id !== targetId) return t
+                  const nextSentences = sentence
+                    ? [...(t.sentences || []), sentence]
+                    : t.sentences
+                  return { ...t, text: full, sentences: nextSentences }
+                }))
               }
               break
             }
-            case 'audio-start':
+            case 'audio-start': {
               audioSampleRate = msg.sampleRate || 24000
               setState('speaking')
+              const sid = typeof msg.sentenceId === 'number' ? msg.sentenceId : null
+              activeAudioSentenceIdRef.current = sid
+              if (sid != null) {
+                const turnId = assistantTurnIdRef.current
+                if (turnId) {
+                  setTranscript((prev) => prev.map((t) => {
+                    if (t.id !== turnId || !t.sentences) return t
+                    return {
+                      ...t,
+                      sentences: t.sentences.map((s) =>
+                        s.sentenceId === sid && s.status === 'queued'
+                          ? { ...s, status: 'playing' }
+                          : s
+                      ),
+                    }
+                  }))
+                }
+              }
               break
-            case 'audio-end':
+            }
+            case 'audio-end': {
+              const sid = typeof msg.sentenceId === 'number' ? msg.sentenceId : null
+              if (sid != null && activeAudioSentenceIdRef.current === sid) {
+                activeAudioSentenceIdRef.current = null
+              }
               break
+            }
+            case 'tts-failed': {
+              const sid = typeof msg.sentenceId === 'number' ? msg.sentenceId : null
+              if (sid == null) break
+              const turnId = assistantTurnIdRef.current
+              if (!turnId) break
+              setTranscript((prev) => prev.map((t) => {
+                if (t.id !== turnId || !t.sentences) return t
+                return {
+                  ...t,
+                  sentences: t.sentences.map((s) =>
+                    s.sentenceId === sid ? { ...s, status: 'failed' } : s
+                  ),
+                }
+              }))
+              break
+            }
             case 'assistant-turn-end':
               currentAssistantRef.current = ''
               assistantTurnIdRef.current = null
+              activeAudioSentenceIdRef.current = null
               setState('idle')
               break
             case 'language-changed':
@@ -1385,15 +1499,11 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
 
   return (
     <div
-      className={`voice-agent-page${embedded ? ' voice-agent-page-embedded' : ''}${viewerId ? ' voice-agent-page-split' : ''}`}
+      className={`voice-agent-page${embedded ? ' voice-agent-page-embedded' : ''}${viewerId ? ' voice-agent-page-split' : ''}${coachMode ? ' voice-agent-page-coach' : ''}`}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      // Read `previewVersion` so React actually reflows this subtree
-      // when we bind a new preview to an id in a ref (which by itself
-      // wouldn't trigger a re-render).
       data-preview-version={previewVersion}
     >
-      {/* Animated particle cloud background — represents the thinking AI */}
       <ParticleCloud
         state={state}
         intensity={state === 'thinking' || state === 'speaking' ? 1.2 : 0.8}
@@ -1404,11 +1514,13 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
           <Link to="/dashboard" className="va-back" aria-label="Back to dashboard">
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="va-title">{convName || 'Voice Agent'}</h1>
+          <h1 className="va-title">{convName || pageTitle}</h1>
           <div className="va-header-spacer" />
-          <button className="va-back" onClick={onExit} title="Conversations" aria-label="Back to conversations">
-            <MessageSquare size={18} />
-          </button>
+          {!coachMode && (
+            <button className="va-back" onClick={onExit} title="Conversations" aria-label="Back to conversations">
+              <MessageSquare size={18} />
+            </button>
+          )}
         </header>
       )}
 
@@ -1590,7 +1702,26 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                     {transcript.map((t) => (
                       <div key={t.id} className={`va-turn va-turn-${t.role}`}>
                         <div className="va-turn-role">{t.role === 'user' ? 'You' : 'Agent'}</div>
-                        <div className="va-turn-text">{t.text || (t.role === 'assistant' ? '…' : '')}</div>
+                        <div className="va-turn-text">
+                          {t.role === 'assistant' && t.sentences && t.sentences.length > 0 ? (
+                            t.sentences.map((s, i) => {
+                              const cls = s.sentenceId === activeSentenceId
+                                ? 'va-sentence va-sentence-playing'
+                                : s.status === 'done'
+                                  ? 'va-sentence va-sentence-done'
+                                  : s.status === 'failed'
+                                    ? 'va-sentence va-sentence-failed'
+                                    : 'va-sentence'
+                              return (
+                                <span key={s.sentenceId} className={cls}>
+                                  {i > 0 ? ' ' : ''}{s.text}
+                                </span>
+                              )
+                            })
+                          ) : (
+                            t.text || (t.role === 'assistant' ? '…' : '')
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1606,7 +1737,11 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                       : state === 'error' ? 'Error'
                       : 'Ready'}
                   </div>
-                  <p className="va-empty-prompt">Start talking to begin</p>
+                  <p className="va-empty-prompt">
+                    {coachMode
+                      ? 'Start speaking in English to begin'
+                      : 'Start talking to begin'}
+                  </p>
                 </div>
               )}
 
@@ -1673,15 +1808,17 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
                 >
                   <ClipboardPaste size={18} />
                 </button>
-                <button
-                  className="va-attach-btn va-attach-btn-icon va-lang-btn"
-                  onClick={toggleLanguage}
-                  aria-label={language === 'es' ? 'Cambiar a inglés' : 'Switch to Spanish'}
-                  title={language === 'es' ? 'Hablando español — cambiar a inglés' : 'Speaking English — switch to Spanish'}
-                >
-                  <Languages size={18} />
-                  <span className="va-lang-tag">{language.toUpperCase()}</span>
-                </button>
+                {!coachMode && (
+                  <button
+                    className="va-attach-btn va-attach-btn-icon va-lang-btn"
+                    onClick={toggleLanguage}
+                    aria-label={language === 'es' ? 'Cambiar a inglés' : 'Switch to Spanish'}
+                    title={language === 'es' ? 'Hablando español — cambiar a inglés' : 'Speaking English — switch to Spanish'}
+                  >
+                    <Languages size={18} />
+                    <span className="va-lang-tag">{language.toUpperCase()}</span>
+                  </button>
+                )}
                 {transcript.length > 0 && (
                   <button
                     className={`va-attach-btn va-attach-btn-icon${justCopied ? ' va-attach-btn-copied' : ''}`}
@@ -2120,26 +2257,24 @@ function relativeTime(ts: number): string {
  * page's mic button should open a mic, not a menu.
  */
 export function VoiceAgentPage() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const embedded = searchParams.get('embedded') === '1'
   const pathParam = searchParams.get('path')
   const conversationParam = searchParams.get('conversation')
-  // Arriving from a terminal is a scoped entry, same as arriving from a
-  // document: the caller already decided what this conversation is
-  // about, so asking which saved conversation to open would be noise.
+  const modeParam = (searchParams.get('mode') || '').trim().toLowerCase()
+  const coachMode = modeParam === 'english-coach'
   const terminalParam = searchParams.get('terminal') || searchParams.get('tmuxSession')
 
-  // `null` = show the picker. A started session is identified by
-  // `{ key }`, which doubles as the remount key for VoiceAgentSession.
   const [session, setSession] = useState<{ key: string; conversationId: string | null } | null>(
-    // A document-scoped or deep-linked entry skips the picker entirely.
-    pathParam || conversationParam || terminalParam
-      ? { key: conversationParam || terminalParam || 'doc', conversationId: conversationParam }
+    pathParam || conversationParam || terminalParam || coachMode
+      ? { key: conversationParam || terminalParam || (coachMode ? 'coach' : 'doc'), conversationId: conversationParam }
       : null
   )
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null)
   const [pickerError, setPickerError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [pickerView, setPickerView] = useState<'home' | 'english-scenarios' | 'clips'>('home')
+  const [scenarios, setScenarios] = useState<EnglishScenario[] | null>(null)
 
   const loadConversations = useCallback(async () => {
     try {
@@ -2158,6 +2293,15 @@ export function VoiceAgentPage() {
     void loadConversations()
   }, [session, loadConversations])
 
+  useEffect(() => {
+    if (pickerView !== 'english-scenarios' || scenarios) return
+    let cancelled = false
+    api.listEnglishScenarios()
+      .then((list) => { if (!cancelled) setScenarios(list) })
+      .catch((err) => { if (!cancelled) setPickerError(err?.message || 'could not load scenarios') })
+    return () => { cancelled = true }
+  }, [pickerView, scenarios])
+
   const handleDelete = useCallback(async (id: string) => {
     try {
       const res = await fetch(`/api/voice/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' })
@@ -2169,6 +2313,39 @@ export function VoiceAgentPage() {
       setConfirmDelete(null)
     }
   }, [])
+
+  const startVoiceChat = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('mode'); next.delete('scenario')
+      return next
+    }, { replace: true })
+    setSession({ key: `new-${Date.now()}`, conversationId: null })
+  }, [setSearchParams])
+
+  const startEnglishScenario = useCallback((scenarioId: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set('mode', 'english-coach')
+      if (scenarioId) next.set('scenario', scenarioId)
+      else next.delete('scenario')
+      next.delete('clip'); next.delete('clipMode')
+      return next
+    }, { replace: true })
+    setSession({ key: `coach-${scenarioId || 'free'}-${Date.now()}`, conversationId: null })
+  }, [setSearchParams])
+
+  const startClipSession = useCallback((opts: { clipId: string; mode: 'discuss' | 'standup-replay' }) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set('mode', 'english-coach')
+      next.set('clip', opts.clipId)
+      next.set('clipMode', opts.mode)
+      next.delete('scenario')
+      return next
+    }, { replace: true })
+    setSession({ key: `clip-${opts.clipId}-${opts.mode}-${Date.now()}`, conversationId: null })
+  }, [setSearchParams])
 
   if (session) {
     return (
@@ -2189,7 +2366,7 @@ export function VoiceAgentPage() {
           <Link to="/dashboard" className="va-back" aria-label="Back to dashboard">
             <ArrowLeft size={18} />
           </Link>
-          <h1 className="va-title">Voice Agent</h1>
+          <h1 className="va-title">{coachMode ? 'English Coach' : 'Voice Agent'}</h1>
           <div className="va-header-spacer" />
         </header>
       )}
@@ -2205,67 +2382,126 @@ export function VoiceAgentPage() {
       )}
 
       <div className="va-picker">
-        <button
-          className="va-picker-new"
-          onClick={() => setSession({ key: `new-${Date.now()}`, conversationId: null })}
-        >
-          <Plus size={18} />
-          <span>New conversation</span>
-        </button>
-
-        {conversations === null && <div className="va-picker-empty">Loading…</div>}
-
-        {conversations !== null && conversations.length === 0 && (
-          <div className="va-picker-empty">
-            No saved conversations yet. Start one and hit save when it&apos;s worth keeping.
-          </div>
-        )}
-
-        {conversations !== null && conversations.length > 0 && (
+        {pickerView === 'home' && (
           <>
-            <div className="va-picker-heading">Saved</div>
-            <div className="va-picker-list">
-              {conversations.map((c) => (
-                <div key={c.id} className="va-picker-row">
-                  <button
-                    className="va-picker-open"
-                    onClick={() => setSession({ key: c.id, conversationId: c.id })}
-                    title={`Resume "${c.name}"`}
-                  >
-                    <MessageSquare size={16} className="va-picker-icon" />
-                    <div className="va-picker-info">
-                      <div className="va-picker-name">{c.name}</div>
-                      <div className="va-picker-meta">
-                        {relativeTime(c.updatedAt)} · {c.turnCount} turn{c.turnCount === 1 ? '' : 's'}
-                        {c.attachmentCount > 0 && ` · ${c.attachmentCount} doc${c.attachmentCount === 1 ? '' : 's'}`}
-                        {' · '}{c.language.toUpperCase()}
-                      </div>
-                      {c.preview && <div className="va-picker-preview">{c.preview}</div>}
-                    </div>
-                  </button>
-                  {confirmDelete === c.id ? (
-                    <div className="va-picker-confirm">
-                      <button className="va-picker-confirm-yes" onClick={() => handleDelete(c.id)}>
-                        Delete
+            <div className="va-mode-grid">
+              <button className="va-mode-card" onClick={startVoiceChat}>
+                <div className="va-mode-icon"><Mic size={24} /></div>
+                <div className="va-mode-title">Voice chat</div>
+                <div className="va-mode-desc">Discuss a document, ask about code, talk with the agent.</div>
+              </button>
+              <button
+                className="va-mode-card va-mode-card-coach"
+                onClick={() => setPickerView('english-scenarios')}
+              >
+                <div className="va-mode-icon va-mode-icon-coach"><GraduationCap size={24} /></div>
+                <div className="va-mode-title">English practice</div>
+                <div className="va-mode-desc">Roleplay interviews, standups, small talk. Natural corrections as you go.</div>
+              </button>
+              <button
+                className="va-mode-card va-mode-card-clips"
+                onClick={() => setPickerView('clips')}
+              >
+                <div className="va-mode-icon va-mode-icon-clips"><Headphones size={24} /></div>
+                <div className="va-mode-title">Clips library</div>
+                <div className="va-mode-desc">Practice listening, vocab, shadowing with your own recordings.</div>
+              </button>
+            </div>
+
+            {conversations === null && <div className="va-picker-empty">Loading…</div>}
+
+            {conversations !== null && conversations.length === 0 && (
+              <div className="va-picker-empty">
+                No saved conversations yet. Start one and hit save when it&apos;s worth keeping.
+              </div>
+            )}
+
+            {conversations !== null && conversations.length > 0 && (
+              <>
+                <div className="va-picker-heading">Saved</div>
+                <div className="va-picker-list">
+                  {conversations.map((c) => (
+                    <div key={c.id} className="va-picker-row">
+                      <button
+                        className="va-picker-open"
+                        onClick={() => setSession({ key: c.id, conversationId: c.id })}
+                        title={`Resume "${c.name}"`}
+                      >
+                        <MessageSquare size={16} className="va-picker-icon" />
+                        <div className="va-picker-info">
+                          <div className="va-picker-name">{c.name}</div>
+                          <div className="va-picker-meta">
+                            {relativeTime(c.updatedAt)} · {c.turnCount} turn{c.turnCount === 1 ? '' : 's'}
+                            {c.attachmentCount > 0 && ` · ${c.attachmentCount} doc${c.attachmentCount === 1 ? '' : 's'}`}
+                            {' · '}{c.language.toUpperCase()}
+                          </div>
+                          {c.preview && <div className="va-picker-preview">{c.preview}</div>}
+                        </div>
                       </button>
-                      <button className="va-picker-confirm-no" onClick={() => setConfirmDelete(null)}>
-                        <ChevronLeft size={14} />
-                      </button>
+                      {confirmDelete === c.id ? (
+                        <div className="va-picker-confirm">
+                          <button className="va-picker-confirm-yes" onClick={() => handleDelete(c.id)}>
+                            Delete
+                          </button>
+                          <button className="va-picker-confirm-no" onClick={() => setConfirmDelete(null)}>
+                            <ChevronLeft size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="va-picker-delete"
+                          onClick={() => setConfirmDelete(c.id)}
+                          aria-label={`Delete ${c.name}`}
+                          title="Delete"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <button
-                      className="va-picker-delete"
-                      onClick={() => setConfirmDelete(c.id)}
-                      aria-label={`Delete ${c.name}`}
-                      title="Delete"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
+                  ))}
                 </div>
+              </>
+            )}
+          </>
+        )}
+        {pickerView === 'english-scenarios' && (
+          <>
+            <button className="va-picker-back" onClick={() => setPickerView('home')}>
+              <ChevronLeft size={14} /> Back
+            </button>
+            <div className="va-picker-heading va-picker-heading-coach">Pick a scene</div>
+            <div className="va-scenario-grid">
+              <button
+                className="va-scenario-card va-scenario-free"
+                onClick={() => startEnglishScenario('')}
+              >
+                <div className="va-scenario-icon va-scenario-icon-free"><Sparkles size={20} /></div>
+                <div className="va-scenario-title">Free chat</div>
+                <div className="va-scenario-desc">Talk about whatever. The coach follows you.</div>
+              </button>
+              {scenarios === null && (
+                <div className="va-picker-empty va-picker-empty-inline">Loading scenarios…</div>
+              )}
+              {scenarios?.map((s) => (
+                <button
+                  key={s.id}
+                  className="va-scenario-card"
+                  onClick={() => startEnglishScenario(s.id)}
+                  title={s.opening}
+                >
+                  <div className="va-scenario-icon"><GraduationCap size={20} /></div>
+                  <div className="va-scenario-title">{s.title}</div>
+                  <div className="va-scenario-desc">{s.description}</div>
+                </button>
               ))}
             </div>
           </>
+        )}
+        {pickerView === 'clips' && (
+          <EnglishClips
+            onBack={() => setPickerView('home')}
+            onLaunchSession={startClipSession}
+          />
         )}
       </div>
     </div>

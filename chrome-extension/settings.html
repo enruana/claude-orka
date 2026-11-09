@@ -12,6 +12,19 @@
     </header>
 
     <section class="settings-section">
+      <h2>Version</h2>
+      <p class="section-desc">Keep the extension matched to the Orka server you're pointed at. A mismatch usually means the server was rebuilt and the extension still has the old bundled files.</p>
+      <div class="version-row" id="version-row">
+        <div class="version-chip" id="version-chip">
+          <span class="version-dot" id="version-dot"></span>
+          <span class="version-label" id="version-label">Checking…</span>
+        </div>
+        <button class="btn btn-secondary hidden" id="btn-update">Update extension</button>
+      </div>
+      <p class="version-help hidden" id="version-help"></p>
+    </section>
+
+    <section class="settings-section">
       <h2>Server Connection</h2>
       <p class="section-desc">Configure the Orka backend server URL. Change this if the server is running on a different machine.</p>
 

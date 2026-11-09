@@ -34,6 +34,7 @@ import { SessionCodeEditor } from './code-editor'
 import { FinderExplorer } from './finder'
 import { KBGraph } from './kb'
 import { ProjectDock } from './ProjectDock'
+import { PinToDeckButton } from './PinToDeckButton'
 import { encodeProjectPath } from './ProjectDashboard'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { useSessionUiState } from '../hooks/useSessionUiState'
@@ -743,6 +744,17 @@ export function SessionView({
           >
             <Pencil size={16} />
           </button>
+          <PinToDeckButton
+            className="session-pin-to-deck"
+            favorite={{
+              id: `session:${project.path}:${session.id}`,
+              label: session.name || 'session',
+              subtitle: project.name,
+              tint: 'blue',
+              iconName: 'Terminal',
+              path: `/projects/${encodeProjectPath(project.path)}/sessions/${session.id}`,
+            }}
+          />
           <button className="icon-button" onClick={refreshSession} title="Refresh">
             <RefreshCw size={18} />
           </button>

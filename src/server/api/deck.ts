@@ -50,11 +50,26 @@ export interface ClientPublic {
  * `sendText`: the controlled client performs the POST to the
  * send-text endpoint itself, so we don't need to track which session
  * is "active" on the controller side.
+ *
+ * `pin`: the controlled client writes the payload into its own
+ * `orka-deck-favorites` localStorage so the Stream Deck page picks
+ * it up on next render. Lets a user working on their Mac stash the
+ * current session into their iPad's Stream Deck without touching
+ * the iPad.
  */
+export interface DeckPinPayload {
+  id: string
+  label: string
+  subtitle?: string
+  tint: string
+  iconName: string
+  path: string
+}
 export type DeckCommand =
   | { type: 'navigate'; path: string; commandId: string }
   | { type: 'sendText'; sessionId: string; projectPath: string; text: string; pressEnter?: boolean; commandId: string }
   | { type: 'flash'; commandId: string }
+  | { type: 'pin'; favorite: DeckPinPayload; commandId: string }
 
 const clients = new Map<string, ClientRecord>()
 
@@ -159,6 +174,23 @@ deckRouter.post('/clients/:id/command', (req, res) => {
     command = { type: 'sendText', sessionId, projectPath, text, pressEnter, commandId }
   } else if (kind === 'flash') {
     command = { type: 'flash', commandId }
+  } else if (kind === 'pin') {
+    const f = req.body?.favorite
+    if (!f || typeof f.id !== 'string' || typeof f.path !== 'string' || !f.path.startsWith('/')
+        || typeof f.label !== 'string' || typeof f.tint !== 'string' || typeof f.iconName !== 'string') {
+      res.status(400).json({
+        error: 'favorite requires {id, label, path (starting with /), tint, iconName}',
+      }); return
+    }
+    const favorite: DeckPinPayload = {
+      id: String(f.id).slice(0, 200),
+      label: String(f.label).slice(0, 60),
+      subtitle: f.subtitle ? String(f.subtitle).slice(0, 120) : undefined,
+      tint: String(f.tint).slice(0, 20),
+      iconName: String(f.iconName).slice(0, 40),
+      path: String(f.path).slice(0, 500),
+    }
+    command = { type: 'pin', favorite, commandId }
   } else {
     res.status(400).json({ error: `Unknown command type: ${kind}` }); return
   }

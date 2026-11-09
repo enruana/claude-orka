@@ -30,7 +30,8 @@ import {
   type BoardDrift,
   type SessionLayout,
 } from '../../api/client'
-import { decodeProjectPath } from '../ProjectDashboard'
+import { decodeProjectPath, encodeProjectPath } from '../ProjectDashboard'
+import { PinToDeckButton } from '../PinToDeckButton'
 import { BoardKanban } from './BoardKanban'
 import { BoardTaskModal } from './BoardTaskModal'
 import { LocalTaskDialog } from './LocalTaskDialog'
@@ -81,6 +82,7 @@ export function BoardPage() {
   const [syncing, setSyncing] = useState(false)
   const [masterPort, setMasterPort] = useState<number | null>(null)
   const [masterLayout, setMasterLayout] = useState<SessionLayout | null>(null)
+  const [masterZoomed, setMasterZoomed] = useState(false)
   const openTaskKey = searchParams.get('task')
   const setOpenTaskKey = useCallback((next: string | null | ((prev: string | null) => string | null)) => {
     setSearchParams((prev) => {
@@ -584,6 +586,17 @@ export function BoardPage() {
               <span className="board-header-badge">{archived.length}</span>
             )}
           </button>
+          <PinToDeckButton
+            className="board-header-pin-to-deck"
+            favorite={{
+              id: `board:${projectPath}:${boardId}`,
+              label: board.name || 'Board',
+              subtitle: 'Board',
+              tint: 'purple',
+              iconName: 'Kanban',
+              path: `/projects/${encodedPath}/boards/${boardId}`,
+            }}
+          />
           <button
             className="board-header-btn"
             onClick={() => navigate(`/projects/${encodedPath}/boards/${boardId}/settings`)}
@@ -718,6 +731,34 @@ export function BoardPage() {
                   >
                     <SplitSquareHorizontal size={12} />
                   </button>
+                  <button
+                    className={`board-terminal-toolbar-btn ${masterZoomed ? 'active' : ''}`}
+                    onClick={async () => {
+                      try {
+                        const r = await api.toggleBoardMasterZoom(projectPath, boardId)
+                        setMasterZoomed(r.zoomed)
+                      } catch (err: any) {
+                        setError(err?.message || 'Failed to toggle zoom')
+                      }
+                    }}
+                    title={masterZoomed ? 'Unzoom pane (restore layout)' : 'Zoom pane (focus)'}
+                    aria-label={masterZoomed ? 'Unzoom pane' : 'Zoom pane'}
+                  >
+                    {masterZoomed ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                  </button>
+                  {board && (
+                    <PinToDeckButton
+                      className="board-terminal-pin-to-deck"
+                      favorite={{
+                        id: `board:${projectPath}:${boardId}`,
+                        label: board.name || 'Board',
+                        subtitle: 'Board',
+                        tint: 'purple',
+                        iconName: 'Kanban',
+                        path: `/projects/${encodeProjectPath(projectPath)}/boards/${boardId}`,
+                      }}
+                    />
+                  )}
                   <button
                     className="board-terminal-toolbar-btn"
                     onClick={() => setTerminalFullscreen(true)}

@@ -6,6 +6,7 @@ import fs from 'fs-extra'
 import path from 'path'
 import { logger } from '../../utils'
 import { transcribeUtterancePcm16 } from './transcribe-live'
+import { loadEnglishClip } from './english'
 import { describeTerminal, resolvePaneForSession } from './voice-terminals'
 import {
   createVoiceMcpServer,
@@ -124,6 +125,15 @@ voiceRouter.get('/capabilities', async (_req, res) => {
   } catch {
     res.json({ tts: false, stt: true, voices: [] })
   }
+})
+
+/** GET /api/voice/scenarios — catalog consumed by the English Coach picker. */
+voiceRouter.get('/scenarios', (_req, res) => {
+  res.json({
+    scenarios: SCENARIOS.map((s) => ({
+      id: s.id, title: s.title, description: s.description, opening: s.opening,
+    })),
+  })
 })
 
 voiceRouter.get('/assets/:filename', async (req, res) => {
@@ -377,9 +387,19 @@ interface VoiceSession {
    * terminals stay here; only the voice moves.
    */
   clientTts: boolean
-  // TTS state: sentence buffer + the FIFO synthesis chain.
+  /** `english-coach` appends the tutor directive; empty string keeps the base persona. */
+  mode: string
+  /** Scenario id (set when coach mode + ?scenario=foo). Empty = free chat. */
+  scenario: string
+  /** `discuss` | `standup-replay` — only set with ?clip=<id>, shapes the coach directive. Empty otherwise. */
+  clipMode: string
+  /** English clip id (sets the coach up to discuss a specific recording). Empty = no clip. */
+  clipId: string
+  /** Display name of the loaded clip, used by the coach directive. Null when no clip attached. */
+  clipName: string | null
   ttsBuffer: string
   ttsCancelToken: { cancelled: boolean }
+  nextSentenceId: number
   // Tail of the synthesis queue. Each sentence appends itself here, so
   // sentences are synthesized and streamed strictly in the order they
   // were extracted. See speakSentence() for why this is a chain and
@@ -818,6 +838,48 @@ const SYSTEM_PROMPT_HEADER =
   `\n` +
   `\n`
 
+const COACH_SYSTEM_PROMPT_HEADER =
+  `You are having a spoken conversation with a user who is practicing\n` +
+  `English with you. Your words go to a text-to-speech engine and get\n` +
+  `read out loud, so you are TALKING, not writing. There is no document\n` +
+  `to analyze; the person on the other side wants to produce English,\n` +
+  `so your job is to give them room to talk and keep the exchange\n` +
+  `natural and friendly.\n` +
+  `\n` +
+  `HARD RULES — never break these:\n` +
+  `\n` +
+  `1. Zero markdown. No asterisks, backticks, hashes, bullets, numbered\n` +
+  `   lists, tables, code fences, or horizontal rules. If you catch\n` +
+  `   yourself typing any, rewrite the line.\n` +
+  `\n` +
+  `2. Zero spelled-out punctuation or code: never say "underscore",\n` +
+  `   never read a URL character by character, never list file paths.\n` +
+  `\n` +
+  `3. Short turns. Two to four sentences, then stop and let them talk.\n` +
+  `   Monologues kill practice; conversations build it.\n` +
+  `\n` +
+  `4. Sound like a friend at a café, not a textbook. Contractions,\n` +
+  `   easy verbs, "yeah", "so basically", "the thing is". Skip\n` +
+  `   "furthermore" and "moreover".\n` +
+  `\n` +
+  `5. When you enumerate, weave it into prose. "There's the resume side\n` +
+  `   and then the behavioral side" — not "1. resume 2. behavioral".\n` +
+  `\n` +
+  `6. Never offer lettered menus ("would you like me to explain (a), (b)\n` +
+  `   or (c)?"). Ask one plain follow-up question instead.\n` +
+  `\n` +
+  `GOOD vibe:\n` +
+  `  "Oh nice, so you're between offers? Which one leans closer to the\n` +
+  `  kind of work you actually want to do next year?"\n` +
+  `\n` +
+  `BAD (never do this):\n` +
+  `  "**Great question!** Here are three considerations:\n` +
+  `   1. Compensation\n` +
+  `   2. Culture\n` +
+  `   3. Growth opportunities..."\n` +
+  `\n` +
+  `\n`
+
 /**
  * Language directive appended to the system prompt.
  *
@@ -855,6 +917,197 @@ function terminalDirective(sel: { label: string } | null): string {
     `3. Only when they clearly agree, call confirm_send with the token.\n` +
     `If they correct you, stage the new text instead. Never claim you\n` +
     `sent something you only staged.\n\n`
+  )
+}
+
+interface Scenario {
+  id: string
+  title: string
+  description: string
+  opening: string
+  directive: string
+}
+
+const SCENARIOS: Scenario[] = [
+  {
+    id: 'interview-tech',
+    title: 'Technical interview',
+    description: 'A software engineering interview, behavioral + light technical.',
+    opening: `Hi, thanks for coming in today. Let's start simple: can you walk me through what you've been working on recently?`,
+    directive:
+      `You are a senior engineer at a mid-sized tech company interviewing the user for a software role. Keep questions realistic: start with background, go into a recent project, then dig into one technical decision. Stay in the interviewer persona; don't break character to compliment their English unless they ask.`,
+  },
+  {
+    id: 'interview-behavioral',
+    title: 'Behavioral interview',
+    description: 'STAR-style questions about past experience and soft skills.',
+    opening: `Thanks for joining. To get started, tell me about a time you had a disagreement with a teammate and how you handled it.`,
+    directive:
+      `You are a hiring manager running a behavioral interview. Ask one STAR-style question at a time, listen, ask one short follow-up if the answer was shallow, then move on. Keep it professional but warm.`,
+  },
+  {
+    id: 'standup',
+    title: 'Daily standup',
+    description: 'Your turn to give a status update to the team.',
+    opening: `Alright, let's go around the horn. You're up — what did you work on yesterday, what's on for today, any blockers?`,
+    directive:
+      `You are the user's teammate running a daily standup. After they give their update, ask ONE short clarifying question about a blocker or priority, then move on. Stay concise and casual like a real standup.`,
+  },
+  {
+    id: 'coffee-chat',
+    title: 'Coffee chat',
+    description: 'Informal networking chat with another engineer.',
+    opening: `Hey, nice to finally meet! I grabbed a seat over here. So what have you been up to lately?`,
+    directive:
+      `You are a friendly engineer having an informal coffee chat with the user. React naturally, share short anecdotes of your own, and keep bouncing the conversation back to them. Low pressure, high curiosity.`,
+  },
+  {
+    id: 'airport',
+    title: 'At the airport',
+    description: 'Checking in, going through security, asking about gates.',
+    opening: `Good morning, next in line please. May I see your passport and ticket?`,
+    directive:
+      `You play airport staff: check-in agent first, then security officer if the user progresses, then a gate agent if they ask about boarding. Stay in a specific role until they switch context. Short, polite, functional dialogue.`,
+  },
+  {
+    id: 'restaurant',
+    title: 'At a restaurant',
+    description: 'Ordering food, asking about the menu, getting the check.',
+    opening: `Welcome in! Is this just for one tonight, or are you waiting on someone?`,
+    directive:
+      `You are a waiter at a casual American restaurant. Greet, offer menu / specials, take their order, answer basic questions about dishes, and when they ask, bring the check. Keep it natural and friendly.`,
+  },
+  {
+    id: 'doctor-visit',
+    title: 'Doctor visit',
+    description: 'Describing symptoms and understanding advice.',
+    opening: `Hi, come on in. So what brings you in today?`,
+    directive:
+      `You are a primary-care doctor seeing the user for a non-urgent visit. Listen to their symptoms, ask specific follow-ups one at a time (how long, severity, triggers), then give a practical next step. Do NOT give real medical advice; keep it clearly a practice scenario.`,
+  },
+  {
+    id: 'small-talk',
+    title: 'Small talk',
+    description: 'Open-ended casual conversation about anything.',
+    opening: `Hey! It's been a weirdly quiet week for me, hasn't it for you?`,
+    directive:
+      `You are a chatty native English speaker making small talk with the user. Keep topics light (weather, weekends, hobbies, shows, food) and always toss the ball back to them with an open question.`,
+  },
+]
+
+function findScenario(id: string): Scenario | null {
+  if (!id) return null
+  return SCENARIOS.find((s) => s.id === id) || null
+}
+
+function scenarioDirective(mode: string, scenarioId: string): string {
+  if (mode !== 'english-coach') return ''
+  const scenario = findScenario(scenarioId)
+  if (!scenario) return ''
+  return (
+    `\nROLEPLAY SCENARIO — layered on top of the coach rules above:\n` +
+    `\n` +
+    `Scenario: ${scenario.title}\n` +
+    `\n` +
+    `${scenario.directive}\n` +
+    `\n` +
+    `Your opening line (say this first, verbatim, as your very first reply):\n` +
+    `"${scenario.opening}"\n` +
+    `\n` +
+    `Rules for the scenario:\n` +
+    `- Stay in character. Don't narrate the setup, don't say "let me play X".\n` +
+    `- The "Quick note:" correction from the coach rules still applies, but\n` +
+    `  deliver it AFTER your in-character reply, on its own line, outside\n` +
+    `  the roleplay. So the user hears the scene, then the brief note.\n` +
+    `- If the user wants to end the scenario, break character gracefully.\n` +
+    `\n`
+  )
+}
+
+function coachDirective(mode: string): string {
+  if (mode !== 'english-coach') return ''
+  return (
+    `\nENGLISH COACH MODE — supplements (does NOT replace) the rules above:\n` +
+    `\n` +
+    `You are also my English tutor. I'm practicing conversational English with\n` +
+    `you. The casual-friend tone from the base rules stays — you're a friend\n` +
+    `who happens to speak English natively and is helping me get fluent.\n` +
+    `\n` +
+    `How the turn works:\n` +
+    `\n` +
+    `1. Reply naturally to what I said, as a friend would, two to four\n` +
+    `   sentences. Keep the conversation going; ask a follow-up if it fits.\n` +
+    `\n` +
+    `2. If my English had a real issue worth fixing (grammar error, awkward\n` +
+    `   phrasing, wrong word, pronunciation that would confuse a listener),\n` +
+    `   add ONE short correction at the end of your reply, on its own line,\n` +
+    `   prefixed with "Quick note:". Give the fix and one brief reason, max\n` +
+    `   one sentence. Example: "Quick note: say 'I went' instead of 'I goed',\n` +
+    `   it's irregular."\n` +
+    `\n` +
+    `3. If my English was fine, SAY NOTHING about it. Don't praise, don't say\n` +
+    `   "your English is good", just continue the conversation. Corrections\n` +
+    `   only when there's something concrete to fix.\n` +
+    `\n` +
+    `4. Never give more than one correction per turn. Pick the most impactful\n` +
+    `   one and ignore the rest. Being swarmed with corrections kills the\n` +
+    `   practice flow.\n` +
+    `\n` +
+    `5. If I switch to Spanish mid-sentence because I'm stuck on a word,\n` +
+    `   translate it for me in-line and keep going. Example: me: "I want to\n` +
+    `   go to the piscina" — you: "the pool, got it. So are you thinking of\n` +
+    `   going today?". That's the ONLY time it's okay to quote a Spanish\n` +
+    `   word; otherwise reply 100% in English per the language rule above.\n` +
+    `\n` +
+    `6. Pick topics that make me talk. If I give a short answer, follow up\n` +
+    `   with an open question. The goal is for me to produce English, not\n` +
+    `   for you to deliver monologues.\n` +
+    `\n`
+  )
+}
+
+function clipDirective(mode: string, clipMode: string, clipName: string | null): string {
+  if (mode !== 'english-coach' || !clipName) return ''
+  const label = clipName.length > 60 ? clipName.slice(0, 57) + '…' : clipName
+  if (clipMode === 'standup-replay') {
+    return (
+      `\nCLIP MODE — standup replay:\n` +
+      `\n` +
+      `The user just listened to their own past standup "${label}". The full\n` +
+      `transcript is attached. The goal of this session is to help them\n` +
+      `re-deliver that standup, now, better.\n` +
+      `\n` +
+      `Open with one short English line that acknowledges you have the\n` +
+      `transcript and invite them to re-do the standup out loud. Then:\n` +
+      `\n` +
+      `- Let them deliver. Do NOT read the transcript back at them.\n` +
+      `- Compare their new delivery with the original transcript\n` +
+      `  silently, in your head. Call out any real improvements.\n` +
+      `- Correct English issues using the coach rules.\n` +
+      `- Suggest one specific upgrade: a better connector, a stronger\n` +
+      `  verb, a cleaner structure (what they worked on / what's next /\n` +
+      `  blockers). One per turn, highest-impact first.\n` +
+      `- When they want a second attempt, encourage it.\n` +
+      `\n`
+    )
+  }
+  // Default: discuss
+  return (
+    `\nCLIP MODE — discuss recording:\n` +
+    `\n` +
+    `The user just listened to a recording ("${label}"). The full\n` +
+    `transcript is attached. Help them PROCESS what they heard, in English.\n` +
+    `\n` +
+    `Open with one short English line that invites them to share what\n` +
+    `they understood or found interesting. Then:\n` +
+    `\n` +
+    `- Draw questions from the transcript: facts, decisions, open\n` +
+    `  items, names, jargon.\n` +
+    `- Stretch comprehension, then switch to opinions / what they\n` +
+    `  would have done differently.\n` +
+    `- Apply the coach rules to their English throughout.\n` +
+    `- One question per turn. Do NOT dump the whole transcript at them.\n` +
+    `\n`
   )
 }
 
@@ -919,14 +1172,20 @@ async function* userTurnGenerator(sess: VoiceSession): AsyncGenerator<{
   // Doc-context is always rebuilt from `sess.attachments` so
   // mid-conversation adds are reflected on the next re-arm without
   // extra bookkeeping.
-  let seed = SYSTEM_PROMPT_HEADER
-    + terminalDirective(sess.selectedTerminal)
-    + languageDirective(sess.language)
-    + 'Here is the document to discuss:\n\n'
-    + buildDocsContext(sess.attachments)
-  // Mark any pending-announce attachments as delivered — the seed we
-  // just built includes them, so we shouldn't also prepend them to the
-  // next user turn.
+  const coach = sess.mode === 'english-coach'
+  const hasAttachments = sess.attachments.length > 0
+  let seed = coach ? COACH_SYSTEM_PROMPT_HEADER : SYSTEM_PROMPT_HEADER
+  seed += terminalDirective(sess.selectedTerminal)
+  seed += languageDirective(sess.language)
+  seed += coachDirective(sess.mode)
+  seed += scenarioDirective(sess.mode, sess.scenario)
+  seed += clipDirective(sess.mode, sess.clipMode, sess.clipName)
+  if (hasAttachments) {
+    seed += coach
+      ? 'The user attached this material to discuss or practice from:\n\n'
+      : 'Here is the document to discuss:\n\n'
+    seed += buildDocsContext(sess.attachments)
+  }
   for (const a of sess.attachments) { a.pendingAnnounce = false; a.announceKind = undefined }
   if (sess.history.length > 0) {
     seed += '\n\n---\nSo far we have discussed:\n'
@@ -1135,11 +1394,9 @@ function handleAssistantText(sess: VoiceSession, chunk: string): void {
     // creates a suspicious silent audio-start / audio-end pair on the
     // client.
     if (!s) continue
-    // Announce the text for on-screen captions BEFORE the audio arrives
-    // — the client can render subtitles slightly ahead of the audio,
-    // which reads as tight lip-sync in practice.
-    sendJson(sess.ws, { type: 'assistant-text', text: s })
-    void speakSentence(sess, s)
+    const sentenceId = ++sess.nextSentenceId
+    sendJson(sess.ws, { type: 'assistant-text', text: s, sentenceId })
+    void speakSentence(sess, s, sentenceId)
   }
 }
 
@@ -1160,8 +1417,9 @@ function flushTtsTail(sess: VoiceSession): void {
   if (!tail) return
   const s = sanitizeForSpeech(tail)
   if (!s) return
-  sendJson(sess.ws, { type: 'assistant-text', text: s })
-  void speakSentence(sess, s)
+  const sentenceId = ++sess.nextSentenceId
+  sendJson(sess.ws, { type: 'assistant-text', text: s, sentenceId })
+  void speakSentence(sess, s, sentenceId)
 }
 
 // ============================================================
@@ -1191,59 +1449,71 @@ function flushTtsTail(sess: VoiceSession): void {
  * them went silent, while the full text still appeared in the
  * transcript (`assistant-text` is sent before synthesis is queued).
  */
-function speakSentence(sess: VoiceSession, text: string): Promise<void> {
-  // The caption already went out; with client-side TTS there is nothing
-  // left for this side to do, and synthesizing anyway would burn CPU on
-  // audio nobody plays.
+function speakSentence(sess: VoiceSession, text: string, sentenceId: number): Promise<void> {
   if (sess.clientTts) return Promise.resolve()
   const token = sess.ttsCancelToken
-  // The catch keeps the chain resolvable: a rejection left in place
-  // would make every later `.then` skip its sentence, turning one
-  // synthesis failure into silence for the rest of the turn.
   sess.ttsChain = sess.ttsChain
-    .then(() => synthesizeAndStream(sess, text, token))
+    .then(() => synthesizeAndStream(sess, text, sentenceId, token))
     .catch((err) => {
       if (!sess.closed) logger.error(`[voice-live ${sess.id}] TTS chain error:`, err)
     })
   return sess.ttsChain
 }
 
+const TTS_MAX_ATTEMPTS = 2
+
 async function synthesizeAndStream(
   sess: VoiceSession,
   text: string,
+  sentenceId: number,
   token: { cancelled: boolean },
 ): Promise<void> {
-  try {
+  let lastErr: unknown = null
+  for (let attempt = 1; attempt <= TTS_MAX_ATTEMPTS; attempt++) {
     if (token.cancelled || sess.closed) return
-
-    const { pcm, sampleRate, audioMs, synthMs } = await synthesizePcm16(text, {
-      voice: sess.voice,
-      language: sess.language,
-      outSampleRate: 24000,
-    })
-    if (token.cancelled || sess.closed) return
-
-    sendJson(sess.ws, { type: 'audio-start', sampleRate, format: 'pcm16le', chars: text.length })
-    // Send as chunks so the client can start playing as bytes arrive
-    // instead of waiting for the full sentence.
-    // Priority 3B: Adaptive chunks — scale by synthesis RTF for smoother playback
-    const baseChunk = 8000 // 250ms of audio at 16-bit 24kHz mono
-    const rtf = synthMs / audioMs
-    const adaptiveRtf = Math.max(0.3, Math.min(1.5, rtf))
-    const scaledChunk = Math.round(baseChunk / adaptiveRtf)
-    const chunk = Math.max(4000, Math.min(16000, scaledChunk))
-
-    for (let i = 0; i < pcm.length; i += chunk) {
+    try {
+      const { pcm, sampleRate, audioMs, synthMs } = await synthesizePcm16(text, {
+        voice: sess.voice,
+        language: sess.language,
+        outSampleRate: 24000,
+      })
       if (token.cancelled || sess.closed) return
-      sess.ws.send(pcm.subarray(i, Math.min(i + chunk, pcm.length)))
-    }
-    sendJson(sess.ws, { type: 'audio-end' })
-    logger.debug(`[voice-live ${sess.id}] spoke "${text.slice(0, 40)}…" synth=${synthMs}ms audio=${audioMs}ms rtf=${rtf.toFixed(2)}x chunk=${chunk}`)
-  } catch (err) {
-    if (!sess.closed) {
-      logger.error(`[voice-live ${sess.id}] TTS failed:`, err)
+
+      sendJson(sess.ws, {
+        type: 'audio-start',
+        sampleRate,
+        format: 'pcm16le',
+        chars: text.length,
+        sentenceId,
+      })
+      const baseChunk = 8000
+      const rtf = synthMs / audioMs
+      const adaptiveRtf = Math.max(0.3, Math.min(1.5, rtf))
+      const scaledChunk = Math.round(baseChunk / adaptiveRtf)
+      const chunk = Math.max(4000, Math.min(16000, scaledChunk))
+
+      for (let i = 0; i < pcm.length; i += chunk) {
+        if (token.cancelled || sess.closed) return
+        sess.ws.send(pcm.subarray(i, Math.min(i + chunk, pcm.length)))
+      }
+      sendJson(sess.ws, { type: 'audio-end', sentenceId })
+      if (attempt > 1) {
+        logger.info(`[voice-live ${sess.id}] TTS recovered sentence ${sentenceId} on attempt ${attempt}`)
+      }
+      logger.debug(`[voice-live ${sess.id}] spoke "${text.slice(0, 40)}…" synth=${synthMs}ms audio=${audioMs}ms rtf=${rtf.toFixed(2)}x chunk=${chunk}`)
+      return
+    } catch (err) {
+      lastErr = err
+      if (token.cancelled || sess.closed) return
+      if (attempt < TTS_MAX_ATTEMPTS) {
+        logger.warn(`[voice-live ${sess.id}] TTS attempt ${attempt} failed for sentence ${sentenceId}, retrying:`, err)
+        continue
+      }
     }
   }
+  if (sess.closed) return
+  logger.error(`[voice-live ${sess.id}] TTS failed sentence ${sentenceId} after ${TTS_MAX_ATTEMPTS} attempts:`, lastErr)
+  sendJson(sess.ws, { type: 'tts-failed', sentenceId, reason: (lastErr as any)?.message || 'synthesis failed' })
 }
 
 // ============================================================
@@ -1886,8 +2156,11 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
       const url = new URL(req.url || '/', 'http://x')
       const projectB64 = url.searchParams.get('project') || ''
       const relPath = url.searchParams.get('path') || ''
+      const modeParam = (url.searchParams.get('mode') || '').trim().toLowerCase()
       const rawLanguage = (url.searchParams.get('language') || 'en').trim().toLowerCase()
-      let language = isSupportedTtsLanguage(rawLanguage) ? rawLanguage : 'en'
+      let language = modeParam === 'english-coach'
+        ? 'en'
+        : (isSupportedTtsLanguage(rawLanguage) ? rawLanguage : 'en')
       const voice = url.searchParams.get('voice') || ''
       // Resuming a saved conversation: everything it recorded — history,
       // attachments, language, voice — becomes the starting state, and
@@ -1956,6 +2229,32 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
           throw err
         }
       }
+      // English clip mode: pull the clip transcript and attach it so the
+      // coach has the full recording as context. The caller passes the
+      // clip id via ?clip=<id>, and ?clipMode=discuss|standup-replay
+      // decides which directive is appended at seed-build time.
+      const clipIdParam = (url.searchParams.get('clip') || '').trim()
+      const clipModeParam = (url.searchParams.get('clipMode') || '').trim().toLowerCase()
+      let loadedClipName: string | null = null
+      if (clipIdParam) {
+        try {
+          const clip = await loadEnglishClip(clipIdParam)
+          if (clip && clip.transcript) {
+            initialAttachments.push({
+              id: makeAttachmentId(),
+              source: 'text',
+              label: `clip: ${clip.name}`,
+              text: clip.transcript,
+              chars: clip.transcript.length,
+              addedAt: Date.now(),
+              pendingAnnounce: false,
+            })
+            loadedClipName = clip.name
+          }
+        } catch (err: any) {
+          logger.warn(`[voice-live] clip ${clipIdParam} load failed: ${err?.message || err}`)
+        }
+      }
       // Only the English voices live in kokoro-js's table; Spanish ones
       // come from the multilingual checkpoint, so validate per language
       // instead of against that one list.
@@ -1987,6 +2286,11 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         driverRunning: false,
         lastBargeInAt: 0,
         clientTts: url.searchParams.get('clientTts') === '1',
+        mode: (url.searchParams.get('mode') || '').trim().toLowerCase(),
+        scenario: (url.searchParams.get('scenario') || '').trim().toLowerCase(),
+        clipMode: clipModeParam,
+        clipId: clipIdParam,
+        clipName: loadedClipName,
         selectedTerminal: null,
         pendingSend: { current: null },
         conversationId: resumed?.id ?? null,
@@ -1995,10 +2299,22 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
         ttsBuffer: '',
         ttsCancelToken: { cancelled: false },
         ttsChain: Promise.resolve(),
+        nextSentenceId: 0,
         closed: false,
         startedAt: Date.now(),
       }
       activeSessions.add(sess)
+      const openScenario = (sess.mode === 'english-coach' && sess.scenario && findScenario(sess.scenario))
+        ? sess.scenario
+        : null
+      const openClip = sess.mode === 'english-coach' && !!sess.clipName
+      if (openScenario) {
+        sess.queuedUserText = '[Scene is starting now. Begin with your opening line, exactly as specified.]'
+      } else if (openClip) {
+        sess.queuedUserText = sess.clipMode === 'standup-replay'
+          ? '[Session is starting. Give your one-line opener inviting me to re-deliver this standup. Do not read the transcript back at me.]'
+          : '[Session is starting. Give your one-line opener inviting me to share what I heard in the recording. Do not dump the transcript on me.]'
+      }
       logger.info(
         `[voice-live ${id}] open · project=${projectPath} · initial-attachments=${initialAttachments.length} ` +
         `(${totalAttachmentChars(initialAttachments)} chars) · voice=${chosenVoice}`
@@ -2038,6 +2354,15 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
       // the seed (with no queued user text) to Claude, and Claude
       // would greet the user unprompted with something like "Hey,
       // ready when you are" — annoying and burns tokens.
+      // Scenario is the one exception: the opening line is scripted
+      // in the directive, and the user expects the scene to start on
+      // open. queuedUserText above holds the trigger so this spawn
+      // yields real audio instead of burning a token on silence.
+      if (openScenario || openClip) {
+        void runClaudeSession(sess).catch((err) => {
+          logger.error(`[voice-live ${id}] auto-open run failed:`, err)
+        })
+      }
     } catch (err: any) {
       logger.error(`[voice-live ${id}] init failed:`, err)
       sendJson(ws, { type: 'error', message: err.message || 'init failed' })
@@ -2076,6 +2401,7 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
           if (typeof msg.voice === 'string') sess.voice = msg.voice
           break
         case 'set-language':
+          if (sess.mode === 'english-coach') break
           handleSetLanguage(sess, msg)
           break
         case 'ping':

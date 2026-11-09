@@ -5,20 +5,23 @@ import {
   Smartphone, Tablet, Monitor, HardDrive, HelpCircle,
   LayoutGrid, Terminal, Mic, Home, Activity, History,
   Send, Zap, Newspaper, RefreshCw, Play, X,
-  Kanban, Code, FolderOpen, Network, Pencil, GripVertical,
+  Kanban, Code, FolderOpen, Network, Pencil, GripVertical, GraduationCap,
 } from 'lucide-react'
 import {
   api,
   type DeckClientPublic, type DeckDevice,
   type RegisteredProject, type Session, type BoardIndexEntry, type BoardTask,
 } from '../api/client'
-import { useDeck, setPersistentClientName } from '../utils/deckClient'
+import {
+  useDeck, setPersistentClientName,
+  DECK_FAVORITES_KEY, DECK_FAVORITES_EVENT,
+} from '../utils/deckClient'
 import { AgentActivityDot, type AgentActivitySignals } from './AgentActivityDot'
 import { encodeProjectPath } from './ProjectDashboard'
 import '../styles/stream-deck.css'
 
 const TILES_PER_PAGE_FALLBACK = 12
-const FAVORITES_KEY = 'orka-deck-favorites'
+const FAVORITES_KEY = DECK_FAVORITES_KEY
 const RECENTS_MAX = 8
 
 type NavPath = string
@@ -58,6 +61,13 @@ export function StreamDeckPage() {
 
   const deck = useDeck()
   const selfId = deck.clientId
+
+  const didAutoRegisterRef = useRef(false)
+  useEffect(() => {
+    if (deck.status !== 'open' || didAutoRegisterRef.current) return
+    didAutoRegisterRef.current = true
+    if (!deck.active) deck.setActive(true)
+  }, [deck.status, deck.active, deck.setActive])
   const [restRoster, setRestRoster] = useState<DeckClientPublic[] | null>(null)
   // Merge WS + REST — WS is source of truth when we have it, REST fills
   // in the gap right after mount and covers cross-tab broadcasts that
@@ -84,6 +94,7 @@ export function StreamDeckPage() {
     const iv = window.setInterval(pull, 4000)
     return () => { stopped = true; window.clearInterval(iv) }
   }, [])
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [projects, setProjects] = useState<RegisteredProject[]>([])
   const [projectDetail, setProjectDetail] = useState<
@@ -95,6 +106,18 @@ export function StreamDeckPage() {
   const [page, setPage] = useState(0)
   const [tilesPerPage, setTilesPerPage] = useState(TILES_PER_PAGE_FALLBACK)
   const [favorites, setFavorites] = useState<DeckFavorite[]>(() => loadFavorites())
+
+  useEffect(() => {
+    const reload = () => setFavorites(loadFavorites())
+    const onStorage = (e: StorageEvent) => { if (e.key === FAVORITES_KEY) reload() }
+    window.addEventListener(DECK_FAVORITES_EVENT, reload)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener(DECK_FAVORITES_EVENT, reload)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const draggingIdRef = useRef<string | null>(null)
@@ -854,7 +877,7 @@ function colorForString(s: string): string {
 
 type FavIcon =
   | 'LayoutGrid' | 'Activity' | 'Mic' | 'Terminal' | 'History' | 'Play'
-  | 'Kanban' | 'Code' | 'FolderOpen' | 'Network'
+  | 'Kanban' | 'Code' | 'FolderOpen' | 'Network' | 'GraduationCap'
 
 function iconFromName(name: string): React.ReactNode {
   switch (name as FavIcon) {
@@ -868,6 +891,7 @@ function iconFromName(name: string): React.ReactNode {
     case 'Code': return <Code />
     case 'FolderOpen': return <FolderOpen />
     case 'Network': return <Network />
+    case 'GraduationCap': return <GraduationCap />
     default: return <Play />
   }
 }

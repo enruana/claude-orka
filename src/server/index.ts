@@ -12,6 +12,7 @@ import { browseRouter } from './api/browse'
 import { filesRouter } from './api/files'
 import { gitRouter } from './api/git'
 import { transcribeRouter } from './api/transcribe'
+import { englishRouter } from './api/english'
 import { attachLiveTranscribeWS } from './api/transcribe-live'
 import { attachVoiceLiveWS, voiceRouter } from './api/voice-live'
 import { attachDeckWS, deckRouter } from './api/deck'
@@ -27,6 +28,22 @@ import { logger } from '../utils'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
+function readOrkaVersion(): string {
+  const candidates = [
+    path.join(__dirname, '..', '..', 'package.json'),
+    path.join(__dirname, '..', '..', '..', 'package.json'),
+  ]
+  for (const p of candidates) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(p, 'utf8')) as { version?: string }
+      if (typeof pkg.version === 'string' && pkg.version) return pkg.version
+    } catch { /* try next */ }
+  }
+  return '0.0.0'
+}
+
+const ORKA_VERSION = readOrkaVersion()
 
 export interface ServerOptions {
   port?: number
@@ -77,6 +94,8 @@ export async function createServer(options: ServerOptions = {}) {
   // Middleware
   app.use(cors())
   app.use('/api/transcribe', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '100mb' }))
+  app.use(['/api/english/clips', '/api/english/shadow-diff', '/api/english/summary-grade'],
+    express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '150mb' }))
   app.use(express.json())
 
   // API routes
@@ -91,14 +110,18 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/kb', kbRouter)
   app.use('/api/system', systemRouter)
   app.use('/api/board', boardRouter)
+  app.use('/api/english', englishRouter)
   app.use('/api/voice/conversations', voiceConversationsRouter)
   app.use('/api/voice/terminals', voiceTerminalsRouter)
   app.use('/api/voice', voiceRouter)
   app.use('/api/deck', deckRouter)
 
-  // Health check
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() })
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), version: ORKA_VERSION })
+  })
+
+  app.get('/api/version', (_req, res) => {
+    res.json({ version: ORKA_VERSION })
   })
 
   // ttyd HTTP proxy - forwards /ttyd/:port/* to the actual ttyd instance

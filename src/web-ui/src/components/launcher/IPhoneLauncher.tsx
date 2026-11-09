@@ -775,6 +775,7 @@ export function IPhoneLauncher() {
         />
       )}
 
+
       {/* Add Project modal — reuses the same FolderBrowser the dashboard
           uses, so `orka init` runs against whatever path the user picks. */}
       {showAddProject && (
@@ -1358,6 +1359,7 @@ function StreamDeckAppIcon({ onOpen }: { onOpen: () => void }) {
     </button>
   )
 }
+
 
 /**
  * Toggle whether THIS tab shows up on the Stream Deck as a
