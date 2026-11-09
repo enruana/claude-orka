@@ -599,5 +599,30 @@
 }
 .ec-mode-disabled:hover { transform: none !important; background: rgba(255, 255, 255, 0.04) !important; border-color: rgba(255, 255, 255, 0.08) !important; }
 
+.ec-reprocess-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  color: #fcd34d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ec-reprocess-banner code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.ec-reprocess-banner .ec-inline-btn {
+  margin-left: auto;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
 .ec-spin { animation: ec-rot 1s linear infinite; }
 @keyframes ec-rot { to { transform: rotate(360deg); } }

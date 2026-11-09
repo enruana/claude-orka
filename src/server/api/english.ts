@@ -92,6 +92,25 @@ async function convertToWav(input: string, output: string): Promise<void> {
 }
 
 /**
+ * Transcode to a playback-friendly mp3. MediaRecorder-produced webm files
+ * don't carry a Duration element in the Segment Info block, so the HTML5
+ * <audio> element can't render a usable seek bar for them — the progress
+ * bar sits at 100% from the start and the user can't rewind. mp3 always
+ * has a valid duration and is universally supported by audio elements,
+ * so we transcode once at transcribe time and serve the mp3.
+ */
+async function convertToMp3(input: string, output: string): Promise<void> {
+  await execa('ffmpeg', [
+    '-i', input,
+    '-codec:a', 'libmp3lame',
+    '-q:a', '4',
+    '-ac', '1',
+    '-y',
+    output,
+  ])
+}
+
+/**
  * Call whisper-server directly to get segment-level timestamps (verbose_json).
  * The utility's .transcribe() method hardcodes no_timestamps=true, so we go
  * around it to keep the segments payload. Returns both the stitched text and
@@ -130,6 +149,7 @@ async function transcribeWithSegments(wav: Buffer, language: string): Promise<{ 
 async function transcribeClipInBackground(clip: ClipRow): Promise<void> {
   const audio = clipAudioPath(clip)
   const wavPath = path.join(clipFolder(clip.id), 'audio.wav')
+  const mp3Path = path.join(clipFolder(clip.id), 'audio.mp3')
   try {
     await convertToWav(audio, wavPath)
     const wav = await fs.readFile(wavPath)
@@ -141,6 +161,13 @@ async function transcribeClipInBackground(clip: ClipRow): Promise<void> {
 
     const { text, segments } = await transcribeWithSegments(wav, 'auto')
 
+    // Transcode to mp3 for playback (see convertToMp3 comment).
+    const originalPath = audio
+    const originalWasMp3 = clip.filename === 'audio.mp3'
+    if (!originalWasMp3) {
+      await convertToMp3(originalPath, mp3Path)
+    }
+
     const idx = await readIndex()
     const row = idx.clips.find((c) => c.id === clip.id)
     if (row) {
@@ -148,7 +175,20 @@ async function transcribeClipInBackground(clip: ClipRow): Promise<void> {
       row.transcript = text
       row.segments = segments
       if (wavDuration !== null) row.durationSec = wavDuration
+      if (!originalWasMp3) {
+        row.filename = 'audio.mp3'
+        row.mimeType = 'audio/mpeg'
+        try {
+          const mp3Stat = await fs.stat(mp3Path)
+          row.bytes = mp3Stat.size
+        } catch { /* drop */ }
+      }
       await writeIndex(idx)
+    }
+
+    // Swap complete — safe to delete the original source file.
+    if (!originalWasMp3) {
+      try { await fs.remove(originalPath) } catch { /* drop */ }
     }
     logger.info(`[english-clips] transcribed ${clip.id} (${text.length} chars, ${segments.length} segments, ${wavDuration?.toFixed(1)}s)`)
   } catch (err: any) {

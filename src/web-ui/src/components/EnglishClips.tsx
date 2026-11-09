@@ -306,6 +306,24 @@ function ClipDetail({
         </div>
       )}
 
+      {clip.status === 'ready' && clip.mimeType && clip.mimeType !== 'audio/mpeg' && (
+        <div className="ec-reprocess-banner">
+          <AlertCircle size={13} />
+          <span>Audio from recorder-style <code>.webm</code> files can't seek properly. Reprocess to fix the seek bar.</span>
+          <button
+            className="ec-inline-btn"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true)
+              try { await api.retranscribeEnglishClip(clip.id, host); await onReload() }
+              finally { setBusy(false) }
+            }}
+          >
+            {busy ? <Loader2 size={12} className="ec-spin" /> : <RefreshCw size={12} />} Reprocess
+          </button>
+        </div>
+      )}
+
       {clip.status === 'ready' && (
         <>
           <section className="ec-transcript-wrap">
