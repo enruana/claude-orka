@@ -29,7 +29,12 @@ type View =
 
 interface Props {
   onBack: () => void
-  onLaunchSession: (opts: { clipId: string; mode: 'discuss' | 'standup-replay' }) => void
+  onLaunchSession: (opts: {
+    clipId: string
+    mode: 'discuss' | 'standup-replay'
+    /** Empty = clip lives on this server. Non-empty = voice-live needs to fetch from that URL. */
+    remoteHost?: string
+  }) => void
 }
 
 export function EnglishClips({ onBack, onLaunchSession }: Props) {
@@ -87,16 +92,14 @@ export function EnglishClips({ onBack, onLaunchSession }: Props) {
     inner = (
       <ClipDetail
         clip={activeClip}
-        remoteHost={clipsHost.enabled}
         onBack={() => setView({ kind: 'library' })}
         onPickMode={(kind) => {
           if (kind === 'discuss' || kind === 'standup-replay') {
-            // Voice-live co-locates with the serving host; a clip on a
-            // remote host can't be attached. The picker UI already
-            // disables these buttons when enabled; this guard is here
-            // as a second line of defense.
-            if (clipsHost.enabled) return
-            onLaunchSession({ clipId: activeClip.id, mode: kind })
+            onLaunchSession({
+              clipId: activeClip.id,
+              mode: kind,
+              remoteHost: clipsHost.enabled ? clipsHost.url : undefined,
+            })
           } else {
             setView({ kind, clipId: activeClip.id })
           }
@@ -258,13 +261,12 @@ function ClipLibrary({
 /* ---------------- Clip detail ---------------- */
 
 function ClipDetail({
-  clip, onBack, onPickMode, onReload, remoteHost,
+  clip, onBack, onPickMode, onReload,
 }: {
   clip: EnglishClip
   onBack: () => void
   onPickMode: (kind: 'discuss' | 'standup-replay' | 'vocab' | 'cloze' | 'shadow' | 'summary') => void
   onReload: () => void
-  remoteHost: boolean
 }) {
   const host = useHost()
   const [busy, setBusy] = useState(false)
@@ -357,14 +359,10 @@ function ClipDetail({
             <div className="ec-mode-grid">
               <ModeButton icon={<Mic size={18} />} title="Discuss"
                 desc="Talk about it with the coach in a voice session."
-                onClick={() => onPickMode('discuss')} tint="blue"
-                disabled={remoteHost}
-                disabledReason="Voice sessions need the clip on this server. Switch host back to 'This server' to use Discuss." />
+                onClick={() => onPickMode('discuss')} tint="blue" />
               <ModeButton icon={<RefreshCw size={18} />} title="Standup replay"
                 desc="Re-deliver your own standup with coach feedback."
-                onClick={() => onPickMode('standup-replay')} tint="blue"
-                disabled={remoteHost}
-                disabledReason="Voice sessions need the clip on this server. Switch host back to 'This server' to use Standup replay." />
+                onClick={() => onPickMode('standup-replay')} tint="blue" />
               <ModeButton icon={<BookOpen size={18} />} title="Vocabulary"
                 desc="Mine phrasal verbs, idioms, and useful terms."
                 onClick={() => onPickMode('vocab')} tint="amber" />

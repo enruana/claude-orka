@@ -6,7 +6,7 @@ import fs from 'fs-extra'
 import path from 'path'
 import { logger } from '../../utils'
 import { transcribeUtterancePcm16 } from './transcribe-live'
-import { loadEnglishClip } from './english'
+import { loadEnglishClip, fetchRemoteClip } from './english'
 import { describeTerminal, resolvePaneForSession } from './voice-terminals'
 import {
   createVoiceMcpServer,
@@ -2235,10 +2235,17 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
       // decides which directive is appended at seed-build time.
       const clipIdParam = (url.searchParams.get('clip') || '').trim()
       const clipModeParam = (url.searchParams.get('clipMode') || '').trim().toLowerCase()
+      const clipHostParam = (url.searchParams.get('clipHost') || '').trim()
       let loadedClipName: string | null = null
       if (clipIdParam) {
         try {
-          const clip = await loadEnglishClip(clipIdParam)
+          // When the user has the clips library pointed at a remote Orka
+          // (MacBook, say), the clip lives on that host. Fetch it over
+          // HTTPS instead of reading our own disk — the voice session
+          // still runs here, the transcript just rides in as text.
+          const clip = clipHostParam
+            ? await fetchRemoteClip(clipHostParam, clipIdParam)
+            : await loadEnglishClip(clipIdParam)
           if (clip && clip.transcript) {
             initialAttachments.push({
               id: makeAttachmentId(),
@@ -2250,6 +2257,8 @@ export function attachVoiceLiveWS(server: HttpServer | HttpsServer): void {
               pendingAnnounce: false,
             })
             loadedClipName = clip.name
+          } else if (clipHostParam) {
+            logger.warn(`[voice-live] remote clip ${clipIdParam} on ${clipHostParam} returned empty/missing`)
           }
         } catch (err: any) {
           logger.warn(`[voice-live] clip ${clipIdParam} load failed: ${err?.message || err}`)

@@ -194,6 +194,7 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
   const scenarioParam = (searchParams.get('scenario') || '').trim().toLowerCase()
   const clipParam = (searchParams.get('clip') || '').trim()
   const clipModeParam = (searchParams.get('clipMode') || '').trim().toLowerCase()
+  const clipHostParam = (searchParams.get('clipHost') || '').trim()
   const pageTitle = coachMode ? 'English Coach' : 'Voice Agent'
   usePageTitle(pageTitle)
   // Opened FROM a terminal: everything needed to bind to it travels in
@@ -568,6 +569,7 @@ function VoiceAgentSession({ conversationId, onExit }: SessionProps) {
           + (coachMode && scenarioParam ? `&scenario=${encodeURIComponent(scenarioParam)}` : '')
           + (coachMode && clipParam ? `&clip=${encodeURIComponent(clipParam)}` : '')
           + (coachMode && clipParam && clipModeParam ? `&clipMode=${encodeURIComponent(clipModeParam)}` : '')
+          + (coachMode && clipParam && clipHostParam ? `&clipHost=${encodeURIComponent(clipHostParam)}` : '')
         const ws = new WebSocket(url)
         ws.binaryType = 'arraybuffer'
         wsRef.current = ws
@@ -2335,12 +2337,18 @@ export function VoiceAgentPage() {
     setSession({ key: `coach-${scenarioId || 'free'}-${Date.now()}`, conversationId: null })
   }, [setSearchParams])
 
-  const startClipSession = useCallback((opts: { clipId: string; mode: 'discuss' | 'standup-replay' }) => {
+  const startClipSession = useCallback((opts: {
+    clipId: string
+    mode: 'discuss' | 'standup-replay'
+    remoteHost?: string
+  }) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.set('mode', 'english-coach')
       next.set('clip', opts.clipId)
       next.set('clipMode', opts.mode)
+      if (opts.remoteHost) next.set('clipHost', opts.remoteHost)
+      else next.delete('clipHost')
       next.delete('scenario')
       return next
     }, { replace: true })

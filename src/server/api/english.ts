@@ -44,6 +44,41 @@ export async function loadEnglishClip(id: string): Promise<ClipRow | null> {
   return idx.clips.find((c) => c.id === id) || null
 }
 
+/**
+ * Fetch a clip from a remote Orka instance over HTTPS. Used by voice-live
+ * so a Discuss/Standup session running on THIS server can attach a clip
+ * that lives on the user's MacBook (or any other registered Orka host).
+ * Timeout bounded so a stale host doesn't hang the WS open.
+ */
+export async function fetchRemoteClip(host: string, id: string): Promise<ClipRow | null> {
+  const safeHost = host.trim().replace(/\/+$/, '')
+  if (!/^https?:\/\//i.test(safeHost)) return null
+  try {
+    const res = await fetch(`${safeHost}/api/english/clips/${encodeURIComponent(id)}`, {
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) return null
+    const data = await res.json().catch(() => null) as { clip?: Partial<ClipRow> & { hasAudio?: boolean } } | null
+    const c = data?.clip
+    if (!c || !c.id) return null
+    return {
+      id: c.id,
+      name: c.name || `clip ${c.id}`,
+      filename: 'audio.mp3',
+      mimeType: c.mimeType || 'audio/mpeg',
+      bytes: c.bytes || 0,
+      durationSec: c.durationSec ?? null,
+      createdAt: c.createdAt || new Date().toISOString(),
+      status: 'ready',
+      transcript: c.transcript || '',
+      segments: c.segments,
+      source: c.source,
+    }
+  } catch {
+    return null
+  }
+}
+
 async function readIndex(): Promise<ClipIndex> {
   await fs.ensureDir(CLIPS_DIR)
   if (!(await fs.pathExists(INDEX_PATH))) return { clips: [] }
