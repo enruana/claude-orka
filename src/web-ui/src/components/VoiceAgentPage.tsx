@@ -4,13 +4,14 @@ import {
   ArrowLeft, Mic, Paperclip, Link as LinkIcon, X, Loader2,
   AlertTriangle, FileText, Globe, Square, Minus, Maximize2, GripHorizontal, Copy, Check,
   Languages, ClipboardPaste, Save, Trash2, Plus, MessageSquare, ChevronLeft, RefreshCw,
-  TerminalSquare, Cpu, GraduationCap, Sparkles, Headphones,
+  TerminalSquare, Cpu, GraduationCap, Sparkles, Headphones, Gauge,
 } from 'lucide-react'
 import { api, type ActiveTerminal, type EnglishScenario } from '../api/client'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { useLocalVoiceHost } from '../hooks/useLocalVoiceHost'
 import { ParticleCloud } from './ParticleCloud'
 import { EnglishClips } from './EnglishClips'
+import { ArticulationDrills } from './ArticulationDrills'
 import '../styles/voice-agent.css'
 
 /**
@@ -2275,7 +2276,7 @@ export function VoiceAgentPage() {
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null)
   const [pickerError, setPickerError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
-  const [pickerView, setPickerView] = useState<'home' | 'english-scenarios' | 'clips'>('home')
+  const [pickerView, setPickerView] = useState<'home' | 'english-scenarios' | 'clips' | 'articulation'>('home')
   const [scenarios, setScenarios] = useState<EnglishScenario[] | null>(null)
 
   const loadConversations = useCallback(async () => {
@@ -2414,6 +2415,14 @@ export function VoiceAgentPage() {
                 <div className="va-mode-title">Clips library</div>
                 <div className="va-mode-desc">Practice listening, vocab, shadowing with your own recordings.</div>
               </button>
+              <button
+                className="va-mode-card va-mode-card-articulation"
+                onClick={() => setPickerView('articulation')}
+              >
+                <div className="va-mode-icon va-mode-icon-articulation"><Gauge size={24} /></div>
+                <div className="va-mode-title">Articulation</div>
+                <div className="va-mode-desc">Short drills — pace, tongue twisters, pauses. Sharpen one dimension at a time.</div>
+              </button>
             </div>
 
             {conversations === null && <div className="va-picker-empty">Loading…</div>}
@@ -2510,6 +2519,9 @@ export function VoiceAgentPage() {
             onBack={() => setPickerView('home')}
             onLaunchSession={startClipSession}
           />
+        )}
+        {pickerView === 'articulation' && (
+          <ArticulationDrills onBack={() => setPickerView('home')} />
         )}
       </div>
     </div>

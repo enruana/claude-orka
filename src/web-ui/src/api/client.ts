@@ -304,6 +304,28 @@ export interface SummaryGradeResult {
   topCorrections: Array<{ quote: string; suggestion: string; explanation: string }>
 }
 
+export interface PacePassage {
+  id: string
+  title: string
+  category: string
+  text: string
+  wordCount: number
+}
+
+export interface PaceDrillResult {
+  passageId: string
+  passageTitle: string
+  passageWordCount: number
+  targetWpm: number
+  userWpm: number
+  delta: number
+  band: 'too-slow' | 'slightly-slow' | 'on-target' | 'slightly-fast' | 'too-fast'
+  coverage: number
+  durationSec: number
+  userTranscript: string
+  note: string
+}
+
 // Detailed views returned by GET /api/system/details?category=...
 export interface SystemProcessInfo {
   pid: number
@@ -1293,6 +1315,27 @@ export const api = {
       body: buf,
     })
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'shadow failed')
+    return res.json()
+  },
+
+  async listPacePassages(host = ''): Promise<PacePassage[]> {
+    const base = host ? `${host}/api` : API_BASE
+    const res = await fetch(`${base}/articulation/passages`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    return Array.isArray(data?.passages) ? data.passages : []
+  },
+
+  async submitPaceDrill(opts: { passageId: string; targetWpm: number; audio: Blob }, host = ''): Promise<PaceDrillResult> {
+    const base = host ? `${host}/api` : API_BASE
+    const buf = await opts.audio.arrayBuffer()
+    const qs = `?passageId=${encodeURIComponent(opts.passageId)}&target=${opts.targetWpm}`
+    const res = await fetch(`${base}/articulation/pace-drill${qs}`, {
+      method: 'POST',
+      headers: { 'Content-Type': opts.audio.type || 'audio/webm' },
+      body: buf,
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'pace drill failed')
     return res.json()
   },
 

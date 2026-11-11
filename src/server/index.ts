@@ -13,6 +13,7 @@ import { filesRouter } from './api/files'
 import { gitRouter } from './api/git'
 import { transcribeRouter } from './api/transcribe'
 import { englishRouter } from './api/english'
+import { articulationRouter } from './api/articulation'
 import { attachLiveTranscribeWS } from './api/transcribe-live'
 import { attachVoiceLiveWS, voiceRouter } from './api/voice-live'
 import { attachDeckWS, deckRouter } from './api/deck'
@@ -96,6 +97,8 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/transcribe', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '100mb' }))
   app.use(['/api/english/clips', '/api/english/shadow-diff', '/api/english/summary-grade'],
     express.raw({ type: () => true, limit: '150mb' }))
+  app.use('/api/articulation/pace-drill',
+    express.raw({ type: () => true, limit: '20mb' }))
   app.use(express.json())
 
   // API routes
@@ -111,6 +114,7 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/system', systemRouter)
   app.use('/api/board', boardRouter)
   app.use('/api/english', englishRouter)
+  app.use('/api/articulation', articulationRouter)
   app.use('/api/voice/conversations', voiceConversationsRouter)
   app.use('/api/voice/terminals', voiceTerminalsRouter)
   app.use('/api/voice', voiceRouter)

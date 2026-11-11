@@ -1277,6 +1277,14 @@
   background: rgba(203, 166, 247, 0.16);
   color: #cba6f7;
 }
+.va-mode-card-articulation:hover {
+  background: rgba(94, 234, 212, 0.08);
+  border-color: rgba(94, 234, 212, 0.35);
+}
+.va-mode-icon-articulation {
+  background: rgba(94, 234, 212, 0.16);
+  color: #5eead4;
+}
 .va-mode-icon {
   width: 42px;
   height: 42px;
