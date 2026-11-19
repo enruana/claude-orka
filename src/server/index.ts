@@ -24,6 +24,8 @@ import { aiRouter } from './api/ai'
 import { kbRouter } from './api/kb'
 import { systemRouter } from './api/system'
 import { boardRouter } from './api/board'
+import { shareRouter } from './api/share'
+import { startShareServer } from './share-server'
 import { getAgentManager } from '../agent/AgentManager'
 import { logger } from '../utils'
 
@@ -113,6 +115,7 @@ export async function createServer(options: ServerOptions = {}) {
   app.use('/api/kb', kbRouter)
   app.use('/api/system', systemRouter)
   app.use('/api/board', boardRouter)
+  app.use('/api/share', shareRouter)
   app.use('/api/english', englishRouter)
   app.use('/api/articulation', articulationRouter)
   app.use('/api/voice/conversations', voiceConversationsRouter)
@@ -319,6 +322,13 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
         logger.warn(`session-watcher startup refresh failed: ${err?.message || err}`)
       }
     })()
+
+    void startShareServer({
+      certPath: useHttps ? options.certPath : undefined,
+      keyPath: useHttps ? options.keyPath : undefined,
+    }).catch((err) => {
+      logger.warn(`[share-server] startup failed: ${err?.message || err}`)
+    })
 
     server.listen(port, () => {
       logger.info(`Orka server running at ${protocol}://localhost:${port}`)

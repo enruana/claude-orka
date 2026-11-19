@@ -65,6 +65,9 @@ export function doctorCommand(program: Command) {
         // Check SSL certs
         results.push(await checkSSLCerts())
 
+        // Check cloudflared (share-for-review public tunnel)
+        results.push(await checkCloudflared())
+
         // Display results
         displayResults(results)
 
@@ -573,6 +576,35 @@ async function checkTailscale(): Promise<CheckResult> {
       message: 'Not connected',
       details: (error as Error).message,
       fix: 'Run: sudo tailscale up',
+    }
+  }
+}
+
+async function checkCloudflared(): Promise<CheckResult> {
+  try {
+    await execa('which', ['cloudflared'])
+  } catch {
+    return {
+      name: 'cloudflared (share tunnel)',
+      status: 'warn',
+      message: 'Not installed',
+      details: 'cloudflared is used to expose share-for-review links publicly (port 3476).',
+      fix: 'Run: orka prepare',
+    }
+  }
+  try {
+    const { stdout } = await execa('cloudflared', ['--version'])
+    return {
+      name: 'cloudflared (share tunnel)',
+      status: 'pass',
+      message: stdout.split('\n')[0],
+    }
+  } catch (error) {
+    return {
+      name: 'cloudflared (share tunnel)',
+      status: 'warn',
+      message: 'Installed but not runnable',
+      details: (error as Error).message,
     }
   }
 }

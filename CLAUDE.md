@@ -203,6 +203,7 @@ For this to work end-to-end the server must be HTTPS (Clipboard API requires sec
 | `.claude-orka/state.json` | Per-project: sessions + forks + tasks + comments + version |
 | `.claude-orka/exports/fork-{id}.md` | Fork export summaries (input to merge) |
 | `.claude-orka/.orka-kb/` | KB events, entities, edges, views |
+| `.claude-orka/shares/` | Share-for-review snapshots + `index.json` (per-token folder with `content.html` + `assets/`) |
 | `.claude-orka/.tmux.orka.conf` | Project-local copy of tmux theme |
 | `~/.orka/config.json` | Global: registered projects, ports, system terminal info |
 | `~/.orka/certs/*.crt` + `*.key` | HTTPS certificates (Tailscale-issued) |
@@ -215,6 +216,7 @@ For this to work end-to-end the server must be HTTPS (Clipboard API requires sec
 | Port | Purpose |
 |---|---|
 | 3456 | Web server (configurable with `--port`) |
+| 3476 | Share-for-review public server (serves `/s/:token/*`; expose via `cloudflared tunnel --url http://localhost:3476`) |
 | 9999 | Hook server (for Claude Code hooks → agents) |
 | 4444+ | ttyd instances (auto-assigned starting at `ttydBasePort` in global config) |
 

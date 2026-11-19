@@ -34,6 +34,58 @@ interface AskDocumentBody {
 const ASK_DOC_MAX_CONTEXT = 120_000
 const ASK_DOC_MAX_HISTORY_CHARS = 24_000
 
+export async function askDocument(input: AskDocumentBody): Promise<{ answer: string }> {
+  const { question, selectedText, documentText, filePath, history } = input
+  if (!question?.trim()) throw new Error('question is required')
+  if (!selectedText?.trim()) throw new Error('selectedText is required')
+  if (!documentText?.trim()) throw new Error('documentText is required')
+
+  let docForStdin = documentText
+  let truncated = false
+  if (docForStdin.length > ASK_DOC_MAX_CONTEXT) {
+    const half = Math.floor(ASK_DOC_MAX_CONTEXT / 2)
+    docForStdin =
+      docForStdin.slice(0, half)
+      + `\n\n[… ~${docForStdin.length - ASK_DOC_MAX_CONTEXT} chars omitted …]\n\n`
+      + docForStdin.slice(-half)
+    truncated = true
+  }
+
+  const excerpt = selectedText.slice(0, 4000)
+  const filePathLine = filePath ? `\nDocument path: ${filePath}` : ''
+  const truncationLine = truncated
+    ? '\nNote: the full document was long; a middle chunk was elided. Say so if the answer would need what was cut.'
+    : ''
+  const historyBlock = formatAskDocumentHistory(history)
+
+  const prompt = [
+    'You are answering a reader\'s question about a document. The full document is on stdin.',
+    'The reader highlighted a specific excerpt and asked about it. Answer the question directly; use the rest of the document to ground your answer when relevant.',
+    'If a prior conversation is provided, treat the new question as a follow-up; stay consistent with earlier answers unless the user explicitly corrects them.',
+    'Be concise. Reply in the same language as the question. If the answer is not in the document, say so plainly.',
+    filePathLine,
+    truncationLine,
+    '',
+    'Highlighted excerpt:',
+    '"""',
+    excerpt,
+    '"""',
+    historyBlock,
+    '',
+    `Current question: ${question.trim()}`,
+  ].filter(Boolean).join('\n')
+
+  const args = ['-p', prompt, '--model', 'haiku', '--no-session-persistence']
+  const execaOptions: any = {
+    timeout: 90000,
+    env: { ...process.env, CLAUDECODE: '' },
+    extendEnv: false,
+    input: docForStdin,
+  }
+  const { stdout } = await execa('claude', args, execaOptions)
+  return { answer: stdout.trim() }
+}
+
 function formatAskDocumentHistory(history: AskDocumentTurn[] | undefined): string {
   if (!Array.isArray(history) || history.length === 0) return ''
   const cleaned = history
@@ -152,59 +204,14 @@ aiRouter.post('/query', async (req, res) => {
  */
 aiRouter.post('/ask-document', async (req, res) => {
   try {
-    const { question, selectedText, documentText, filePath, history } = req.body as AskDocumentBody
-
-    if (!question?.trim()) { res.status(400).json({ error: 'question is required' }); return }
-    if (!selectedText?.trim()) { res.status(400).json({ error: 'selectedText is required' }); return }
-    if (!documentText?.trim()) { res.status(400).json({ error: 'documentText is required' }); return }
-
-    let docForStdin = documentText
-    let truncated = false
-    if (docForStdin.length > ASK_DOC_MAX_CONTEXT) {
-      const half = Math.floor(ASK_DOC_MAX_CONTEXT / 2)
-      docForStdin =
-        docForStdin.slice(0, half)
-        + `\n\n[… ~${docForStdin.length - ASK_DOC_MAX_CONTEXT} chars omitted …]\n\n`
-        + docForStdin.slice(-half)
-      truncated = true
-    }
-
-    const excerpt = selectedText.slice(0, 4000)
-    const filePathLine = filePath ? `\nDocument path: ${filePath}` : ''
-    const truncationLine = truncated
-      ? '\nNote: the full document was long; a middle chunk was elided. Say so if the answer would need what was cut.'
-      : ''
-
-    const historyBlock = formatAskDocumentHistory(history)
-
-    const prompt = [
-      'You are answering a reader\'s question about a document. The full document is on stdin.',
-      'The reader highlighted a specific excerpt and asked about it. Answer the question directly; use the rest of the document to ground your answer when relevant.',
-      'If a prior conversation is provided, treat the new question as a follow-up; stay consistent with earlier answers unless the user explicitly corrects them.',
-      'Be concise. Reply in the same language as the question. If the answer is not in the document, say so plainly.',
-      filePathLine,
-      truncationLine,
-      '',
-      'Highlighted excerpt:',
-      '"""',
-      excerpt,
-      '"""',
-      historyBlock,
-      '',
-      `Current question: ${question.trim()}`,
-    ].filter(Boolean).join('\n')
-
-    const args = ['-p', prompt, '--model', 'haiku', '--no-session-persistence']
-    const execaOptions: any = {
-      timeout: 90000,
-      env: { ...process.env, CLAUDECODE: '' },
-      extendEnv: false,
-      input: docForStdin,
-    }
-    const { stdout } = await execa('claude', args, execaOptions)
-    res.json({ answer: stdout.trim() })
+    const result = await askDocument(req.body as AskDocumentBody)
+    res.json(result)
   } catch (error: any) {
     console.error('Error in AI ask-document:', error)
+    if (error.message?.endsWith('is required')) {
+      res.status(400).json({ error: error.message })
+      return
+    }
     if (error.code === 'ENOENT') {
       res.status(500).json({ error: 'Claude CLI not found. Make sure claude is installed and in PATH.' })
       return

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Folder } from 'lucide-react'
+import { Folder, Share2 } from 'lucide-react'
 import { FileListItem } from '../../api/client'
 import { getFileIcon, getFileKind, formatFileSize, formatRelativeTime } from '../../utils/fileTypes'
 import { useLongPress } from '../code-editor/ContextMenu'
@@ -25,6 +25,7 @@ interface FinderListViewProps {
   onLongPress?: (e: React.TouchEvent | React.MouseEvent, item: FileListItem) => void
   onMoveFile: (fromPath: string, toDirectory: string) => void
   onUploadFiles: (files: File[], destination: string) => void
+  sharedPaths?: Set<string>
 }
 
 export function FinderListView({
@@ -36,6 +37,7 @@ export function FinderListView({
   onLongPress,
   onMoveFile,
   onUploadFiles,
+  sharedPaths,
 }: FinderListViewProps) {
   const [sortBy, setSortBy] = useState<SortKey>('name')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -167,6 +169,9 @@ export function FinderListView({
                   {isDir ? <Folder size={16} /> : getFileIcon(item.name, 16)}
                 </span>
                 <span className="finder-item-name">{item.name}</span>
+                {!isDir && sharedPaths?.has(item.path) && (
+                  <span className="finder-shared-badge" title="Shared for review"><Share2 size={12} /></span>
+                )}
                 {isDir && item.childCount !== undefined && (
                   <span className="finder-child-count">{item.childCount}</span>
                 )}

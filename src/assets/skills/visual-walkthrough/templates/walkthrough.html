@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One day in the life of the requests</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ---- the look (swap freely; the mechanics below do not depend on it) ---- */
+  :root { color-scheme: light dark; --paper: #e7e2d5; --sheet: #faf7f0; --card: rgba(255,255,255,.55); --ink: #2b2622; --muted: #6f6557; --rule: #cdc5b4; --blue: #1c5f91; --red: #b03a55; --warm: #bf5f1c; --good: #2f7a4e; --gold: #a8831a; --notyet: #b5ac9b; --track: rgba(28,95,145,.16); --codebg: rgba(255,255,255,.7); --shadow: 0 1px 2px rgba(43,38,34,.05), 0 18px 40px -34px rgba(43,38,34,.5); --font: 'Montserrat', ui-sans-serif, system-ui, sans-serif; --mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --paper: #17161a; --sheet: #211f23; --card: rgba(255,255,255,.045); --ink: #ebe5d9; --muted: #a79d8e; --rule: #3b373d; --blue: #7fb3e0; --red: #e58aa0; --warm: #e8a062; --good: #86c9a0; --gold: #dcbd55; --notyet: #5e5962; --track: rgba(127,179,224,.22); --codebg: rgba(255,255,255,.06); --shadow: none; } }
+  :root[data-theme="dark"] { --paper: #17161a; --sheet: #211f23; --card: rgba(255,255,255,.045); --ink: #ebe5d9; --muted: #a79d8e; --rule: #3b373d; --blue: #7fb3e0; --red: #e58aa0; --warm: #e8a062; --good: #86c9a0; --gold: #dcbd55; --notyet: #5e5962; --track: rgba(127,179,224,.22); --codebg: rgba(255,255,255,.06); --shadow: none; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font); font-size: 16.5px; line-height: 1.6; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 22px 16px 80px; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+  h1 { font-size: clamp(27px, 6.5vw, 36px); line-height: 1.1; margin: 0 0 14px; font-weight: 700; letter-spacing: -0.7px; }
+  .lede { color: var(--muted); font-size: 1.02em; margin: 0 0 20px; max-width: 68ch; } .lede b { color: var(--ink); font-weight: 600; }
+  section { background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 20px 16px 18px; margin: 0 0 16px; box-shadow: var(--shadow); }
+  h2 { font-size: 1.3em; line-height: 1.22; margin: 0 0 12px; font-weight: 700; }
+  h2 .n { display: inline-block; font-family: var(--mono); color: var(--blue); font-size: .62em; font-weight: 500; border: 1px solid var(--rule); border-radius: 999px; padding: 2px 9px; margin-right: 8px; vertical-align: 3px; }
+  p { margin: 0 0 12px; max-width: 70ch; } ul { margin: 0 0 12px; padding: 0; list-style: none; } li { padding: 0 0 9px 18px; position: relative; }
+  li::before { content: ''; position: absolute; left: 2px; top: .62em; width: 6px; height: 6px; border-radius: 50%; background: var(--rule); } li b { font-weight: 600; }
+  code { font-family: var(--mono); font-size: .86em; background: var(--codebg); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 5px; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 6px; font-size: .9em; }
+  th { text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--rule); padding: 0 10px 6px 0; }
+  td { padding: 8px 12px 8px 0; border-bottom: 1px dotted var(--rule); vertical-align: top; line-height: 1.5; } td.term { font-weight: 600; width: 18%; }
+  @media (min-width: 900px) { body { font-size: 15.5px; } .wrap { padding: 36px 28px 90px; } section { padding: 24px 30px 22px; border-radius: 10px; } }
+
+  /* ---- the figure: controls, caption, drawing, console ---- */
+  .fig { margin: 0 0 14px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; outline: none; }
+  .fig:focus-visible { box-shadow: 0 0 0 2px var(--blue); }
+  .fig .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .fig svg { display: block; width: 100%; min-width: 720px; height: auto; }
+  .fig text { font-family: var(--mono); fill: var(--ink); }
+  .fig .lbl { font-size: 9.5px; letter-spacing: 1.3px; fill: var(--muted); } .fig .xs { font-size: 7.6px; fill: var(--muted); }
+  .fig .ln { fill: none; stroke: var(--ink); stroke-width: 1.3; } .fig .ahp { fill: var(--ink); }
+  .fig .dashl { fill: none; stroke: var(--muted); stroke-width: 1.1; stroke-dasharray: 3 3; }
+  .fig .box { fill: var(--card); stroke-width: 1.5; } .fig .box.b { stroke: var(--blue); } .fig .box.w { stroke: var(--warm); } .fig .box.k { stroke: var(--ink); } .fig .box.g { stroke: var(--good); } .fig .box.m { stroke: var(--notyet); } .fig .box.d { stroke: var(--muted); stroke-dasharray: 4 3; fill: none; }
+  .layer { transition: opacity .55s ease; } .layer.off { opacity: 0; }
+  .dot { stroke: var(--ink); stroke-width: 0; transition: fill .5s ease; }
+  .dot.t-item { fill: var(--muted); } .dot.t-old { fill: var(--notyet); opacity: .55; } .dot.t-new { fill: var(--blue); } .dot.t-drop { fill: var(--notyet); } .dot.t-none { fill: var(--notyet); opacity: .5; } .dot.t-done { fill: var(--good); }
+  .dot.t-free { fill: var(--good); } .dot.t-busy { fill: var(--warm); } .dot.t-away { fill: var(--notyet); }
+  @keyframes halo { from { stroke-opacity: .9; stroke-width: 1.5; } to { stroke-opacity: 0; stroke-width: 11; } }
+  .dot.mv { animation: halo 1.5s ease-out infinite; }
+  .fig .mtag { font-size: 8.4px; fill: var(--ink); paint-order: stroke; stroke: var(--sheet); stroke-width: 3px; stroke-linejoin: round; }
+  .ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 16px 2px; }
+  .ctrl button { font: 500 11px var(--mono); letter-spacing: 1px; text-transform: uppercase; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); cursor: pointer; } .ctrl button:hover { border-color: var(--ink); }
+  .ctrl .steps { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; }
+  .ib { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--rule); background: var(--card); color: var(--blue); font: 600 13px var(--font); cursor: pointer; margin-left: 8px; line-height: 1; } .ib:hover { border-color: var(--blue); }
+  .fsb { font: 500 11px var(--mono); letter-spacing: 1px; text-transform: uppercase; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); cursor: pointer; margin-left: 6px; white-space: nowrap; } .fsb:hover { border-color: var(--ink); }
+  .cap { padding: 6px 16px 12px; font-size: .95em; border-bottom: 1px solid var(--rule); }
+  .cap .k { font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--blue); display: block; margin-bottom: 3px; }
+  .cap .now { display: block; font-family: var(--mono); font-size: 11.5px; color: var(--blue); margin-top: 6px; line-height: 1.5; } .cap .now:empty { display: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .6px; color: var(--muted); padding: 10px 16px 12px; border-top: 1px solid var(--rule); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .con { border-top: 1px solid var(--rule); padding: 12px 16px 6px; } .con[hidden] { display: none; }
+  .con .ch { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; } .con .ch .lbl { font-family: var(--mono); font-size: 10.5px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--muted); }
+  .con .meter { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .con ol { list-style: none; margin: 0; padding: 0; } .con li { padding: 5px 0; border-bottom: 1px dotted var(--rule); font-family: var(--mono); font-size: 11.5px; display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wrap; opacity: 0; transition: opacity .3s ease; } .con li::before { display: none; } .con li.on { opacity: 1; }
+  .con li .id { color: var(--muted); } .con li .ok { color: var(--good); font-weight: 500; } .con li .no { color: var(--red); font-weight: 500; } .con li .why { color: var(--muted); }
+  .reader { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; } .reader .rc { border: 1px solid var(--rule); border-radius: 10px; background: var(--card); padding: 10px 12px; min-height: 120px; position: relative; overflow: hidden; }
+  .reader .rh { font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; } .reader .rt { font-size: .95em; line-height: 1.5; min-height: 3em; } .reader .rm { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .reader .scan { position: absolute; left: 0; top: 0; bottom: 0; width: 34%; background: linear-gradient(90deg, transparent, var(--track), transparent); transform: translateX(-120%); pointer-events: none; } .reader .scan.go { animation: scan 1.1s ease-in-out 1; } @keyframes scan { from { transform: translateX(-120%); } to { transform: translateX(320%); } }
+  .reader .fld { display: grid; grid-template-columns: 120px 1fr; gap: 3px 10px; font-family: var(--mono); font-size: 11.5px; } .reader .fld span:nth-child(odd) { color: var(--blue); } .reader .fld span.null { color: var(--muted); font-style: italic; } .reader .fld span { opacity: 0; transition: opacity .3s ease; } .reader .fld span.on { opacity: 1; }
+  .reader .verdict { margin-top: 8px; font-family: var(--mono); font-size: 11px; opacity: 0; transition: opacity .3s ease; } .reader .verdict.on { opacity: 1; } .reader .verdict.end { color: var(--good); font-weight: 500; } .reader .verdict.none { color: var(--muted); }
+  @media (max-width: 699px) { .reader { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { .layer, .dot, .con li, .reader .fld span, .reader .verdict { transition: none; } .dot.mv { animation: none; stroke-width: 2.5; stroke-opacity: .8; } .reader .scan.go { animation: none; } }
+
+  /* ---- ⓘ modal, folds, full screen ---- */
+  .modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 14px; } .modal[hidden] { display: none; }
+  .modal .backdrop { position: absolute; inset: 0; background: rgba(20, 16, 12, .5); }
+  .modal .panel { position: relative; background: var(--sheet); color: var(--ink); border: 1px solid var(--rule); border-radius: 12px; max-width: 780px; width: 100%; max-height: 92vh; overflow: auto; box-shadow: 0 30px 70px -30px rgba(0,0,0,.7); }
+  .mhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 18px 10px; border-bottom: 1px solid var(--rule); position: sticky; top: 0; background: var(--sheet); z-index: 1; } .mhead h3 { margin: 6px 0 2px; font-size: 1.12em; line-height: 1.25; }
+  .mclose { font: 500 18px var(--mono); line-height: 1; width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); cursor: pointer; flex: none; }
+  .mbody { padding: 4px 18px 16px; } .mbody h4 { font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--blue); margin: 16px 0 6px; font-weight: 500; } .mbody p, .mbody ul { max-width: none; }
+  .fold { border-top: 1px solid var(--rule); padding: 12px 0 8px; max-width: 76ch; }
+  .fold summary { cursor: pointer; font-family: var(--mono); font-size: 11.5px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--muted); list-style: none; display: flex; gap: 8px; align-items: center; } .fold summary::-webkit-details-marker { display: none; }
+  .fold summary::before { content: '▸'; color: var(--blue); } .fold[open] summary::before { content: '▾'; } .fold > *:not(summary) { margin-top: 12px; }
+  .fold ol { margin: 0; padding: 0; list-style: none; } .fold ol li { font-size: .86em; color: var(--muted); } .fold ol li::before { display: none; } .fold ol li b { color: var(--ink); }
+  .t { font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--gold); margin-right: 5px; } .t.ok { color: var(--good); } .t.ask { color: var(--red); }
+  figure.fig:fullscreen, figure.fig.fs { background: var(--paper); border: 0; border-radius: 0; margin: 0; padding: 10px 28px 18px; overflow: hidden; display: flex; flex-direction: column; font-size: 1.08em; }
+  figure.fig.fs { position: fixed; inset: 0; z-index: 40; }
+  figure.fig:fullscreen > *, figure.fig.fs > * { flex: 0 0 auto; }
+  figure.fig:fullscreen .cap, figure.fig.fs .cap { font-size: 1.04em; min-height: 6.2em; }
+  figure.fig:fullscreen .scroll, figure.fig.fs .scroll { flex: 1 1 0; min-height: 120px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  figure.fig:fullscreen .scroll svg, figure.fig.fs .scroll svg { width: auto; height: 100%; max-width: 100%; max-height: 100%; min-width: 0; margin: 0; }
+  figure.fig:fullscreen .con, figure.fig.fs .con { flex: 0 1 auto; min-height: 0; max-height: 36vh; overflow: auto; }
+  figure.fig:fullscreen .con li, figure.fig.fs .con li { padding-top: 3px; padding-bottom: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="top">
+
+<p class="eyebrow">walkthrough template &middot; v1.0 &middot; replace the eyebrow, the title and the story</p>
+<h1>One day in the life of the requests</h1>
+<p class="lede">What happens to a request between the form that sends it and the owner who gets it: thirty-six requests as dots travel from the inbox to the work queue, pass the watermark, line up in a checker that looks up their owner, go through an AI reader one at a time, and the urgent ones travel back to the owner they belong to. <b>Walk it with the arrows; the ⓘ has the rules and the tables.</b></p>
+
+<section id="s1">
+  <h2><span class="n">1</span>The mechanism</h2>
+  <figure class="fig" id="fig" tabindex="0" aria-label="Requests as dots moving through the inbox, the queue, a checker block, an AI reader and back to their owners">
+  <div class="ctrl top"><button id="prev" type="button">◀ prev</button><button id="next" type="button">next ▶</button><button id="play" type="button">▶ play</button><span class="steps" id="stepn"></span><button class="ib" type="button" data-info="info1" data-title="The mechanism: the rules, the tables, what is counted" aria-label="About this figure">i</button><button class="fsb" type="button" data-fs aria-label="Full screen">⛶ full screen</button></div>
+  <div class="cap top"><span class="k" id="capk"></span><span id="capt"></span><span class="now" id="capnow"></span></div>
+  <div class="scroll">
+  <svg id="stage" viewBox="0 0 960 440" role="img" aria-labelledby="stageT">
+    <title id="stageT">One day in the life of the requests</title>
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="ahp"/></marker><linearGradient id="ai" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1c5f91"/><stop offset=".35" stop-color="#2f7a4e"/><stop offset=".7" stop-color="#bf5f1c"/><stop offset="1" stop-color="#b03a55"/></linearGradient></defs>
+    <text x="30" y="30" class="lbl" id="clock"></text>
+    <g id="bInbox" class="layer"><rect x="30" y="44" width="200" height="150" rx="8" class="box k"/><text x="42" y="62" class="lbl">THE INBOX · REQUESTS</text></g>
+    <g id="terr" class="layer"><text x="30" y="209" class="xs">THE OWNERS · THEIR STATE</text><rect x="30" y="214" width="60" height="140" rx="6" class="box g"/><text x="60" y="229" class="xs" text-anchor="middle">free</text><rect x="100" y="214" width="60" height="140" rx="6" class="box w"/><text x="130" y="229" class="xs" text-anchor="middle">busy</text><rect x="170" y="214" width="60" height="140" rx="6" class="box m"/><text x="200" y="229" class="xs" text-anchor="middle">away</text><g id="odots"></g></g>
+    <g id="bQueue" class="layer off"><rect x="270" y="44" width="200" height="150" rx="8" class="box k"/><text x="282" y="62" class="lbl">THE WORK QUEUE · COPY, 06:00</text></g>
+    <g id="arIn" class="layer off"><path d="M230 119 L270 119" class="ln" marker-end="url(#ah)"/></g>
+    <g id="bCheck" class="layer off"><rect x="510" y="44" width="240" height="86" rx="8" class="box b"/><text x="522" y="59" class="lbl">1 · CHECK THE OWNER</text><text x="522" y="71" class="xs">is the owner free or busy? an owner away → parked</text><text x="552" y="124" class="xs" text-anchor="middle">queue</text><circle cx="640" cy="96" r="9.5" fill="none" stroke="var(--blue)" stroke-width="1.4" stroke-dasharray="3 2"/><text x="640" y="124" class="xs" text-anchor="middle">checking</text><text x="716" y="124" class="xs" text-anchor="middle">passed</text></g>
+    <g id="arCheck" class="layer off"><path d="M470 84 L510 84" class="ln" marker-end="url(#ah)"/></g>
+    <g id="bRead" class="layer off"><rect x="510" y="150" width="240" height="72" rx="8" class="box" stroke="url(#ai)" stroke-width="2.4"/><text x="522" y="166" class="lbl">2 · THE READER · AN AI MODEL</text><text x="522" y="179" class="xs">one question per request: is it urgent?</text><text x="560" y="216" class="xs" text-anchor="middle">queue</text><circle cx="690" cy="198" r="9.5" fill="none" stroke="url(#ai)" stroke-width="1.6" stroke-dasharray="3 2"/><text x="690" y="216" class="xs" text-anchor="middle">reading</text></g>
+    <g id="arRead" class="layer off"><path d="M630 130 V150" class="ln" marker-end="url(#ah)"/></g>
+    <g id="bPark" class="layer off"><rect x="510" y="240" width="240" height="66" rx="6" class="box d"/><text x="522" y="254" class="xs">parked · the owner is away</text><text x="522" y="265" class="xs">no action · the reader found nothing urgent</text><text x="522" y="276" class="xs">parked requests are retried tomorrow</text></g>
+    <g id="bOut" class="layer off"><rect x="790" y="44" width="140" height="70" rx="8" class="box g"/><text x="800" y="62" class="lbl">assignments</text></g>
+    <g id="arOut" class="layer off"><path d="M750 186 H770 V84 H790" class="ln" marker-end="url(#ah)"/></g>
+    <g id="idots"></g>
+    <g id="tags"></g>
+  </svg>
+  </div>
+  <div class="legend"><span><i style="background:var(--muted)"></i>untouched</span><span><i style="background:var(--blue)"></i>candidate</span><span><i style="background:var(--notyet)"></i>parked · none</span><span><i style="background:var(--good)"></i>urgent → assignment</span><span><i style="background:var(--good)"></i>owner free</span><span><i style="background:var(--warm)"></i>owner busy</span></div>
+  <div class="con" id="con" hidden><div class="ch"><span class="lbl" id="conT"></span><span class="meter" id="conM"></span></div><div id="conB"></div></div>
+  </figure>
+</section>
+
+<details class="fold" id="status">
+  <summary>Status · decided, assumed, open</summary>
+  <ul>
+    <li><span class="t ok">decided</span><b>The job reads the queue, never the inbox.</b> One copy a day at 06:00.</li>
+    <li><span class="t">assumed</span><b>An owner away parks the request</b> rather than reassigning it; to confirm with the team.</li>
+    <li><span class="t ask">open</span><b>What «urgent» means</b> for the reader: the rule the ⓘ lists is the first draft.</li>
+  </ul>
+</details>
+<details class="fold">
+  <summary>Version history · current v1.0</summary>
+  <ol>
+    <li><b>v1.0.</b> First version: six steps from the inbox to the owner, with the checker, the reader and the assignments travelling back.</li>
+  </ol>
+</details>
+
+<div class="modal" id="info" hidden>
+  <div class="backdrop" data-close></div>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+    <div class="mhead"><div><h3 id="infoTitle"></h3></div><button class="mclose" type="button" data-close aria-label="Close">×</button></div>
+    <div class="mbody" id="infoBody"></div>
+  </div>
+</div>
+<template id="info1">
+  <h4>how to read it</h4>
+  <p>Each dot is a request. The boxes are where a request can be; the two blocks are machines, each with a queue, a slot and an exit; the console under the drawing prints what happens to each request at the moment it happens. The owners live in the three territories under the inbox and are looked up there. Counts are illustrative: thirty-six requests stand in for the real volume.</p>
+  <h4>the two rules</h4>
+  <table>
+    <thead><tr><th>block</th><th>rule</th><th>what passes · what does not</th></tr></thead>
+    <tbody>
+      <tr><td class="term">1 · check the owner</td><td>the request’s owner is looked up in the territories</td><td>free or busy → passed; away → parked, retried tomorrow</td></tr>
+      <tr><td class="term">2 · the reader</td><td>a small model answers one question: is it urgent? in four fields (priority, reason, confidence, model version)</td><td>urgent with confidence ≥ 0.7 → an assignment; anything else → no action, nothing written</td></tr>
+    </tbody>
+  </table>
+  <h4>the two tables</h4>
+  <table>
+    <thead><tr><th>table</th><th>one row per</th><th>columns</th></tr></thead>
+    <tbody>
+      <tr><td class="term">requests</td><td>request received</td><td>id, owner, received at, modified at, text</td></tr>
+      <tr><td class="term">assignments</td><td>urgent request, per model version</td><td>request id, owner, priority, reason, confidence, model version, assigned at</td></tr>
+    </tbody>
+  </table>
+  <h4>the run contract</h4>
+  <ul>
+    <li><b>Watermark.</b> Only requests modified since the last successful run are candidates.</li>
+    <li><b>Idempotent.</b> assignments is keyed by request id and model version; a day run twice changes nothing.</li>
+    <li><b>Counted.</b> Every run writes: requests seen, candidates, passed the owner check, read, urgent, tokens, cost.</li>
+  </ul>
+</template>
+
+</div>
+
+<script>
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+  const mk = (tag, attrs, text) => { const el = document.createElementNS(NS, tag); Object.keys(attrs).forEach(k => el.setAttribute(k, attrs[k])); if (text) el.textContent = text; return el; };
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fig = document.getElementById('fig'), capk = document.getElementById('capk'), capt = document.getElementById('capt'), capnow = document.getElementById('capnow'), stepn = document.getElementById('stepn'), clock = document.getElementById('clock');
+  const idotsG = document.getElementById('idots'), odotsG = document.getElementById('odots'), tagsG = document.getElementById('tags');
+  const con = document.getElementById('con'), conT = document.getElementById('conT'), conM = document.getElementById('conM'), conB = document.getElementById('conB');
+
+  /* ---- the cast ---- */
+  const N = 36, SP = 20;
+  const ids = Array.from({ length: N }, (_, i) => i);
+  const isNew = id => id < 12, isElig = id => id < 9, isAct = id => id < 3;
+  const ROW = [
+    { id: 17, own: 'free0', d: '2026-11-02', text: 'Checkout fails with error 500 for every customer since this morning; sales are blocked.', words: 15, out: ['urgent', 'outage in checkout', '0.9'] },
+    { id: 23, own: 'free1', d: '2026-11-02', text: 'The October invoice shows the wrong tax rate; the accountant needs it corrected before Friday.', words: 16, out: ['urgent', 'deadline this week', '0.8'] },
+    { id: 31, own: 'free2', d: '2026-11-01', text: 'Two-factor login codes never arrive; the whole team is locked out.', words: 12, out: ['urgent', 'access lost', '0.9'] },
+    { id: 34, own: 'busy0', d: '2026-11-01', text: 'Could the dashboard export include the account owner column?', words: 10, out: null },
+    { id: 36, own: 'free3', d: '2026-11-01', text: 'Thanks for the fast fix last week, all good on our side.', words: 12, out: null },
+    { id: 39, own: 'busy1', d: '2026-11-01', text: 'Please update the billing address on our account.', words: 8, out: null },
+    { id: 41, own: 'free4', d: '2026-11-01', text: 'Is there a way to schedule the reports monthly?', words: 9, out: null },
+    { id: 42, own: 'busy2', d: '2026-11-01', text: 'Our logo looks blurry in the email footer on mobile.', words: 10, out: null },
+    { id: 44, own: 'free5', d: '2026-11-01', text: 'Can we add a second admin to the workspace?', words: 9, out: null },
+    { id: 45, own: 'away0', d: '2026-11-01', text: 'A question about the enterprise plan pricing.', words: 7, out: null },
+    { id: 47, own: 'away1', d: '2026-11-01', text: 'We would like a demo for a new team.', words: 9, out: null },
+    { id: 48, own: 'away0', d: '2026-11-01', text: 'Where do I find the API keys?', words: 7, out: null }
+  ];
+  const OLD = id => ({ n: 50 + id * 2, own: ['free', 'busy', 'away'][id % 3] + (id % 2), d: '2026-' + String(3 + (id % 7)).padStart(2, '0') + '-' + String(2 + (id * 5) % 26).padStart(2, '0') });
+
+  /* ---- the stage ---- */
+  const AREA = { inbox: { x: 44, y: 76, w: 172, h: 110 }, queue: { x: 284, y: 76, w: 172, h: 110 }, cpassed: { x: 688, y: 88, w: 64, h: 20, sp: 16 }, read: { x: 524, y: 192, w: 120, h: 8 }, park: { x: 524, y: 290, w: 212, h: 8 }, out: { x: 802, y: 76, w: 116, h: 30 }, hidden: { x: -40, y: -40, w: 20, h: 8 } };
+  const OWN = { free: [[48, 244], [72, 244], [48, 266], [72, 266], [48, 288], [72, 288]], busy: [[118, 244], [142, 244], [118, 266], [142, 266]], away: [[188, 244], [212, 244]] };
+  const BUSYSLOTS = [[118, 288], [142, 288], [118, 310]];
+  const odots = {};
+  Object.keys(OWN).forEach(t => OWN[t].forEach((p, i) => { odots[t + i] = odotsG.appendChild(mk('circle', { cx: p[0], cy: p[1], r: 5, class: 'dot t-' + t })); }));
+  const dots = ids.map(() => { const c = mk('circle', { r: 4.5, class: 'dot t-item' }); idotsG.appendChild(c); return c; });
+  const layers = Array.from(document.querySelectorAll('#stage .layer'));
+  const T = {
+    s1: () => 'inbox',
+    s2: () => 'queue',
+    s4: id => isElig(id) ? 'cpassed' : isNew(id) ? 'park' : 'queue',
+    s5: id => isAct(id) ? 'out' : isNew(id) ? 'park' : 'queue'
+  };
+  const tone = (step, id) => {
+    if (step <= 1) return 't-item';
+    if (step === 2) return isNew(id) ? 't-new' : 't-old';
+    if (step === 3) return isElig(id) ? 't-new' : isNew(id) ? 't-drop' : 't-old';
+    return isAct(id) ? 't-done' : isElig(id) ? 't-none' : isNew(id) ? 't-drop' : 't-old';
+  };
+  const L1 = ['bInbox', 'terr'], L2 = L1.concat(['bQueue', 'arIn']), L4 = L2.concat(['bCheck', 'arCheck', 'bPark']), L5 = L4.concat(['bRead', 'arRead', 'bOut', 'arOut']);
+
+  /* ---- the steps ---- */
+  const STEPS = [
+    { clock: 'day 1 · 08:00', k: 'in the inbox', t: 'Requests arrive from the form all day and sit in the inbox, each with an owner, two dates and a short text. Thirty-six here. Nothing has read them yet.', now: '36 requests', place: T.s1, layers: L1, scene: 'inbox', hold: 7000 },
+    { clock: 'day 2 · 06:00', k: 'the copy lands', t: 'Once a day the work queue receives its copy of the inbox and of the owners’ state. The job starts right after; nothing else waits for it.', now: '36 requests copied', place: T.s2, layers: L2, scene: 'copy', hold: 6500 },
+    { clock: 'day 2 · 06:05', k: 'the watermark', t: 'Only the requests modified since the last successful run are candidates: twelve today. The console compares each one’s modified date with the watermark; the other twenty-four were seen on earlier days and stay where they are.', now: '36 requests · 12 changed since yesterday', place: T.s2, layers: L2, scene: 'watermark', hold: 8500 },
+    { clock: 'day 2 · 06:10', k: '1 · check the owner', t: 'The twelve candidates line up in the checker. One at a time, each goes through the slot and the checker looks up its owner in the territories on the left: an owner free or busy can take work, so the request passes; an owner away cannot, so the request is parked. Nine pass, three park.', now: '12 changed · 9 owners available · 3 parked', place: T.s4, layers: L4, scene: 'check', hold: 10500, delay: id => isNew(id) ? -1 : 0 },
+    { clock: 'day 2 · 06:20', k: '2 · the reader', t: 'The nine that passed move into the reader’s queue. An AI model reads them one at a time: each request enters the slot, the model answers one question in four fields, and the request leaves. Three are urgent and go to assignments; six are not and go to no action, nothing written.', now: '9 to read', place: T.s5, layers: L5, scene: 'read', hold: 27000, delay: id => isElig(id) ? -1 : 0 },
+    { clock: 'day 2 · 06:40', k: '3 · the assignment meets its owner', t: 'Each assignment has an owner, the same one the checker looked up, still free. The assignment travels back to that owner, who moves from free to busy. That is where this mechanism stops: what the owner does with it is the next figure’s story.', now: '3 assignments → 3 owners busy', place: T.s5, layers: L5, scene: 'merge', hold: 12000, cmove: true }
+  ];
+
+  /* ---- the engine ---- */
+  function targets(place) {
+    const groups = {}; ids.forEach(id => { const t = place(id); (groups[t] = groups[t] || []).push(id); });
+    const out = new Array(N);
+    Object.keys(groups).forEach(t => { const a = AREA[t], sp = a.sp || SP, list = groups[t], n = list.length, cols = Math.max(1, Math.min(n, Math.floor(a.w / sp))), rows = Math.ceil(n / cols), x0 = a.x + (a.w - (cols - 1) * sp) / 2, y0 = a.y + (a.h - (rows - 1) * sp) / 2; list.forEach((id, k) => { out[id] = { x: x0 + (k % cols) * sp, y: y0 + Math.floor(k / cols) * sp, t: t }; }); });
+    return out;
+  }
+  let step = 0, raf = 0, timers = [], placed = false, timer = 0, last = null;
+  const later = (ms, fn) => timers.push(setTimeout(fn, ms));
+  const ease = u => u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+  function clearScene() { timers.forEach(t => { clearTimeout(t); clearInterval(t); }); timers = []; cancelAnimationFrame(raf); tagsG.innerHTML = ''; Object.keys(odots).forEach(k => odots[k].classList.remove('mv')); }
+  const resetC = () => Object.keys(OWN).forEach(t => OWN[t].forEach((p, i) => { const d = odots[t + i]; d.setAttribute('cx', p[0]); d.setAttribute('cy', p[1]); d.setAttribute('class', 'dot t-' + t); }));
+  const placeC = () => BUSYSLOTS.forEach((p, k) => { const d = odots['free' + k]; d.setAttribute('cx', p[0]); d.setAttribute('cy', p[1]); d.setAttribute('class', 'dot t-busy'); });
+  function moveC(key, to, text, at) {
+    later(at, () => {
+      const d = odots[key], x0 = +d.getAttribute('cx'), y0 = +d.getAttribute('cy'), t0 = performance.now(), D = 1100;
+      d.setAttribute('class', 'dot t-busy mv');
+      const tag = tagsG.appendChild(mk('text', { class: 'mtag', x: x0 + 9, y: y0 - 9 }, text));
+      function fr(now) { const u = Math.min(1, (now - t0) / D), e = ease(u), x = x0 + (to[0] - x0) * e, y = y0 + (to[1] - y0) * e; d.setAttribute('cx', x.toFixed(1)); d.setAttribute('cy', y.toFixed(1)); tag.setAttribute('x', (x + 9).toFixed(1)); tag.setAttribute('y', (y - 9).toFixed(1)); if (u < 1) requestAnimationFrame(fr); else later(1800, () => tag.remove()); }
+      requestAnimationFrame(fr);
+    });
+  }
+  function moveN(id, to, D, at, cls) {
+    later(at, () => {
+      const d = dots[id], x0 = +d.getAttribute('cx'), y0 = +d.getAttribute('cy'), t0 = performance.now();
+      if (cls) d.setAttribute('class', 'dot ' + cls);
+      function fr(now) { const u = Math.min(1, (now - t0) / D), e = ease(u); d.setAttribute('cx', (x0 + (to.x - x0) * e).toFixed(1)); d.setAttribute('cy', (y0 + (to.y - y0) * e).toFixed(1)); if (u < 1) requestAnimationFrame(fr); }
+      requestAnimationFrame(fr);
+    });
+  }
+  function token(from, to, at, D) {
+    later(at, () => {
+      const g = tagsG.appendChild(mk('line', { x1: from.x, y1: from.y, x2: to.x, y2: to.y, class: 'dashl' }));
+      const c = tagsG.appendChild(mk('circle', { cx: from.x, cy: from.y, r: 4.5, class: 'dot t-done mv' }));
+      const t0 = performance.now();
+      function fr(now) { const u = Math.min(1, (now - t0) / D), e = ease(u); c.setAttribute('cx', (from.x + (to.x - from.x) * e).toFixed(1)); c.setAttribute('cy', (from.y + (to.y - from.y) * e).toFixed(1)); if (u < 1) requestAnimationFrame(fr); else { c.remove(); g.remove(); } }
+      requestAnimationFrame(fr);
+    });
+  }
+  const haloDot = (id, at, ms) => { later(at, () => dots[id].classList.add('mv')); later(at + ms, () => dots[id].classList.remove('mv')); };
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  function conShow(title, meter, html) { conT.textContent = title; conM.textContent = meter; conB.innerHTML = html; con.hidden = false; }
+  function reveal(sel, every, from, done) { const els = Array.from(conB.querySelectorAll(sel)); els.forEach((el, i) => later(from + i * every, () => { el.classList.add('on'); if (done) done(i, el); })); return from + els.length * every; }
+  const li = (instant, html) => '<li' + (instant ? ' class="on"' : '') + '>' + html + '</li>';
+
+  /* ---- the scenes: one per step, each with its console ---- */
+  const QPOS = i => ({ x: 528 + (i % 4) * 16, y: 80 + Math.floor(i / 4) * 16 }), SLOT = { x: 640, y: 96 }, RSLOT = { x: 690, y: 198 }, STEPMS = 520, READMS = 2600;
+  function sceneInbox(instant) {
+    const rows = ROW.slice(0, 8).map(r => li(instant, '<span class="id">request #' + r.id + '</span><span>owner ' + r.own + ' · received ' + r.d + ' · modified ' + r.d + ' · ' + r.words + ' words</span><span class="why">«' + esc(r.text.slice(0, 44)) + (r.text.length > 44 ? '…' : '') + '»</span>')).join('') + li(instant, '<span class="why">… and 28 more; 24 of them untouched since before yesterday’s run</span>');
+    conShow('the inbox · the requests table, as it is', '36 requests here · one owner each', '<ol>' + rows + '</ol>');
+    if (!instant) { reveal('li', 300, 500); ROW.slice(0, 8).forEach((r, i) => haloDot(i, 500 + i * 300, 900)); }
+  }
+  function sceneCopy(instant) {
+    const lines = ['requests → the work queue · 36 rows · copy 06:00', 'owners and their state → refreshed', 'the job starts · 06:05 · reads only the queue, never the inbox'];
+    conShow('06:00 · the copy', 'a copy, once a day · the inbox is never read by the job', '<ol>' + lines.map(l => li(instant, '<span>' + l + '</span><span class="ok">✓</span>')).join('') + '</ol>');
+    if (!instant) reveal('li', 650, 700);
+  }
+  function sceneWatermark(instant) {
+    const WM = '2026-11-01 06:05';
+    const cand = ROW.map(r => li(instant, '<span class="id">request #' + r.id + '</span><span>modified ' + r.d + (r.d === '2026-11-01' ? ' 16:40' : ' 09:14') + ' · watermark ' + WM + '</span><span class="ok">✓ candidate</span>')).join('');
+    const olds = [12, 13, 14].map(id => { const o = OLD(id); return li(instant, '<span class="id">request #' + o.n + '</span><span>modified ' + o.d + ' · watermark ' + WM + '</span><span class="why">already seen · untouched</span>'); }).join('') + li(instant, '<span class="why">… 21 more already seen</span>');
+    conShow('the watermark · modified since the last successful run', 'watermark: ' + WM, '<ol>' + cand + olds + '</ol>');
+    if (instant) return;
+    ids.forEach(id => dots[id].setAttribute('class', 'dot t-item'));
+    ROW.forEach((r, i) => later(500 + i * 260, () => dots[i].setAttribute('class', 'dot t-new mv')));
+    reveal('li', 260, 500);
+    later(500 + 16 * 260, () => { ids.filter(id => !isNew(id)).forEach(id => dots[id].setAttribute('class', 'dot t-old')); ROW.forEach((r, i) => dots[i].classList.remove('mv')); conM.textContent = 'watermark: ' + WM + ' · 12 candidates · 24 already seen'; });
+  }
+  function sceneCheck(instant) {
+    const rows = ROW.map((r, i) => { const ok = isElig(i); return li(instant, '<span class="id">request #' + r.id + '</span><span>its owner ' + r.own + ' is <b>' + r.own.replace(/\d/, '') + '</b></span><span class="' + (ok ? 'ok' : 'no') + '">' + (ok ? '✓ pass → passed' : '✗ owner away → parked') + '</span>'); }).join('');
+    conShow('1 · check the owner · the block looks up each request’s owner', 'rule: the owner is free or busy', '<ol>' + rows + '</ol>');
+    if (instant) { conM.textContent = '12 checked · 9 pass · 3 parked'; return; }
+    const fin = targets(T.s4), lis = Array.from(conB.querySelectorAll('li'));
+    ROW.forEach((r, i) => moveN(i, QPOS(i), 700, 300 + i * 50, 't-new'));
+    ROW.forEach((r, i) => {
+      const ok = isElig(i), t = 1500 + i * STEPMS;
+      moveN(i, SLOT, 260, t, 't-new mv');
+      later(t + 60, () => { const c = odots[r.own]; const g = tagsG.appendChild(mk('line', { x1: SLOT.x, y1: SLOT.y, x2: +c.getAttribute('cx'), y2: +c.getAttribute('cy'), class: 'dashl' })); c.classList.add('mv'); later(STEPMS - 80, () => { g.remove(); c.classList.remove('mv'); }); });
+      later(t + 120, () => { lis[i].classList.add('on'); conM.textContent = 'checking request ' + (i + 1) + ' of 12 · where is its owner?'; });
+      later(t + 380, () => moveN(i, fin[i], ok ? 350 : 600, 0, ok ? 't-new' : 't-drop'));
+    });
+    later(1500 + 12 * STEPMS + 300, () => { conM.textContent = '12 checked · 9 pass · 3 parked'; });
+  }
+  function sceneRead(instant) {
+    const card = r => '<div class="reader"><div class="rc"><div class="rh">request #' + r.id + ' · owner ' + r.own + ' · ' + r.d + ' · ' + r.words + ' words</div><div class="rt" id="rt"></div><div class="rm">prompt v1 · one question: is this request urgent? answer in four fields</div><div class="scan" id="scan"></div></div><div class="rc"><div class="rh">the answer · a small model</div><div class="fld"><span>priority</span><span' + (r.out ? '' : ' class="null"') + '>' + (r.out ? r.out[0] : 'normal') + '</span><span>reason</span><span' + (r.out ? '' : ' class="null"') + '>' + (r.out ? r.out[1] : 'none') + '</span><span>confidence</span><span' + (r.out ? '' : ' class="null"') + '>' + (r.out ? r.out[2] : '—') + '</span><span>model_version</span><span>v1</span></div><div class="verdict ' + (r.out ? 'end' : 'none') + '">' + (r.out ? '→ leaves to assignments · ' + r.out[0] + ' · ' + r.out[1] : '→ leaves to no action · nothing written') + '</div></div></div>';
+    let tokens = 0, cost = 0;
+    const meter = (i, state) => 'request ' + i + ' of 9 · ' + state + ' · tokens ' + tokens.toLocaleString('en') + ' · ≈ $' + cost.toFixed(4);
+    if (instant) { conShow('2 · read · the model, one request at a time', '9 read · 3 urgent · 6 none · tokens 2,700 · ≈ $0.0029', card(ROW[1])); conB.querySelector('#rt').textContent = ROW[1].text; conB.querySelectorAll('.fld span, .verdict').forEach(el => el.classList.add('on')); return; }
+    conShow('2 · read · the model, one request at a time', meter(0, 'waiting'), card(ROW[0]));
+    const fin = targets(T.s5), rq = targets(id => isElig(id) ? 'read' : T.s4(id));
+    ROW.slice(0, 9).forEach((r, i) => moveN(i, rq[i], 600, 150 + i * 60, 't-new'));
+    ROW.slice(0, 9).forEach((r, i) => {
+      moveN(i, RSLOT, 500, 900 + i * READMS - 350, 't-new mv');
+      moveN(i, fin[i], 800, 900 + i * READMS + 1750, (r.out ? 't-done' : 't-none') + ' mv');
+      later(900 + i * READMS + 2650, () => dots[i].classList.remove('mv'));
+      later(900 + i * READMS, () => {
+        conB.innerHTML = card(r);
+        const cardEl = conB.firstElementChild, rt = cardEl.querySelector('#rt'); let k = 0;
+        conM.textContent = meter(i + 1, 'reading');
+        const typ = setInterval(() => { k += 5; rt.textContent = r.text.slice(0, k); if (k >= r.text.length) clearInterval(typ); }, 40); timers.push(typ);
+        later(300, () => { const sc = cardEl.querySelector('#scan'); if (sc) sc.classList.add('go'); });
+        later(1400, () => { if (!cardEl.isConnected) return; tokens += 300 + r.words * 2; cost += 0.00032; conM.textContent = meter(i + 1, 'answered'); cardEl.querySelectorAll('.fld span').forEach((el, j) => later(j * 70, () => el.classList.add('on'))); later(650, () => { const v = cardEl.querySelector('.verdict'); if (v) v.classList.add('on'); }); });
+      });
+    });
+    later(900 + 9 * READMS + 400, () => { conM.textContent = '9 read · 3 urgent · 6 none · tokens ' + tokens.toLocaleString('en') + ' · ≈ $' + cost.toFixed(4); });
+  }
+  function sceneMerge(instant) {
+    const R = ROW.slice(0, 3);
+    const rows = R.map(r => li(instant, '<span class="id">' + r.own + ' · free</span><span>assignment: ' + r.out[0] + ' · ' + r.out[1] + '</span><span class="why">confidence ' + r.out[2] + '</span><span class="ok">✓ assignment + a free owner → busy</span>')).join('');
+    conShow('3 · the assignment meets its owner', 'an urgent request + a free owner = work assigned', '<ol>' + rows + '</ol>');
+    if (instant) return;
+    const lis = Array.from(conB.querySelectorAll('li'));
+    later(300, () => { R.forEach(r => odots[r.own].classList.add('mv')); tagsG.appendChild(mk('text', { class: 'mtag', x: 130, y: 368, 'text-anchor': 'middle' }, '▲ the three free owners the assignments belong to')); conM.textContent = 'three owners in free own the three assignments'; });
+    R.forEach((r, k) => {
+      const base = 900 + k * 3300, d = odots[r.own];
+      later(base, () => { const from = { x: +dots[k].getAttribute('cx'), y: +dots[k].getAttribute('cy') }, to = { x: +d.getAttribute('cx'), y: +d.getAttribute('cy') }; token(from, to, 0, 1000); conM.textContent = 'assignment ' + (k + 1) + ' of 3 travels to its owner · ' + r.own; });
+      later(base + 1050, () => { lis[k].classList.add('on'); conM.textContent = r.own + ' · assignment received → busy'; });
+      later(base + 1300, () => moveC(r.own, BUSYSLOTS[k], 'assigned → busy', 0));
+    });
+    later(900 + 3 * 3300 + 1600, () => { conM.textContent = '3 assignments · 3 owners busy · the next figure takes it from here'; });
+  }
+  const SCENES = { inbox: sceneInbox, copy: sceneCopy, watermark: sceneWatermark, check: sceneCheck, read: sceneRead, merge: sceneMerge };
+
+  function show(i, instant) {
+    step = (i + STEPS.length) % STEPS.length;
+    const s = STEPS[step], tg = targets(s.place);
+    clearScene();
+    layers.forEach(g => g.classList.toggle('off', s.layers.indexOf(g.id) < 0));
+    clock.textContent = s.clock; capk.textContent = 'step ' + (step + 1) + ' · ' + s.k; capt.textContent = s.t; stepn.textContent = (step + 1) + ' / ' + STEPS.length; capnow.textContent = s.now;
+    resetC();
+    const still = instant || reduced || !placed;
+    if (!still && last) ids.forEach(id => { dots[id].setAttribute('cx', last[id].x); dots[id].setAttribute('cy', last[id].y); });
+    const delayOf = (!still && s.delay) ? s.delay : (id => id * 12);
+    ids.forEach(id => {
+      const nt = tone(step, id), moved = last && last[id].t !== tg[id].t;
+      if (!still && delayOf(id) < 0) { dots[id].setAttribute('class', 'dot ' + tone(step - 1, id)); }
+      else if (!still && delayOf(id) > 0 && moved) { dots[id].setAttribute('class', 'dot ' + tone(step - 1, id)); later(delayOf(id), () => dots[id].setAttribute('class', 'dot ' + nt + ' mv')); }
+      else dots[id].setAttribute('class', 'dot ' + nt + (moved && !still ? ' mv' : ''));
+    });
+    if (s.cmove && still) placeC();
+    con.hidden = true;
+    SCENES[s.scene](still);
+    if (still) { ids.forEach(id => { dots[id].setAttribute('cx', tg[id].x); dots[id].setAttribute('cy', tg[id].y); }); placed = true; last = tg; return; }
+    const from = dots.map(d => ({ x: +d.getAttribute('cx'), y: +d.getAttribute('cy') }));
+    const t0 = performance.now(), D = 900;
+    function frame(now) {
+      let done = true;
+      ids.forEach(id => { const dl = delayOf(id); if (dl < 0) return; const u = Math.min(1, Math.max(0, (now - t0 - dl) / D)); if (u < 1) done = false; const e = ease(u); dots[id].setAttribute('cx', (from[id].x + (tg[id].x - from[id].x) * e).toFixed(1)); dots[id].setAttribute('cy', (from[id].y + (tg[id].y - from[id].y) * e).toFixed(1)); });
+      if (!done) raf = requestAnimationFrame(frame);
+    }
+    raf = requestAnimationFrame(frame);
+    last = tg;
+  }
+
+  /* ---- controls, keyboard, play, deep link ---- */
+  const playBtn = document.getElementById('play');
+  function stop() { clearTimeout(timer); timer = 0; playBtn.textContent = '▶ play'; }
+  function play() { timer = setTimeout(() => { show(step + 1); play(); }, STEPS[step].hold || 7000); playBtn.textContent = '❚❚ pause'; }
+  document.getElementById('prev').addEventListener('click', () => { stop(); show(step - 1); });
+  document.getElementById('next').addEventListener('click', () => { stop(); show(step + 1); });
+  playBtn.addEventListener('click', () => { if (timer) stop(); else { show(step + 1); play(); } });
+  fig.addEventListener('keydown', e => { if (e.key === 'ArrowRight') { stop(); show(step + 1); e.preventDefault(); e.stopPropagation(); } else if (e.key === 'ArrowLeft') { stop(); show(step - 1); e.preventDefault(); e.stopPropagation(); } });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
+  const info = document.getElementById('info'), infoTitle = document.getElementById('infoTitle'), infoBody = document.getElementById('infoBody');
+  document.querySelectorAll('[data-info]').forEach(b => b.addEventListener('click', () => { stop(); infoTitle.textContent = b.dataset.title; infoBody.innerHTML = ''; infoBody.appendChild(document.getElementById(b.dataset.info).content.cloneNode(true)); info.hidden = false; info.querySelector('.mclose').focus(); }));
+  info.addEventListener('click', e => { if (e.target.hasAttribute('data-close')) info.hidden = true; });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') info.hidden = true; });
+  const m = /step=(\d+)/.exec(location.hash);
+  show(m ? Math.min(STEPS.length - 1, Math.max(0, +m[1] - 1)) : 0, true);
+})();
+(function () {
+  const park = document.getElementById('top');
+  const label = (b, on) => { b.textContent = on ? '⤡ exit full screen' : '⛶ full screen'; };
+  function sync() {
+    const fs = document.fullscreenElement;
+    document.querySelectorAll('[data-fs]').forEach(b => { const f = b.closest('figure'); label(b, (fs && fs === f) || f.classList.contains('fs')); });
+    if (!fs) document.querySelectorAll('.modal').forEach(m => { if (m.parentElement !== park) park.appendChild(m); });
+  }
+  document.querySelectorAll('[data-fs]').forEach(b => b.addEventListener('click', () => {
+    const f = b.closest('figure');
+    if (document.fullscreenElement === f) { document.exitFullscreen(); return; }
+    if (f.classList.contains('fs')) { f.classList.remove('fs'); sync(); return; }
+    const p = f.requestFullscreen ? f.requestFullscreen() : Promise.reject();
+    Promise.resolve(p).catch(() => { f.classList.add('fs'); sync(); });
+  }));
+  document.addEventListener('fullscreenchange', sync);
+  document.addEventListener('keydown', e => { if (e.key !== 'Escape' || document.querySelector('.modal:not([hidden])')) return; const f = document.querySelector('figure.fs'); if (f) { f.classList.remove('fs'); sync(); } });
+  const mo = new MutationObserver(() => { const fs = document.fullscreenElement || document.querySelector('figure.fs'); if (!fs) return; document.querySelectorAll('.modal:not([hidden])').forEach(m => { if (!fs.contains(m)) fs.appendChild(m); }); });
+  document.querySelectorAll('.modal').forEach(m => mo.observe(m, { attributes: true, attributeFilter: ['hidden'] }));
+})();
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@ import {
   createDeleteItem,
   createRenameItem,
   createPreviewHtmlItem,
+  createShareHtmlItem,
   createOpenInCodeItem,
   createDownloadItem,
 } from '../code-editor/ContextMenu'
@@ -20,6 +21,7 @@ import { FinderToolbar } from './FinderToolbar'
 import { FinderListView } from './FinderListView'
 import { FinderGridView } from './FinderGridView'
 import { FinderStatusBar } from './FinderStatusBar'
+import { ShareDialog } from '../ShareDialog'
 import './finder.css'
 
 interface FinderExplorerProps {
@@ -85,6 +87,9 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
     isDirectory: boolean
   }>({ show: false, path: '', isDirectory: false })
   const [renameName, setRenameName] = useState('')
+
+  const [shareTarget, setShareTarget] = useState<{ filePath: string } | null>(null)
+  const [sharedPaths, setSharedPaths] = useState<Set<string>>(new Set())
 
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -367,11 +372,12 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
     }
   }
 
-  // Build context menu items
   const buildContextMenuItems = useCallback((path: string, isDirectory: boolean) => {
     const fullPath = `${projectPath}/${path}`
     const previewItem = !isDirectory ? createPreviewHtmlItem(projectPath, path) : null
-    // "Open in Code Editor" only makes sense for files (not directories)
+    const shareItem = !isDirectory
+      ? createShareHtmlItem(path, () => setShareTarget({ filePath: path }))
+      : null
     const openInCode = !isDirectory
       ? createOpenInCodeItem(() => {
           navigate(`/projects/${encodedPath}/code?file=${encodeURIComponent(path)}`)
@@ -380,6 +386,7 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
     const items = [
       ...(openInCode ? [openInCode] : []),
       ...(previewItem ? [previewItem] : []),
+      ...(shareItem ? [shareItem] : []),
       createCopyPathItem(fullPath, () => showToast('Path copied')),
       createCopyRelativePathItem(path, '', () => showToast('Relative path copied')),
       ...(!isDirectory ? [createCopyFileNameItem(path, () => showToast('File name copied'))] : []),
@@ -429,6 +436,19 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
   useEffect(() => {
     loadDirectory(currentPath)
   }, [currentPath, loadDirectory])
+
+  const reloadShares = useCallback(async () => {
+    try {
+      const list = await api.listShares(projectPath)
+      setSharedPaths(new Set(list.map((s) => s.filePath)))
+    } catch { /* keep previous set */ }
+  }, [projectPath])
+
+  useEffect(() => {
+    void reloadShares()
+    const t = window.setInterval(reloadShares, 15000)
+    return () => window.clearInterval(t)
+  }, [reloadShares])
 
   // Mirror the current directory out (Files page writes it to the URL so it
   // survives reload and route navigation).
@@ -503,6 +523,7 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
             onLongPress={handleItemLongPress}
             onMoveFile={handleMoveFile}
             onUploadFiles={handleUploadFiles}
+            sharedPaths={sharedPaths}
           />
         ) : (
           <FinderGridView
@@ -514,6 +535,7 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
             onLongPress={handleItemLongPress}
             onMoveFile={handleMoveFile}
             onUploadFiles={handleUploadFiles}
+            sharedPaths={sharedPaths}
           />
         )}
       </div>
@@ -638,6 +660,14 @@ export function FinderExplorer({ projectPath, encodedPath, embedded, initialPath
             </div>
           </div>
         </div>
+      )}
+
+      {shareTarget && (
+        <ShareDialog
+          projectPath={projectPath}
+          filePath={shareTarget.filePath}
+          onClose={() => { setShareTarget(null); void reloadShares() }}
+        />
       )}
     </div>
   )

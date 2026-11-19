@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe, Pencil, Code, FolderOpen, Eye, Download, TerminalSquare } from 'lucide-react'
+import { Copy, FileText, Folder, X, FilePlus, FolderPlus, Trash2, Globe, Pencil, Code, FolderOpen, Eye, Download, TerminalSquare, Share2 } from 'lucide-react'
 
 export interface ContextMenuItem {
   label: string
@@ -387,6 +387,19 @@ export function createOpenInViewerItem(onOpen: () => void): ContextMenuItem {
     label: 'Open in Viewer',
     icon: <Eye size={14} />,
     onClick: onOpen,
+  }
+}
+
+export function createShareHtmlItem(
+  relativePath: string,
+  onShare: () => void,
+): ContextMenuItem | null {
+  const lower = relativePath.toLowerCase()
+  if (!lower.endsWith('.html') && !lower.endsWith('.htm')) return null
+  return {
+    label: 'Share for review…',
+    icon: <Share2 size={14} />,
+    onClick: onShare,
   }
 }
 

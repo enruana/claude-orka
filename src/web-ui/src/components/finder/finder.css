@@ -686,3 +686,26 @@
 .file-viewer-body .editor-selection-comment-btn:active {
   transform: scale(0.95);
 }
+
+.finder-shared-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #a6e3a1;
+  margin-left: 6px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(166, 227, 161, 0.14);
+  box-shadow: 0 0 0 1px rgba(166, 227, 161, 0.3);
+  flex-shrink: 0;
+}
+.finder-shared-badge.grid {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  margin-left: 0;
+  padding: 3px;
+  background: rgba(166, 227, 161, 0.2);
+  box-shadow: 0 0 0 1.5px rgba(10, 11, 31, 0.9), 0 0 0 2.5px rgba(166, 227, 161, 0.4);
+}
+.finder-grid-icon { position: relative; }

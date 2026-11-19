@@ -40,14 +40,19 @@ const state = {
   levelTimer: null,
   analyser: null,
   serverUrl: '',
-  // Persisted transcript so a freshly-reopened view can catch up.
+  liveWsUrl: '',
+  livePendingFrames: [],
+  liveLastHeartbeat: 0,
+  liveWatchdog: null,
+  liveReconnectAttempt: 0,
+  liveShuttingDown: false,
   transcriptChunks: [],
   fullTranscript: '',
-  // Metadata of the last saved recording so a view that missed the
-  // 'saved' broadcast (e.g. side panel was closed at Stop time) can
-  // still display the confirmation card on its next open.
   lastSaved: null,
 }
+
+const LIVE_HEARTBEAT_TIMEOUT_MS = 30000
+const LIVE_WATCHDOG_INTERVAL_MS = 5000
 
 // ---------- Message handling ----------------------------------------------
 
@@ -289,12 +294,13 @@ function startLevelLoop() {
 
 async function setupLiveStream(ctx, sourceNode) {
   const SERVER = state.serverUrl
-  const wsUrl = SERVER.replace(/^http/i, 'ws') +
+  state.liveWsUrl = SERVER.replace(/^http/i, 'ws') +
     `/api/transcribe/live?language=${encodeURIComponent(state.liveLanguage)}&chunkMs=${state.chunkMs}`
-  log('live WS → ' + wsUrl)
+  state.liveShuttingDown = false
+  state.liveReconnectAttempt = 0
+  state.livePendingFrames = []
+  log('live WS → ' + state.liveWsUrl)
 
-  // Same-origin preflight — a friendly failure surfaces cert issues
-  // BEFORE we've opened the WebSocket (WS errors are opaque to JS).
   try {
     const r = await fetch(`${SERVER}/api/transcribe/status`)
     if (!r.ok) throw new Error('HTTP ' + r.status)
@@ -311,15 +317,37 @@ async function setupLiveStream(ctx, sourceNode) {
   })
   sourceNode.connect(state.liveWorklet)
 
-  const pendingFrames = []
-  state.liveWS = new WebSocket(wsUrl)
-  state.liveWS.binaryType = 'arraybuffer'
+  state.liveWorklet.port.onmessage = (ev) => {
+    const buf = ev.data
+    if (state.liveConnected && state.liveWS && state.liveWS.readyState === WebSocket.OPEN) {
+      try { state.liveWS.send(buf) } catch {}
+    } else if (state.livePendingFrames.length < 200) {
+      state.livePendingFrames.push(buf)
+    }
+  }
+
+  openLiveWS()
+  startLiveWatchdog()
+}
+
+function openLiveWS() {
+  if (!state.liveWsUrl || state.liveShuttingDown) return
+  try {
+    state.liveWS = new WebSocket(state.liveWsUrl)
+    state.liveWS.binaryType = 'arraybuffer'
+  } catch (err) {
+    log('WS construction failed: ' + err.message, 'err')
+    scheduleLiveReconnect()
+    return
+  }
 
   state.liveWS.addEventListener('open', () => {
     state.liveConnected = true
+    state.liveLastHeartbeat = Date.now()
+    state.liveReconnectAttempt = 0
     broadcastState()
-    while (pendingFrames.length > 0) {
-      try { state.liveWS.send(pendingFrames.shift()) } catch {}
+    while (state.livePendingFrames.length > 0) {
+      try { state.liveWS.send(state.livePendingFrames.shift()) } catch {}
     }
     log('WS connected', 'ok')
   })
@@ -327,8 +355,12 @@ async function setupLiveStream(ctx, sourceNode) {
     let msg
     try { msg = JSON.parse(ev.data) } catch { return }
     if (msg.type === 'ready') {
+      state.liveLastHeartbeat = Date.now()
       log('WS ready session=' + msg.sessionId + ' chunkMs=' + msg.chunkMs)
+    } else if (msg.type === 'heartbeat') {
+      state.liveLastHeartbeat = Date.now()
     } else if (msg.type === 'transcript') {
+      state.liveLastHeartbeat = Date.now()
       appendChunk(msg.text, msg.since, msg.until, msg.driftMs, msg.inferMs)
     } else if (msg.type === 'error') {
       log('WS server-error: ' + msg.message, 'err')
@@ -337,28 +369,45 @@ async function setupLiveStream(ctx, sourceNode) {
   state.liveWS.addEventListener('close', (ev) => {
     state.liveConnected = false
     broadcastState()
-    log('WS closed code=' + ev.code + ' reason=' + (ev.reason || '—'))
+    log('WS closed code=' + ev.code + ' reason=' + (ev.reason || '-'))
     if (ev.code === 1006) {
-      log('  ↳ 1006 hint: WSS host does not match server cert. Point Server URL at the exact hostname the cert is for.', 'err')
+      log('  1006 hint: WSS host does not match server cert. Point Server URL at the exact hostname the cert is for.', 'err')
     }
+    if (!state.liveShuttingDown) scheduleLiveReconnect()
   })
   state.liveWS.addEventListener('error', () => {
     state.liveConnected = false
     broadcastState()
     log('WS transport error', 'err')
   })
+}
 
-  state.liveWorklet.port.onmessage = (ev) => {
-    const buf = ev.data
-    if (state.liveConnected && state.liveWS && state.liveWS.readyState === WebSocket.OPEN) {
-      try { state.liveWS.send(buf) } catch {}
-    } else if (pendingFrames.length < 200) {
-      pendingFrames.push(buf)
+function scheduleLiveReconnect() {
+  if (state.liveShuttingDown) return
+  state.liveReconnectAttempt++
+  const delay = Math.min(10000, 500 * Math.pow(2, state.liveReconnectAttempt - 1))
+  log(`WS reconnect in ${delay}ms (attempt ${state.liveReconnectAttempt})`, 'info')
+  setTimeout(() => {
+    if (!state.liveShuttingDown) openLiveWS()
+  }, delay)
+}
+
+function startLiveWatchdog() {
+  if (state.liveWatchdog) clearInterval(state.liveWatchdog)
+  state.liveWatchdog = setInterval(() => {
+    if (state.liveShuttingDown || !state.liveConnected) return
+    const since = Date.now() - state.liveLastHeartbeat
+    if (since > LIVE_HEARTBEAT_TIMEOUT_MS) {
+      log(`WS silent for ${since}ms, forcing reconnect`, 'err')
+      try { state.liveWS && state.liveWS.close(4000, 'heartbeat timeout') } catch {}
+      state.liveConnected = false
     }
-  }
+  }, LIVE_WATCHDOG_INTERVAL_MS)
 }
 
 function teardownLive() {
+  state.liveShuttingDown = true
+  if (state.liveWatchdog) { clearInterval(state.liveWatchdog); state.liveWatchdog = null }
   if (state.liveWorklet) {
     try { state.liveWorklet.port.onmessage = null } catch {}
     try { state.liveWorklet.disconnect() } catch {}
@@ -374,6 +423,7 @@ function teardownLive() {
     state.liveWS = null
   }
   state.liveConnected = false
+  state.livePendingFrames = []
 }
 
 function appendChunk(text, since, until, driftMs, inferMs) {

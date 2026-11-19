@@ -18,6 +18,18 @@ let liveWS = null
 let liveConnected = false
 let liveLanguage = 'auto'
 let liveSessionId = null
+let liveWsUrl = null
+let livePendingFrames = []
+let liveLastHeartbeat = 0
+let liveLastTranscript = 0
+let liveWatchdog = null
+let liveReconnectAttempt = 0
+let liveShutdown = false
+
+// If no heartbeat for this long while the recorder is live, the server
+// is stuck or the socket died silently. Reconnect.
+const LIVE_HEARTBEAT_TIMEOUT_MS = 30000
+const LIVE_WATCHDOG_INTERVAL_MS = 5000
 
 const stateEls = {
   starting: document.getElementById('state-starting'),
@@ -67,16 +79,11 @@ function broadcastLiveEvent(payload) {
 
 async function setupLive(ctx, sourceForLive, language) {
   liveLanguage = language || 'auto'
+  liveShutdown = false
   const SERVER = await getServerUrl()
-  // Convert http(s) → ws(s) so the WS transport matches the server scheme.
-  // The transcribe-live endpoint is served by the same host/port as the
-  // rest of the API.
-  const wsUrl = SERVER.replace(/^http/i, 'ws') +
+  liveWsUrl = SERVER.replace(/^http/i, 'ws') +
     `/api/transcribe/live?language=${encodeURIComponent(liveLanguage)}`
 
-  // Load the worklet before wiring it. The relative path resolves against
-  // chrome-extension://<id>/pcm-worklet.js — Chrome resolves worklet modules
-  // relative to the current document.
   try {
     await ctx.audioWorklet.addModule(chrome.runtime.getURL('pcm-worklet.js'))
   } catch (err) {
@@ -93,23 +100,37 @@ async function setupLive(ctx, sourceForLive, language) {
   })
   sourceForLive.connect(liveWorkletNode)
 
-  // Open the WebSocket. Buffer any early PCM frames so we don't drop the
-  // first ~100ms while the handshake completes.
-  const pendingFrames = []
+  liveWorkletNode.port.onmessage = (ev) => {
+    const buf = ev.data
+    if (liveConnected && liveWS && liveWS.readyState === WebSocket.OPEN) {
+      try { liveWS.send(buf) } catch {}
+    } else {
+      if (livePendingFrames.length < 200) livePendingFrames.push(buf)
+    }
+  }
+
+  openLiveWS()
+  startLiveWatchdog()
+}
+
+function openLiveWS() {
+  if (!liveWsUrl || liveShutdown) return
   try {
-    liveWS = new WebSocket(wsUrl)
+    liveWS = new WebSocket(liveWsUrl)
     liveWS.binaryType = 'arraybuffer'
   } catch (err) {
     console.error('[live] WS construction failed', err)
     broadcastLiveEvent({ type: 'error', message: 'Live WS failed: ' + err.message })
+    scheduleLiveReconnect()
     return
   }
 
   liveWS.addEventListener('open', () => {
     liveConnected = true
-    // Flush any buffered PCM frames captured before the socket opened.
-    while (pendingFrames.length > 0) {
-      const f = pendingFrames.shift()
+    liveLastHeartbeat = Date.now()
+    liveReconnectAttempt = 0
+    while (livePendingFrames.length > 0) {
+      const f = livePendingFrames.shift()
       try { liveWS.send(f) } catch {}
     }
     broadcastLiveEvent({ type: 'session_started', language: liveLanguage })
@@ -120,7 +141,12 @@ async function setupLive(ctx, sourceForLive, language) {
       const msg = JSON.parse(ev.data)
       if (msg.type === 'ready') {
         liveSessionId = msg.sessionId || null
+        liveLastHeartbeat = Date.now()
+      } else if (msg.type === 'heartbeat') {
+        liveLastHeartbeat = Date.now()
       } else if (msg.type === 'transcript') {
+        liveLastHeartbeat = Date.now()
+        liveLastTranscript = Date.now()
         broadcastLiveEvent({
           type: 'transcript_delta',
           text: msg.text,
@@ -137,28 +163,47 @@ async function setupLive(ctx, sourceForLive, language) {
 
   liveWS.addEventListener('close', () => {
     liveConnected = false
-    broadcastLiveEvent({ type: 'session_ended' })
+    if (liveShutdown) {
+      broadcastLiveEvent({ type: 'session_ended' })
+      return
+    }
+    scheduleLiveReconnect()
   })
 
   liveWS.addEventListener('error', (err) => {
     liveConnected = false
     console.warn('[live] WS error', err)
-    broadcastLiveEvent({ type: 'error', message: 'Live WS error' })
   })
+}
 
-  // Ship each PCM frame from the worklet straight into the socket.
-  liveWorkletNode.port.onmessage = (ev) => {
-    const buf = ev.data // ArrayBuffer of Int16Array samples
-    if (liveConnected && liveWS && liveWS.readyState === WebSocket.OPEN) {
-      try { liveWS.send(buf) } catch {}
-    } else {
-      // Buffer for the first ~200 frames (< 1MB) before the WS opens.
-      if (pendingFrames.length < 200) pendingFrames.push(buf)
+function scheduleLiveReconnect() {
+  if (liveShutdown) return
+  liveReconnectAttempt++
+  const delay = Math.min(10000, 500 * Math.pow(2, liveReconnectAttempt - 1))
+  console.warn(`[live] reconnecting in ${delay}ms (attempt ${liveReconnectAttempt})`)
+  broadcastLiveEvent({ type: 'reconnecting', attempt: liveReconnectAttempt, delayMs: delay })
+  setTimeout(() => {
+    if (!liveShutdown) openLiveWS()
+  }, delay)
+}
+
+function startLiveWatchdog() {
+  if (liveWatchdog) clearInterval(liveWatchdog)
+  liveWatchdog = setInterval(() => {
+    if (liveShutdown) return
+    if (!liveConnected) return
+    const sinceHeartbeat = Date.now() - liveLastHeartbeat
+    if (sinceHeartbeat > LIVE_HEARTBEAT_TIMEOUT_MS) {
+      console.warn(`[live] no heartbeat for ${sinceHeartbeat}ms, forcing reconnect`)
+      try { liveWS && liveWS.close(4000, 'heartbeat timeout') } catch {}
+      liveConnected = false
     }
-  }
+  }, LIVE_WATCHDOG_INTERVAL_MS)
 }
 
 function teardownLive() {
+  liveShutdown = true
+  if (liveWatchdog) { clearInterval(liveWatchdog); liveWatchdog = null }
   if (liveWorkletNode) {
     try { liveWorkletNode.port.onmessage = null } catch {}
     try { liveWorkletNode.disconnect() } catch {}
@@ -174,6 +219,7 @@ function teardownLive() {
     liveWS = null
   }
   liveConnected = false
+  livePendingFrames = []
 }
 
 // Audio visualization

@@ -88,14 +88,23 @@ interface Session {
   emittedTail: string          // tail of previously-emitted text (prompt + dedup)
   recentNormTokens: string[]   // last ~CROSS_CHUNK_WINDOW normalized tokens; feeds cross-chunk repeat guard
   processing: boolean          // guard against overlapping whisper spawns
+  processingSince?: number
   closed: boolean
   startedAt: number
   tempDir: string
   ws: WebSocket
+  heartbeat?: NodeJS.Timeout
 }
 
 const CROSS_CHUNK_WINDOW = 20
 const SILENCE_RMS_THRESHOLD = 150
+// Drop oldest audio past this backlog; without a cap the Buffer grows
+// unbounded if whisper stalls.
+const MAX_BUFFER_MS = 30_000
+// Force-reset `processing` after this; defense against any path that
+// forgets to clear it (the silence-skip bug this fix was written for).
+const PROCESSING_STUCK_MS = 45_000
+const HEARTBEAT_INTERVAL_MS = 10_000
 
 const activeSessions = new Set<Session>()
 
@@ -580,36 +589,32 @@ async function tryFinalize(sess: Session): Promise<void> {
   if (sess.buffer.length < sess.minHopBytes) return
 
   sess.processing = true
-  // Take everything we've got, up to the ceiling. This is where the
-  // adaptive behavior comes from — a small chunk when we're on time,
-  // a big chunk when there's a backlog.
-  const takeBytes = Math.min(sess.buffer.length, sess.maxHopBytes)
-  const hop = Buffer.from(sess.buffer.subarray(0, takeBytes))
-  sess.buffer = Buffer.from(sess.buffer.subarray(takeBytes))
-  const hopMs = msFromBytes(takeBytes)
-
-  // Window = [prev tail][new hop]. Whisper decodes the whole thing, we
-  // dedupe its output against what we already emitted.
-  const window = sess.audioTail.length > 0
-    ? Buffer.concat([sess.audioTail, hop])
-    : Buffer.from(hop)
-  // Retain the last OVERLAP_MS of this window for the NEXT call.
-  sess.audioTail = window.length > sess.overlapBytes
-    ? Buffer.from(window.subarray(window.length - sess.overlapBytes))
-    : Buffer.from(window)
-
-  const since = sess.emittedMs
-  const until = since + hopMs
-  sess.emittedMs = until
-
-  const rms = pcm16Rms(window)
-  if (rms < SILENCE_RMS_THRESHOLD) {
-    logger.debug(`[transcribe-live ${sess.id}] silence-skip hop=${hopMs}ms rms=${rms.toFixed(1)}`)
-    return
-  }
-
-  const wavPath = path.join(sess.tempDir, `chunk-${since}.wav`)
+  sess.processingSince = Date.now()
+  let wavPath = ''
   try {
+    const takeBytes = Math.min(sess.buffer.length, sess.maxHopBytes)
+    const hop = Buffer.from(sess.buffer.subarray(0, takeBytes))
+    sess.buffer = Buffer.from(sess.buffer.subarray(takeBytes))
+    const hopMs = msFromBytes(takeBytes)
+
+    const window = sess.audioTail.length > 0
+      ? Buffer.concat([sess.audioTail, hop])
+      : Buffer.from(hop)
+    sess.audioTail = window.length > sess.overlapBytes
+      ? Buffer.from(window.subarray(window.length - sess.overlapBytes))
+      : Buffer.from(window)
+
+    const since = sess.emittedMs
+    const until = since + hopMs
+    sess.emittedMs = until
+
+    const rms = pcm16Rms(window)
+    if (rms < SILENCE_RMS_THRESHOLD) {
+      logger.debug(`[transcribe-live ${sess.id}] silence-skip hop=${hopMs}ms rms=${rms.toFixed(1)}`)
+      return
+    }
+
+    wavPath = path.join(sess.tempDir, `chunk-${since}.wav`)
     const header = buildWavHeader(window.length)
     const wavBuffer = Buffer.concat([header, window])
     await fs.writeFile(wavPath, wavBuffer)
@@ -630,7 +635,7 @@ async function tryFinalize(sess: Session): Promise<void> {
       logger.warn(
         `[transcribe-live ${sess.id}] hallucination-loop guard: ` +
         `raw="${speechOnly.slice(0, 80)}${speechOnly.length > 80 ? '…' : ''}" ` +
-        `→ final="${crossTrimmed.slice(0, 80)}${crossTrimmed.length > 80 ? '…' : ''}"` +
+        `-> final="${crossTrimmed.slice(0, 80)}${crossTrimmed.length > 80 ? '…' : ''}"` +
         (crossCut > 0 ? ` cross-cut=${crossCut}` : '')
       )
     }
@@ -660,10 +665,9 @@ async function tryFinalize(sess: Session): Promise<void> {
       })
     }
   } finally {
-    await fs.remove(wavPath).catch(() => {})
+    if (wavPath) await fs.remove(wavPath).catch(() => {})
     sess.processing = false
-    // If enough audio came in while we were transcribing, chain
-    // straight into the next chunk — no scheduling gap.
+    sess.processingSince = undefined
     if (!sess.closed && sess.buffer.length >= sess.minHopBytes) {
       void tryFinalize(sess)
     }
@@ -682,6 +686,10 @@ function sendJson(ws: WebSocket, payload: unknown): void {
 
 async function cleanupSession(sess: Session): Promise<void> {
   sess.closed = true
+  if (sess.heartbeat) {
+    clearInterval(sess.heartbeat)
+    sess.heartbeat = undefined
+  }
   activeSessions.delete(sess)
   await fs.remove(sess.tempDir).catch(() => {})
 }
@@ -759,12 +767,41 @@ export function attachLiveTranscribeWS(server: HttpServer | HttpsServer): void {
       maxHopMs: MAX_HOP_MS,
     })
 
+    const maxBufferBytes = Math.floor((MAX_BUFFER_MS / 1000) * SAMPLE_RATE) * BYTES_PER_SAMPLE
+
+    sess.heartbeat = setInterval(() => {
+      if (sess.closed) return
+      if (sess.processing && sess.processingSince && Date.now() - sess.processingSince > PROCESSING_STUCK_MS) {
+        logger.warn(
+          `[transcribe-live ${sess.id}] processing watchdog tripped after ${Date.now() - sess.processingSince}ms; force-resetting`
+        )
+        sess.processing = false
+        sess.processingSince = undefined
+        void tryFinalize(sess)
+      }
+      sendJson(ws, {
+        type: 'heartbeat',
+        receivedMs: sess.receivedMs,
+        emittedMs: sess.emittedMs,
+        bufferMs: msFromBytes(sess.buffer.length),
+        processing: sess.processing,
+      })
+    }, HEARTBEAT_INTERVAL_MS)
+
     ws.on('message', (data, isBinary) => {
       if (sess.closed) return
       if (isBinary) {
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
         sess.buffer = sess.buffer.length === 0 ? buf : Buffer.concat([sess.buffer, buf])
         sess.receivedMs += msFromBytes(buf.length)
+        if (sess.buffer.length > maxBufferBytes) {
+          const drop = sess.buffer.length - maxBufferBytes
+          sess.buffer = Buffer.from(sess.buffer.subarray(drop))
+          sess.emittedMs += msFromBytes(drop)
+          logger.warn(
+            `[transcribe-live ${sess.id}] buffer cap hit; dropped ${msFromBytes(drop)}ms of audio`
+          )
+        }
         void tryFinalize(sess)
         return
       }

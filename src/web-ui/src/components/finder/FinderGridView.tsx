@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Folder } from 'lucide-react'
+import { Folder, Share2 } from 'lucide-react'
 import { FileListItem } from '../../api/client'
 import { getFileIcon, getFileKind } from '../../utils/fileTypes'
 import { useLongPress } from '../code-editor/ContextMenu'
@@ -19,6 +19,7 @@ interface FinderGridViewProps {
   onLongPress?: (e: React.TouchEvent | React.MouseEvent, item: FileListItem) => void
   onMoveFile: (fromPath: string, toDirectory: string) => void
   onUploadFiles: (files: File[], destination: string) => void
+  sharedPaths?: Set<string>
 }
 
 export function FinderGridView({
@@ -30,6 +31,7 @@ export function FinderGridView({
   onLongPress,
   onMoveFile,
   onUploadFiles,
+  sharedPaths,
 }: FinderGridViewProps) {
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
 
@@ -102,6 +104,9 @@ export function FinderGridView({
           >
             <div className="finder-grid-icon">
               {isDir ? <Folder size={48} /> : getFileIcon(item.name, 48)}
+              {!isDir && sharedPaths?.has(item.path) && (
+                <span className="finder-shared-badge grid" title="Shared for review"><Share2 size={14} /></span>
+              )}
             </div>
             <div className="finder-grid-name">{item.name}</div>
           </FinderGridItem>

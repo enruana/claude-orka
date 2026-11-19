@@ -110,6 +110,21 @@ export interface ProjectComment {
   resolved: boolean
   createdAt: string
   resolvedAt?: string
+  source?: string
+  reviewerName?: string
+  snapshotPath?: string
+  orphan?: boolean
+}
+
+export interface Share {
+  id: string
+  token: string
+  filePath: string
+  createdAt: string
+  expiresAt: string
+  revokedAt?: string
+  options: { allowComments: boolean; allowAsk: boolean }
+  createdBy?: string
 }
 
 // Pin types — KB entity shortcuts surfaced in the floating action button.
@@ -1423,6 +1438,58 @@ export const api = {
     const res = await fetch(`${API_BASE}/board?project=${p}`)
     if (!res.ok) throw new Error(await res.text())
     return res.json()
+  },
+
+  async listShares(projectPath: string): Promise<Share[]> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/share?project=${p}`)
+    if (!res.ok) throw new Error(await res.text())
+    const body = await res.json()
+    return body.shares || []
+  },
+
+  async createShare(
+    projectPath: string,
+    input: { filePath: string; ttlMs: number; allowComments: boolean; allowAsk: boolean; createdBy?: string },
+  ): Promise<Share> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/share?project=${p}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async revokeShare(projectPath: string, id: string): Promise<void> {
+    const p = encodeProjectPath(projectPath)
+    const res = await fetch(`${API_BASE}/share/${encodeURIComponent(id)}/revoke?project=${p}`, { method: 'POST' })
+    if (!res.ok) throw new Error(await res.text())
+  },
+
+  async getShareServerInfo(): Promise<{ port: number; protocol: 'http' | 'https' }> {
+    const res = await fetch('/api/share/port')
+    if (!res.ok) return { port: 0, protocol: 'http' }
+    const b = await res.json().catch(() => null)
+    return { port: b?.port || 0, protocol: b?.protocol === 'https' ? 'https' : 'http' }
+  },
+
+  async getShareTunnel(): Promise<{ running: boolean; url?: string; error?: string }> {
+    const res = await fetch('/api/share/tunnel')
+    if (!res.ok) return { running: false }
+    return res.json()
+  },
+
+  async startShareTunnel(): Promise<{ running: boolean; url?: string; error?: string }> {
+    const res = await fetch('/api/share/tunnel', { method: 'POST' })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  async stopShareTunnel(): Promise<void> {
+    const res = await fetch('/api/share/tunnel', { method: 'DELETE' })
+    if (!res.ok) throw new Error(await res.text())
   },
 
   async createBoard(

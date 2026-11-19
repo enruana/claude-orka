@@ -24,6 +24,10 @@ export interface ProjectComment {
   resolved: boolean
   createdAt: string
   resolvedAt?: string
+  source?: string
+  reviewerName?: string
+  snapshotPath?: string
+  orphan?: boolean
 }
 
 /**

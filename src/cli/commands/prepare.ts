@@ -46,6 +46,7 @@ export function prepareCommand(program: Command) {
         console.log('  • xclip (clipboard support for tmux on Linux)')
         console.log('  • Tailscale (HTTPS for remote access)')
         console.log('  • SSL certs directory (~/.orka/certs/)')
+        console.log('  • cloudflared (expose share-for-review links publicly)')
         console.log('  • AWS profile shell integration\n')
 
         if (!options.yes) {
@@ -103,6 +104,9 @@ export function prepareCommand(program: Command) {
 
         // Setup SSL certs (Tailscale-issued)
         await setupTailscaleCerts()
+
+        // Install cloudflared (optional: used to expose share server publicly)
+        await installCloudflared(system)
 
         // Setup Puppeteer + Chromium (for terminal screenshots)
         await setupPuppeteer()
@@ -610,6 +614,54 @@ async function installTailscale(system: SystemInfo) {
     Output.error('Failed to install Tailscale')
     console.log(chalk.red(`\nError: ${error.message}`))
     console.log(chalk.yellow('\nInstall manually from: https://tailscale.com/download'))
+  }
+}
+
+async function installCloudflared(system: SystemInfo) {
+  console.log(chalk.bold('\n☁️  Checking cloudflared (share-for-review public tunnel)...\n'))
+
+  try {
+    await execa('which', ['cloudflared'])
+    const { stdout } = await execa('cloudflared', ['--version'])
+    Output.success(`cloudflared already installed: ${stdout.split('\n')[0]}`)
+    return
+  } catch { /* not installed */ }
+
+  try {
+    if (system.platform === 'darwin') {
+      if (system.hasHomebrew) {
+        await runVisible('brew', ['install', 'cloudflared'])
+        Output.success('cloudflared installed via Homebrew')
+      } else {
+        Output.warn('Skipping cloudflared (Homebrew not available on macOS)')
+        console.log(chalk.cyan('  Install manually: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/'))
+      }
+    } else if (system.platform === 'linux') {
+      const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
+      const debUrl = `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}.deb`
+      const binUrl = `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}`
+      if (system.hasApt) {
+        await runVisible('bash', ['-c',
+          `tmp=$(mktemp) && curl -fsSL -o "$tmp" "${debUrl}" && sudo dpkg -i "$tmp" && rm -f "$tmp"`,
+        ], { timeout: 600000 })
+        Output.success('cloudflared installed via apt')
+      } else {
+        await runVisible('bash', ['-c',
+          `sudo curl -fsSL -o /usr/local/bin/cloudflared "${binUrl}" && sudo chmod +x /usr/local/bin/cloudflared`,
+        ], { timeout: 600000 })
+        Output.success('cloudflared installed to /usr/local/bin')
+      }
+    } else {
+      Output.error(`Unsupported platform: ${system.platform}`)
+    }
+
+    console.log(chalk.gray('\nShare a file for review with:'))
+    console.log(chalk.cyan('  cloudflared tunnel --url http://localhost:3476'))
+    console.log(chalk.gray('then paste the tunnel URL into reviewers in the share-link listing.'))
+  } catch (error: any) {
+    Output.error('Failed to install cloudflared')
+    console.log(chalk.red(`\nError: ${error.message}`))
+    console.log(chalk.yellow('\nInstall manually from: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/'))
   }
 }
 

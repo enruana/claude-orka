@@ -102,6 +102,774 @@ function escapeForJsString(s: string): string {
  * `projectB64` here is url-safe base64 (RFC 4648 §5) so it drops
  * cleanly into a query string alongside a raw filePath.
  */
+export function buildReviewerOverlay(opts: {
+  token: string
+  filePath: string
+  allowComments: boolean
+  allowAsk: boolean
+}): string {
+  const tokenJs = escapeForJsString(opts.token)
+  const filePathJs = escapeForJsString(opts.filePath)
+  const allowCommentsJs = opts.allowComments ? 'true' : 'false'
+  const allowAskJs = opts.allowAsk ? 'true' : 'false'
+  return `
+<div id="__orka-rv-host" style="all: initial !important; display: block !important;"></div>
+<script id="__orka-rv-boot">
+(function() {
+  var hostEl = document.getElementById('__orka-rv-host');
+  if (!hostEl || hostEl.shadowRoot) return;
+  var root = hostEl.attachShadow({ mode: 'open' });
+  var style = document.createElement('style');
+  style.textContent = [
+    ':host { all: initial !important; display: block !important; }',
+    ':host *, :host *::before, :host *::after { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }',
+    '.topbar { position: fixed; top: 16px; right: 16px; z-index: 2147483645;',
+    '  display: inline-flex; align-items: center; gap: 6px;',
+    '  pointer-events: none; }',
+    '.topbar > * { pointer-events: auto; }',
+    '.badge { padding: 8px 12px; border-radius: 999px;',
+    '  background: rgba(17, 18, 42, 0.92); color: #cdd6f4;',
+    '  border: 1px solid rgba(255, 255, 255, 0.1);',
+    '  box-shadow: 0 10px 30px rgba(0,0,0,0.35);',
+    '  backdrop-filter: blur(14px) saturate(140%);',
+    '  -webkit-backdrop-filter: blur(14px) saturate(140%);',
+    '  font-size: 12px; cursor: pointer; display: inline-flex;',
+    '  align-items: center; gap: 8px; user-select: none;',
+    '  transition: background 0.14s, border-color 0.14s; }',
+    '.badge:hover { background: rgba(250,179,135,0.14); border-color: rgba(250,179,135,0.35); }',
+    '.topbar-btn { display: inline-flex; align-items: center; gap: 6px;',
+    '  padding: 8px 12px; border-radius: 999px; cursor: pointer;',
+    '  background: rgba(17, 18, 42, 0.92); color: #cdd6f4;',
+    '  border: 1px solid rgba(255, 255, 255, 0.1); text-decoration: none;',
+    '  box-shadow: 0 10px 30px rgba(0,0,0,0.35);',
+    '  backdrop-filter: blur(14px) saturate(140%);',
+    '  -webkit-backdrop-filter: blur(14px) saturate(140%);',
+    '  font-size: 12px; font-weight: 600; letter-spacing: 0.1px;',
+    '  transition: background 0.14s, color 0.14s, border-color 0.14s, transform 0.14s;',
+    '  user-select: none; }',
+    '.topbar-btn svg { opacity: 0.85; flex-shrink: 0; }',
+    '.topbar-btn:hover { background: rgba(137,180,250,0.16); color: #89b4fa; border-color: rgba(137,180,250,0.4); transform: translateY(-1px); }',
+    '.topbar-btn:hover svg { opacity: 1; }',
+    '.topbar-btn:active { transform: translateY(0) scale(0.97); }',
+    '.topbar-btn:focus-visible { outline: 2px solid rgba(137,180,250,0.5); outline-offset: 2px; }',
+    '.badge .dot { width: 8px; height: 8px; border-radius: 999px; background: #a6e3a1; box-shadow: 0 0 10px rgba(166,227,161,0.7); }',
+    '.badge .count { background: rgba(255,255,255,0.06); padding: 1px 7px; border-radius: 999px; font-family: ui-monospace, monospace; font-size: 11px; }',
+    '.sel-tool { position: fixed; z-index: 2147483646; display: none;',
+    '  padding: 4px; border-radius: 999px;',
+    '  background: linear-gradient(180deg, rgba(24,25,54,0.98), rgba(15,16,36,0.98));',
+    '  backdrop-filter: blur(18px) saturate(160%);',
+    '  -webkit-backdrop-filter: blur(18px) saturate(160%);',
+    '  border: 1px solid rgba(255, 255, 255, 0.1);',
+    '  box-shadow: 0 14px 36px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03) inset;',
+    '  touch-action: manipulation;',
+    '  animation: sel-tool-in 0.14s ease-out; }',
+    '@keyframes sel-tool-in { from { opacity: 0; transform: translateY(-4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }',
+    '.sel-tool button { border: 0; background: transparent; color: #cdd6f4;',
+    '  font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;',
+    '  padding: 9px 14px; border-radius: 999px; min-height: 40px;',
+    '  display: inline-flex; align-items: center; gap: 7px;',
+    '  transition: background 0.14s, color 0.14s, transform 0.14s;',
+    '  touch-action: manipulation; letter-spacing: 0.1px; }',
+    '.sel-tool button svg { flex-shrink: 0; opacity: 0.9; }',
+    '.sel-tool button.comment:hover, .sel-tool button.comment:active { background: rgba(250, 179, 135, 0.18); color: #fab387; }',
+    '.sel-tool button.comment:hover svg, .sel-tool button.comment:active svg { opacity: 1; }',
+    '.sel-tool button.ask:hover, .sel-tool button.ask:active { background: rgba(137, 180, 250, 0.18); color: #89b4fa; }',
+    '.sel-tool button.ask:hover svg, .sel-tool button.ask:active svg { opacity: 1; }',
+    '.sel-tool button:focus-visible { outline: 2px solid rgba(250,179,135,0.5); outline-offset: 1px; }',
+    '.sel-tool button.ask:focus-visible { outline-color: rgba(137,180,250,0.5); }',
+    '.sel-tool-sep { width: 1px; background: linear-gradient(180deg, transparent, rgba(255,255,255,0.14), transparent); margin: 4px 0; align-self: stretch; }',
+    '.dialog-overlay { position: fixed; inset: 0; z-index: 2147483647;',
+    '  background: rgba(0,0,0,0.55); backdrop-filter: blur(6px);',
+    '  -webkit-backdrop-filter: blur(6px);',
+    '  display: flex; align-items: center; justify-content: center; }',
+    '.dialog { background: linear-gradient(180deg, rgba(24,25,54,0.98), rgba(15,16,36,0.98));',
+    '  color: #ecf0fe; border: 1px solid rgba(255,255,255,0.08);',
+    '  border-radius: 16px; width: min(520px, 92vw); padding: 22px 24px;',
+    '  display: flex; flex-direction: column; gap: 14px;',
+    '  box-shadow: 0 40px 80px rgba(0,0,0,0.5); }',
+    '.dialog h2 { font-size: 15px; font-weight: 600; margin: 0; }',
+    '.dialog .snippet { font-size: 12px; color: #a6adc8;',
+    '  background: rgba(250,179,135,0.08); border-left: 3px solid rgba(250,179,135,0.6);',
+    '  border-radius: 0 8px 8px 0; padding: 10px 12px; max-height: 120px; overflow: auto;',
+    '  white-space: pre-wrap; font-family: ui-monospace, monospace; line-height: 1.5; }',
+    '.dialog input, .dialog textarea {',
+    '  width: 100%; padding: 10px 12px; border: 1px solid rgba(255,255,255,0.1);',
+    '  border-radius: 10px; background: rgba(255,255,255,0.04); color: #ecf0fe;',
+    '  font: inherit; font-size: 14px; outline: none; box-sizing: border-box; }',
+    '.dialog input:focus, .dialog textarea:focus { border-color: rgba(250,179,135,0.55); background: rgba(255,255,255,0.06); box-shadow: 0 0 0 2px rgba(250,179,135,0.18); }',
+    '.dialog textarea { min-height: 110px; resize: vertical; }',
+    '.dialog label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #a6adc8; font-weight: 600; }',
+    '.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }',
+    '.btn { padding: 9px 16px; border-radius: 10px; border: 1px solid transparent;',
+    '  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }',
+    '.btn.primary { background: linear-gradient(180deg, rgba(250,179,135,0.28), rgba(250,179,135,0.16));',
+    '  border-color: rgba(250,179,135,0.45); color: #fab387; }',
+    '.btn.primary:hover { background: rgba(250,179,135,0.32); }',
+    '.btn.ghost { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08); color: #a6adc8; }',
+    '.btn.ghost:hover { background: rgba(255,255,255,0.1); color: #ecf0fe; }',
+    '.rail { position: fixed; top: 0; right: 0; bottom: 0; width: 360px; max-width: 90vw;',
+    '  background: linear-gradient(180deg, rgba(17,18,42,0.96), rgba(10,11,31,0.96));',
+    '  backdrop-filter: blur(20px) saturate(140%);',
+    '  -webkit-backdrop-filter: blur(20px) saturate(140%);',
+    '  border-left: 1px solid rgba(255,255,255,0.08);',
+    '  color: #cdd6f4; z-index: 2147483645;',
+    '  transform: translateX(100%); transition: transform 0.22s ease-out;',
+    '  display: flex; flex-direction: column; }',
+    '.rail.open { transform: translateX(0); }',
+    '.rail-header { padding: 16px 18px; border-bottom: 1px solid rgba(255,255,255,0.06);',
+    '  display: flex; align-items: center; justify-content: space-between; }',
+    '.rail-header .title { font-size: 13px; font-weight: 600; letter-spacing: 0.3px; color: #ecf0fe; }',
+    '.rail-close { background: transparent; border: 0; color: #a6adc8; cursor: pointer;',
+    '  padding: 4px 8px; border-radius: 6px; }',
+    '.rail-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }',
+    '.rail-empty { text-align: center; color: #6c7086; font-style: italic; padding: 40px 20px; font-size: 13px; }',
+    '.card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);',
+    '  border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }',
+    '.card .meta { font-size: 11px; color: #a6adc8; display: flex; justify-content: space-between; }',
+    '.card .snip { background: rgba(250,179,135,0.08); border-left: 3px solid rgba(250,179,135,0.6);',
+    '  padding: 6px 10px; font-size: 12px; font-family: ui-monospace, monospace; border-radius: 6px;',
+    '  max-height: 60px; overflow: hidden; text-overflow: ellipsis;',
+    '  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;',
+    '  white-space: pre-wrap; color: #a6adc8; }',
+    '.card .body { font-size: 13px; color: #ecf0fe; line-height: 1.5; white-space: pre-wrap; }',
+    '.toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);',
+    '  z-index: 2147483647; background: rgba(30,30,46,0.94); color: #a6e3a1;',
+    '  padding: 10px 18px; border-radius: 999px; border: 1px solid rgba(166,227,161,0.35);',
+    '  font-size: 13px; font-weight: 600; }',
+    '.toast.err { color: #f38ba8; border-color: rgba(243,139,168,0.4); }',
+    '.expired-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 2147483646;',
+    '  background: rgba(243,139,168,0.14); color: #f38ba8; border-bottom: 1px solid rgba(243,139,168,0.3);',
+    '  padding: 10px 18px; text-align: center; font-size: 13px; font-weight: 600; }',
+    '.cm-dialog { gap: 12px; padding: 18px 20px 14px; }',
+    '.cm-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }',
+    '.cm-title { display: inline-flex; align-items: center; gap: 10px;',
+    '  font-size: 14px; font-weight: 600; color: #ecf0fe; letter-spacing: 0.1px; }',
+    '.cm-title-dot { width: 7px; height: 7px; border-radius: 999px;',
+    '  background: #fab387; box-shadow: 0 0 10px rgba(250,179,135,0.7); }',
+    '.cm-as { color: #a6adc8; font-weight: 500; font-size: 12.5px; letter-spacing: 0; }',
+    '.ask-dialog { width: min(640px, 94vw); max-height: 86vh;',
+    '  padding: 18px 20px 14px; gap: 12px; }',
+    '.ask-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }',
+    '.ask-title { display: inline-flex; align-items: center; gap: 10px;',
+    '  font-size: 14px; font-weight: 600; color: #ecf0fe; letter-spacing: 0.1px; }',
+    '.ask-title-dot { width: 7px; height: 7px; border-radius: 999px;',
+    '  background: #89b4fa; box-shadow: 0 0 10px rgba(137,180,250,0.75);',
+    '  animation: ask-dot-pulse 2.2s ease-in-out infinite; }',
+    '@keyframes ask-dot-pulse { 0%,100% { box-shadow: 0 0 10px rgba(137,180,250,0.75); } 50% { box-shadow: 0 0 18px rgba(137,180,250,1); } }',
+    '.ask-close-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;',
+    '  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);',
+    '  color: #a6adc8; border-radius: 10px; cursor: pointer; transition: background 0.14s, color 0.14s; }',
+    '.ask-close-btn:hover { background: rgba(243,139,168,0.14); color: #f38ba8; border-color: rgba(243,139,168,0.35); }',
+    '.ask-excerpt { position: relative; }',
+    '.ask-excerpt-text { font-size: 12px; color: #a6adc8;',
+    '  background: rgba(137,180,250,0.08); border-left: 3px solid rgba(137,180,250,0.5);',
+    '  border-radius: 0 10px 10px 0; padding: 10px 12px; overflow: auto;',
+    '  white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;',
+    '  line-height: 1.55; max-height: 220px; }',
+    '.ask-excerpt-text.clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;',
+    '  overflow: hidden; max-height: none; }',
+    '.ask-excerpt-toggle { display: inline-block; margin-top: 4px; background: transparent; border: 0;',
+    '  color: #89b4fa; font: inherit; font-size: 11px; cursor: pointer; padding: 2px 0; }',
+    '.ask-excerpt-toggle:hover { color: #b6d0fa; }',
+    '.ask-turns { display: flex; flex-direction: column; gap: 10px;',
+    '  max-height: 42vh; overflow-y: auto; padding: 4px 2px;',
+    '  scroll-behavior: smooth; }',
+    '.ask-turns::-webkit-scrollbar { width: 6px; }',
+    '.ask-turns::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }',
+    '.ask-turns:empty { display: none; }',
+    '.ask-turn { display: flex; animation: ask-turn-in 0.18s ease-out; }',
+    '@keyframes ask-turn-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }',
+    '.ask-turn.user { justify-content: flex-end; }',
+    '.ask-turn.assistant { justify-content: flex-start; }',
+    '.ask-bubble { max-width: 86%; padding: 11px 14px; border-radius: 14px;',
+    '  font-size: 13.5px; line-height: 1.6; word-break: break-word; }',
+    '.ask-bubble.user { background: linear-gradient(180deg, rgba(137,180,250,0.28), rgba(137,180,250,0.14));',
+    '  border: 1px solid rgba(137,180,250,0.4); color: #ecf0fe; border-top-right-radius: 4px;',
+    '  white-space: pre-wrap; }',
+    '.ask-bubble.assistant { background: rgba(255,255,255,0.045);',
+    '  border: 1px solid rgba(255,255,255,0.09); color: #ecf0fe; border-top-left-radius: 4px; }',
+    '.ask-bubble.pending { padding: 14px 16px; min-width: 54px; }',
+    '.ask-bubble.error { background: rgba(243,139,168,0.1); border-color: rgba(243,139,168,0.35);',
+    '  color: #f38ba8; white-space: pre-wrap; }',
+    '.ask-dots { display: inline-flex; gap: 5px; align-items: center; }',
+    '.ask-dots i { width: 6px; height: 6px; border-radius: 999px; background: #89b4fa; opacity: 0.4;',
+    '  animation: ask-dot-bounce 1s ease-in-out infinite; }',
+    '.ask-dots i:nth-child(2) { animation-delay: 0.15s; }',
+    '.ask-dots i:nth-child(3) { animation-delay: 0.3s; }',
+    '@keyframes ask-dot-bounce { 0%,80%,100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-4px); opacity: 1; } }',
+    '.ask-md > *:first-child { margin-top: 0; }',
+    '.ask-md > *:last-child { margin-bottom: 0; }',
+    '.ask-md p { margin: 0 0 8px 0; }',
+    '.ask-md h1, .ask-md h2, .ask-md h3, .ask-md h4, .ask-md h5, .ask-md h6 {',
+    '  color: #ecf0fe; font-weight: 700; line-height: 1.3; margin: 12px 0 6px 0; }',
+    '.ask-md h1 { font-size: 16px; } .ask-md h2 { font-size: 15px; } .ask-md h3 { font-size: 14px; }',
+    '.ask-md h4, .ask-md h5, .ask-md h6 { font-size: 13px; }',
+    '.ask-md ul, .ask-md ol { margin: 4px 0 8px 0; padding-left: 22px; }',
+    '.ask-md li { margin: 2px 0; }',
+    '.ask-md li > p { margin: 0; }',
+    '.ask-md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;',
+    '  background: rgba(137,180,250,0.14); color: #cdd6f4; padding: 1.5px 6px; border-radius: 5px; }',
+    '.ask-md pre { margin: 8px 0; padding: 10px 12px;',
+    '  background: rgba(17,18,42,0.7); border: 1px solid rgba(255,255,255,0.08);',
+    '  border-radius: 10px; overflow: auto; }',
+    '.ask-md pre code { background: transparent; padding: 0; font-size: 12.5px;',
+    '  line-height: 1.55; color: #ecf0fe; display: block; white-space: pre; }',
+    '.ask-md a { color: #89b4fa; text-decoration: underline; text-underline-offset: 2px; }',
+    '.ask-md a:hover { color: #b6d0fa; }',
+    '.ask-md strong { color: #ffd7a7; font-weight: 700; }',
+    '.ask-md em { color: #cdd6f4; font-style: italic; }',
+    '.ask-md blockquote { margin: 8px 0; padding: 6px 12px;',
+    '  border-left: 3px solid rgba(137,180,250,0.5); background: rgba(137,180,250,0.06);',
+    '  color: #a6adc8; border-radius: 0 8px 8px 0; }',
+    '.ask-input-row { display: flex; gap: 8px; align-items: flex-end;',
+    '  padding: 10px 12px; background: rgba(255,255,255,0.035);',
+    '  border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;',
+    '  transition: border-color 0.15s, background 0.15s; }',
+    '.ask-input-row:focus-within { border-color: rgba(137,180,250,0.5);',
+    '  background: rgba(255,255,255,0.06);',
+    '  box-shadow: 0 0 0 2px rgba(137,180,250,0.18); }',
+    '.ask-input-row textarea { flex: 1; min-height: 24px; max-height: 160px;',
+    '  resize: none; border: 0; background: transparent; padding: 4px 2px;',
+    '  color: #ecf0fe; font: inherit; font-size: 14px; outline: none;',
+    '  line-height: 1.45; overflow-y: auto; }',
+    '.ask-input-row textarea::placeholder { color: #6c7086; }',
+    '.ask-send-btn { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;',
+    '  background: linear-gradient(180deg, rgba(137,180,250,0.32), rgba(137,180,250,0.18));',
+    '  border: 1px solid rgba(137,180,250,0.48); color: #89b4fa;',
+    '  border-radius: 10px; cursor: pointer; flex-shrink: 0;',
+    '  transition: background 0.14s, transform 0.14s; }',
+    '.ask-send-btn:hover:not(:disabled) { background: rgba(137,180,250,0.4); transform: translateY(-1px); }',
+    '.ask-send-btn:active:not(:disabled) { transform: translateY(0) scale(0.96); }',
+    '.ask-send-btn:disabled { opacity: 0.35; cursor: not-allowed; }',
+    '.ask-hint { font-size: 10.5px; color: #6c7086; text-align: center; letter-spacing: 0.3px; }',
+    '@media (max-width: 600px) {',
+    '  .topbar { top: 12px; right: 12px; gap: 5px; }',
+    '  .badge { padding: 7px 10px; font-size: 11.5px; }',
+    '  .badge .badge-label { display: none; }',
+    '  .topbar-btn { padding: 7px 10px; }',
+    '  .topbar-btn-label { display: none; }',
+    '  .rail { width: 100vw; max-width: 100vw; left: 0; border-left: 0;',
+    '    border-top: 1px solid rgba(255,255,255,0.08); border-radius: 16px 16px 0 0;',
+    '    top: auto; height: 78vh; height: 78dvh; transform: translateY(100%); }',
+    '  .rail.open { transform: translateY(0); }',
+    '  .dialog { width: 100%; max-width: 100vw; border-radius: 16px 16px 0 0;',
+    '    padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 20px);',
+    '    position: fixed; bottom: 0; left: 0; right: 0; }',
+    '  .dialog-overlay { align-items: flex-end; }',
+    '  .dialog textarea { min-height: 80px; font-size: 16px; }',
+    '  .dialog input { font-size: 16px; }',
+    '  .btn { padding: 11px 16px; font-size: 14px; min-height: 42px; }',
+    '  .dialog-actions { flex-direction: column-reverse; gap: 6px; }',
+    '  .dialog-actions .btn { width: 100%; }',
+    '  .sel-tool button { padding: 11px 16px; font-size: 14px; min-height: 44px; }',
+    '  .ask-dialog { max-height: 92vh; max-height: 92dvh; padding: 14px 14px calc(env(safe-area-inset-bottom, 0px) + 16px); gap: 10px; }',
+    '  .ask-turns { max-height: 42vh; max-height: 42dvh; }',
+    '  .ask-input-row textarea { font-size: 16px; }',
+    '  .ask-bubble { max-width: 92%; font-size: 14px; }',
+    '  .ask-hint { display: none; }',
+    '}',
+  ].join(' ');
+  root.appendChild(style);
+
+  var TOKEN = '${tokenJs}';
+  var FILE_PATH = '${filePathJs}';
+  var ALLOW_COMMENTS = ${allowCommentsJs};
+  var ALLOW_ASK = ${allowAskJs};
+  var API = window.location.origin + '/s/' + encodeURIComponent(TOKEN);
+  var REVIEWER_KEY = 'orka-share-reviewer:' + TOKEN;
+
+  function getReviewerName() {
+    try { return localStorage.getItem(REVIEWER_KEY) || ''; } catch (_) { return ''; }
+  }
+  function setReviewerName(name) {
+    try { localStorage.setItem(REVIEWER_KEY, name); } catch (_) {}
+  }
+
+  var topbar = document.createElement('div');
+  topbar.className = 'topbar';
+  root.appendChild(topbar);
+
+  var badge = document.createElement('div');
+  badge.className = 'badge';
+  badge.innerHTML = '<span class="dot"></span><span class="badge-label">Review mode</span><span class="count" id="badge-count">0</span>';
+  topbar.appendChild(badge);
+
+  var downloadBtn = document.createElement('a');
+  downloadBtn.className = 'topbar-btn download';
+  downloadBtn.href = API + '/download';
+  downloadBtn.download = (FILE_PATH.split('/').pop() || 'document.html');
+  downloadBtn.setAttribute('aria-label', 'Download HTML');
+  downloadBtn.title = 'Download HTML';
+  downloadBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg><span class="topbar-btn-label">Download</span>';
+  topbar.appendChild(downloadBtn);
+
+  var rail = document.createElement('aside');
+  rail.className = 'rail';
+  rail.innerHTML = [
+    '<div class="rail-header">',
+    '  <div><div class="title">Review comments</div><div style="font-size: 11px; color: #a6adc8; margin-top: 4px;" id="rail-sub"></div></div>',
+    '  <button class="rail-close" id="rail-close">✕</button>',
+    '</div>',
+    '<div class="rail-body" id="rail-body"><div class="rail-empty">No comments yet. Select text in the doc to add one.</div></div>',
+  ].join('');
+  root.appendChild(rail);
+
+  badge.addEventListener('click', function() { rail.classList.add('open'); });
+  rail.querySelector('#rail-close').addEventListener('click', function() { rail.classList.remove('open'); });
+
+  var ownComments = [];
+  function paintRail() {
+    var body = rail.querySelector('#rail-body');
+    body.innerHTML = '';
+    if (ownComments.length === 0) {
+      body.innerHTML = '<div class="rail-empty">No comments yet. Select text in the doc to add one.</div>';
+    } else {
+      ownComments.forEach(function(c) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        var snip = document.createElement('div');
+        snip.className = 'snip';
+        snip.textContent = c.selectedText || '';
+        var body2 = document.createElement('div');
+        body2.className = 'body';
+        body2.textContent = c.body || '';
+        var meta = document.createElement('div');
+        meta.className = 'meta';
+        var who = c.reviewerName ? c.reviewerName : 'you';
+        meta.innerHTML = '<span>' + escapeHtml(who) + '</span><span>' + relTime(c.createdAt) + '</span>';
+        card.appendChild(snip);
+        card.appendChild(body2);
+        card.appendChild(meta);
+        body.appendChild(card);
+      });
+    }
+    badge.querySelector('#badge-count').textContent = String(ownComments.length);
+    var sub = rail.querySelector('#rail-sub');
+    sub.textContent = FILE_PATH + ' · ' + (ownComments.length) + ' comment' + (ownComments.length === 1 ? '' : 's');
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>]/g, function(c) { return c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'; }); }
+  function relTime(iso) {
+    var t = Date.parse(iso); if (isNaN(t)) return '';
+    var s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (s < 60) return s + 's ago';
+    var m = Math.floor(s / 60); if (m < 60) return m + 'm ago';
+    var h = Math.floor(m / 60); if (h < 24) return h + 'h ago';
+    return new Date(t).toISOString().slice(0, 10);
+  }
+
+  function showToast(text, isErr) {
+    var el = document.createElement('div');
+    el.className = 'toast' + (isErr ? ' err' : '');
+    el.textContent = text;
+    root.appendChild(el);
+    setTimeout(function() { el.style.transition = 'opacity 0.2s'; el.style.opacity = '0'; setTimeout(function(){ el.remove(); }, 200); }, 1800);
+  }
+
+  function loadComments() {
+    fetch(API + '/comments').then(function(r) {
+      if (r.status === 410) { showExpired(); return null; }
+      return r.ok ? r.json() : null;
+    }).then(function(data) {
+      if (!data) return;
+      ownComments = data.comments || [];
+      paintRail();
+    }).catch(function() {});
+  }
+
+  function showExpired() {
+    var b = document.createElement('div');
+    b.className = 'expired-banner';
+    b.textContent = 'This share has expired. Comments are read-only.';
+    root.appendChild(b);
+  }
+
+  var ICONS = {
+    comment: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+    sparkle: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.8L18.7 10l-4.8 1.9L12 16.7l-1.9-4.8L5.3 10l4.8-2.2z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8L16.5 17.5l1.8-.7z"/></svg>',
+    send: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>',
+    close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>',
+  };
+
+  var toolbar = document.createElement('div');
+  toolbar.className = 'sel-tool';
+  var commentBtn = document.createElement('button');
+  commentBtn.className = 'comment';
+  commentBtn.innerHTML = ICONS.comment + '<span>Comment</span>';
+  toolbar.appendChild(commentBtn);
+  var askBtn = null;
+  if (ALLOW_ASK) {
+    var sep = document.createElement('span');
+    sep.className = 'sel-tool-sep';
+    toolbar.appendChild(sep);
+    askBtn = document.createElement('button');
+    askBtn.className = 'ask';
+    askBtn.innerHTML = ICONS.sparkle + '<span>Ask</span>';
+    toolbar.appendChild(askBtn);
+  }
+  root.appendChild(toolbar);
+
+  var currentSel = '';
+  var currentRange = null;
+
+  function hideToolbar() { toolbar.style.display = 'none'; }
+  function showToolbarNear(rect) {
+    toolbar.style.display = 'inline-flex';
+    var w = toolbar.offsetWidth || 140;
+    var h = toolbar.offsetHeight || 48;
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var top = rect.top - h - 8;
+    if (top < 8) top = Math.min(vh - h - 8, rect.bottom + 8);
+    var left = rect.left + (rect.width - w) / 2;
+    left = Math.max(8, Math.min(vw - w - 8, left));
+    toolbar.style.top = top + 'px';
+    toolbar.style.left = left + 'px';
+  }
+
+  function evalSelection() {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed) { hideToolbar(); return; }
+    var text = String(sel.toString() || '').trim();
+    if (!text) { hideToolbar(); return; }
+    var anchorEl = sel.anchorNode && sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode && sel.anchorNode.parentElement;
+    if (anchorEl && anchorEl.closest && anchorEl.closest('#__orka-rv-host')) { hideToolbar(); return; }
+    var r;
+    try { r = sel.getRangeAt(0); } catch (_) { hideToolbar(); return; }
+    var rect = r.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) { hideToolbar(); return; }
+    currentSel = text;
+    currentRange = r.cloneRange();
+    if (ALLOW_COMMENTS) showToolbarNear(rect);
+  }
+
+  var selDebounce = 0;
+  function scheduleEvalSelection(delay) {
+    if (selDebounce) clearTimeout(selDebounce);
+    selDebounce = setTimeout(function() { selDebounce = 0; evalSelection(); }, delay || 0);
+  }
+
+  document.addEventListener('selectionchange', function() { scheduleEvalSelection(200); });
+  document.addEventListener('pointerup', function() { scheduleEvalSelection(10); });
+  document.addEventListener('touchend', function() { scheduleEvalSelection(120); }, { passive: true });
+  document.addEventListener('mouseup', function() { scheduleEvalSelection(0); });
+
+  document.addEventListener('pointerdown', function(e) {
+    var path = e.composedPath ? e.composedPath() : [e.target];
+    if (path.indexOf(toolbar) === -1 && path.indexOf(hostEl) === -1) {
+      setTimeout(function() {
+        var sel = window.getSelection();
+        if (!sel || sel.isCollapsed) hideToolbar();
+      }, 0);
+    }
+  }, true);
+
+  commentBtn.addEventListener('click', function() {
+    if (!currentSel || !ALLOW_COMMENTS) return;
+    hideToolbar();
+    openCommentDialog(currentSel, currentRange);
+  });
+
+  if (askBtn) {
+    askBtn.addEventListener('click', function() {
+      if (!currentSel || !ALLOW_ASK) return;
+      hideToolbar();
+      openAskDialog(currentSel);
+    });
+  }
+
+  function openAskDialog(selectedText) {
+    var overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+    overlay.innerHTML = [
+      '<div class="dialog ask-dialog">',
+      '  <div class="ask-header">',
+      '    <div class="ask-title"><span class="ask-title-dot"></span>Ask about this excerpt</div>',
+      '    <button class="ask-close-btn" id="ask-close" aria-label="Close">' + ICONS.close + '</button>',
+      '  </div>',
+      '  <div class="ask-excerpt">',
+      '    <div class="ask-excerpt-text" id="ask-snip"></div>',
+      '    <button class="ask-excerpt-toggle" id="ask-snip-toggle" hidden>Show more</button>',
+      '  </div>',
+      '  <div class="ask-turns" id="ask-turns"></div>',
+      '  <div class="ask-input-row">',
+      '    <textarea id="ask-q" placeholder="Ask anything about the excerpt or the doc…" rows="1"></textarea>',
+      '    <button class="ask-send-btn" id="ask-send" aria-label="Send">' + ICONS.send + '</button>',
+      '  </div>',
+      '  <div class="ask-hint">Enter to send · Shift+Enter for a new line · Esc to close</div>',
+      '</div>',
+    ].join('');
+    var snipEl = overlay.querySelector('#ask-snip');
+    var snipToggle = overlay.querySelector('#ask-snip-toggle');
+    snipEl.textContent = selectedText;
+    root.appendChild(overlay);
+    if (selectedText.length > 320) {
+      snipEl.classList.add('clamped');
+      snipToggle.hidden = false;
+      snipToggle.addEventListener('click', function() {
+        var expanded = snipEl.classList.toggle('clamped') === false;
+        snipToggle.textContent = expanded ? 'Show less' : 'Show more';
+      });
+    }
+
+    var ta = overlay.querySelector('#ask-q');
+    var sendBtn = overlay.querySelector('#ask-send');
+    var turnsEl = overlay.querySelector('#ask-turns');
+    var history = [];
+
+    function autoGrow() {
+      ta.style.height = 'auto';
+      var next = Math.min(ta.scrollHeight, 160);
+      ta.style.height = next + 'px';
+    }
+    ta.addEventListener('input', autoGrow);
+    setTimeout(function() { try { ta.focus(); } catch (_) {} autoGrow(); }, 0);
+
+    function paintTurns(pending) {
+      turnsEl.innerHTML = '';
+      history.forEach(function(t) {
+        var row = document.createElement('div');
+        row.className = 'ask-turn ' + (t.role === 'user' ? 'user' : 'assistant');
+        var bubble = document.createElement('div');
+        bubble.className = 'ask-bubble ' + (t.role === 'user' ? 'user' : 'assistant');
+        if (t.role === 'assistant' && !t.error) {
+          bubble.classList.add('ask-md');
+          bubble.innerHTML = renderMarkdown(t.content);
+        } else if (t.error) {
+          bubble.classList.add('error');
+          bubble.textContent = t.content;
+        } else {
+          bubble.textContent = t.content;
+        }
+        row.appendChild(bubble);
+        turnsEl.appendChild(row);
+      });
+      if (pending) {
+        var row = document.createElement('div');
+        row.className = 'ask-turn assistant';
+        var bubble = document.createElement('div');
+        bubble.className = 'ask-bubble assistant pending';
+        bubble.innerHTML = '<span class="ask-dots"><i></i><i></i><i></i></span>';
+        row.appendChild(bubble);
+        turnsEl.appendChild(row);
+      }
+      turnsEl.scrollTop = turnsEl.scrollHeight;
+    }
+
+    function send() {
+      var q = String(ta.value || '').trim();
+      if (!q) { ta.focus(); return; }
+      history.push({ role: 'user', content: q });
+      ta.value = '';
+      autoGrow();
+      sendBtn.disabled = true;
+      ta.disabled = true;
+      paintTurns(true);
+      fetch(API + '/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q, selectedText: selectedText, history: history.slice(0, -1) }),
+      }).then(function(r) {
+        return r.json().then(function(j) { return { ok: r.ok, body: j }; });
+      }).then(function(res) {
+        if (!res.ok) throw new Error(res.body && res.body.error ? res.body.error : 'Ask failed');
+        history.push({ role: 'assistant', content: res.body.answer || '(empty response)' });
+        paintTurns(false);
+      }).catch(function(err) {
+        history.push({ role: 'assistant', content: err.message || String(err), error: true });
+        paintTurns(false);
+      }).then(function() {
+        sendBtn.disabled = false;
+        ta.disabled = false;
+        try { ta.focus(); } catch (_) {}
+      });
+    }
+
+    sendBtn.addEventListener('click', send);
+    ta.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      if (e.key === 'Escape') overlay.remove();
+    });
+    overlay.querySelector('#ask-close').addEventListener('click', function() { overlay.remove(); });
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) overlay.remove();
+    });
+  }
+
+  function renderMarkdown(src) {
+    if (!src) return '';
+    var esc = function(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
+    var fences = [];
+    src = src.replace(/\`\`\`([a-zA-Z0-9_-]*)\\n([\\s\\S]*?)\`\`\`/g, function(_, lang, code) {
+      fences.push({ lang: lang, code: code });
+      return '\\u0000FENCE' + (fences.length - 1) + '\\u0000';
+    });
+    var inlines = [];
+    src = src.replace(/\`([^\`\\n]+)\`/g, function(_, code) {
+      inlines.push(code);
+      return '\\u0000CODE' + (inlines.length - 1) + '\\u0000';
+    });
+    src = esc(src);
+    src = src.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
+    src = src.replace(/^##### (.+)$/gm, '<h5>$1</h5>');
+    src = src.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+    src = src.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    src = src.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    src = src.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    src = src.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<strong>$1</strong>');
+    src = src.replace(/__([^_\\n]+)__/g, '<strong>$1</strong>');
+    src = src.replace(/(^|[^*\\w])\\*([^*\\n]+)\\*(?!\\w)/g, '$1<em>$2</em>');
+    src = src.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, function(_, label, url) {
+      var safe = /^(https?:\\/\\/|mailto:|\\/)/.test(url) ? url : '#';
+      return '<a href="' + safe + '" target="_blank" rel="noopener">' + label + '</a>';
+    });
+    var lines = src.split('\\n');
+    var out = [];
+    var inList = null;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var ul = line.match(/^\\s*[-*+] (.+)$/);
+      var ol = line.match(/^\\s*\\d+\\. (.+)$/);
+      if (ul) {
+        if (inList !== 'ul') { if (inList) out.push('</' + inList + '>'); out.push('<ul>'); inList = 'ul'; }
+        out.push('<li>' + ul[1] + '</li>');
+      } else if (ol) {
+        if (inList !== 'ol') { if (inList) out.push('</' + inList + '>'); out.push('<ol>'); inList = 'ol'; }
+        out.push('<li>' + ol[1] + '</li>');
+      } else {
+        if (inList) { out.push('</' + inList + '>'); inList = null; }
+        out.push(line);
+      }
+    }
+    if (inList) out.push('</' + inList + '>');
+    src = out.join('\\n');
+    var blocks = src.split(/\\n\\n+/);
+    src = blocks.map(function(b) {
+      var trimmed = b.trim();
+      if (!trimmed) return '';
+      if (/^<(h[1-6]|ul|ol|pre|blockquote)/.test(trimmed)) return trimmed;
+      if (/^\\u0000FENCE\\d+\\u0000$/.test(trimmed)) return trimmed;
+      return '<p>' + trimmed.replace(/\\n/g, '<br>') + '</p>';
+    }).join('\\n');
+    src = src.replace(/\\u0000CODE(\\d+)\\u0000/g, function(_, i) {
+      return '<code>' + esc(inlines[+i]) + '</code>';
+    });
+    src = src.replace(/\\u0000FENCE(\\d+)\\u0000/g, function(_, i) {
+      var f = fences[+i];
+      return '<pre><code' + (f.lang ? ' class="lang-' + esc(f.lang) + '"' : '') + '>' + esc(f.code) + '</code></pre>';
+    });
+    return src;
+  }
+
+  function askReviewerName(cb) {
+    var existing = getReviewerName();
+    if (existing) { cb(existing); return; }
+    var overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+    overlay.innerHTML = [
+      '<div class="dialog">',
+      '  <h2>Who are you?</h2>',
+      '  <label for="rv-name">Display name</label>',
+      '  <input type="text" id="rv-name" placeholder="e.g. Ana" autofocus />',
+      '  <div class="dialog-actions"><button class="btn ghost" id="rv-cancel">Cancel</button><button class="btn primary" id="rv-ok">Continue</button></div>',
+      '</div>',
+    ].join('');
+    root.appendChild(overlay);
+    var input = overlay.querySelector('#rv-name');
+    setTimeout(function() { try { input.focus(); } catch (_) {} }, 0);
+    overlay.querySelector('#rv-cancel').addEventListener('click', function() { overlay.remove(); });
+    overlay.querySelector('#rv-ok').addEventListener('click', function() {
+      var v = String(input.value || '').trim();
+      if (!v) { input.focus(); return; }
+      setReviewerName(v);
+      overlay.remove();
+      cb(v);
+    });
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') overlay.querySelector('#rv-ok').click();
+      if (e.key === 'Escape') overlay.remove();
+    });
+  }
+
+  function openCommentDialog(selectedText, range) {
+    askReviewerName(function(name) {
+      var overlay = document.createElement('div');
+      overlay.className = 'dialog-overlay';
+      overlay.innerHTML = [
+        '<div class="dialog cm-dialog">',
+        '  <div class="cm-header">',
+        '    <div class="cm-title"><span class="cm-title-dot"></span>Comment<span class="cm-as">as ' + escapeHtml(name) + '</span></div>',
+        '    <button class="ask-close-btn" id="cm-close" aria-label="Close">' + ICONS.close + '</button>',
+        '  </div>',
+        '  <div class="snippet" id="cm-snip"></div>',
+        '  <textarea id="cm-body" placeholder="What are you flagging?" rows="4"></textarea>',
+        '  <div class="dialog-actions">',
+        '    <button class="btn ghost" id="cm-cancel">Cancel</button>',
+        '    <button class="btn primary" id="cm-send">Send comment</button>',
+        '  </div>',
+        '  <div class="ask-hint">Cmd/Ctrl+Enter to send · Esc to close</div>',
+        '</div>',
+      ].join('');
+      overlay.querySelector('#cm-snip').textContent = selectedText;
+      root.appendChild(overlay);
+      var ta = overlay.querySelector('#cm-body');
+      setTimeout(function() { try { ta.focus(); } catch (_) {} }, 0);
+      overlay.querySelector('#cm-cancel').addEventListener('click', function() { overlay.remove(); });
+      overlay.querySelector('#cm-close').addEventListener('click', function() { overlay.remove(); });
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      overlay.querySelector('#cm-send').addEventListener('click', function() {
+        var body = String(ta.value || '').trim();
+        if (!body) { ta.focus(); return; }
+        var lines = computeLineRange(selectedText, range);
+        fetch(API + '/comments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            selectedText: selectedText,
+            startLine: lines.startLine,
+            endLine: lines.endLine,
+            body: body,
+            reviewerName: name,
+          }),
+        }).then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        }).then(function() {
+          overlay.remove();
+          showToast('Comment sent');
+          rail.classList.add('open');
+          loadComments();
+        }).catch(function(e) {
+          showToast('Could not send comment', true);
+        });
+      });
+      ta.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) overlay.querySelector('#cm-send').click();
+        if (e.key === 'Escape') overlay.remove();
+      });
+    });
+  }
+
+  function computeLineRange(text, range) {
+    try {
+      var all = document.body.innerText || '';
+      var idx = all.indexOf(text);
+      if (idx < 0) return { startLine: 1, endLine: 1 };
+      var before = all.slice(0, idx);
+      var start = (before.match(/\\n/g) || []).length + 1;
+      var span = (text.match(/\\n/g) || []).length;
+      return { startLine: start, endLine: start + span };
+    } catch (_) { return { startLine: 1, endLine: 1 }; }
+  }
+
+  loadComments();
+})();
+</script>
+`
+}
+
 function buildVoiceOverlay(opts: { projectB64: string; filePath: string }): string {
   const projectSafe = opts.projectB64
     .replace(/\+/g, '-')
